@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QMainWindow>
+#include "rdp/FreeRdpProcess.h"
 
 class RdpSessionWidget;
 
@@ -15,5 +16,7 @@ protected:
     void closeEvent(QCloseEvent *event) override;
 
 private:
+    void updateTitle(FreeRdpProcess::State state);
+
     RdpSessionWidget *m_sessionWidget;
 };
