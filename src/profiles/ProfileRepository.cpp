@@ -1,5 +1,6 @@
 #include "ProfileRepository.h"
 
+#include <algorithm>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -44,7 +45,10 @@ void ProfileRepository::updateProfile(const Profile &profile)
 
 void ProfileRepository::removeProfile(const QString &id)
 {
-    m_profiles.removeIf([&](const Profile &p) { return p.id == id; });
+    m_profiles.erase(
+        std::remove_if(m_profiles.begin(), m_profiles.end(),
+                       [&](const Profile &p) { return p.id == id; }),
+        m_profiles.end());
     save();
 }
 
