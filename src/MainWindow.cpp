@@ -3,7 +3,6 @@
 
 #include <QCloseEvent>
 #include <QCoreApplication>
-#include <QFileInfo>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
