@@ -15,7 +15,9 @@ void FreeRdpProcess::start(const QString &exePath,
                             int port,
                             const QString &username,
                             const QString &password,
-                            WId parentHwnd)
+                            WId parentHwnd,
+                            bool clipboardEnabled,
+                            bool ignoreCertificate)
 {
     if (m_state == State::Running || m_state == State::Starting)
         return;
@@ -43,8 +45,10 @@ void FreeRdpProcess::start(const QString &exePath,
     args << QStringLiteral("/u:%1").arg(username);
     args << QStringLiteral("/p:%1").arg(password);
     args << QStringLiteral("/parent-window:%1").arg(static_cast<qlonglong>(parentHwnd));
-    args << QStringLiteral("+clipboard");
-    args << QStringLiteral("/cert:ignore");
+    if (clipboardEnabled)
+        args << QStringLiteral("+clipboard");
+    if (ignoreCertificate)
+        args << QStringLiteral("/cert:ignore");
 
     setState(State::Starting);
     m_process->start(exePath, args);

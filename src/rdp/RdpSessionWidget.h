@@ -17,14 +17,18 @@ public:
                        const QString &host,
                        int port,
                        const QString &username,
-                       const QString &password);
+                       const QString &password,
+                       bool clipboardEnabled = true,
+                       bool ignoreCertificate = true);
 
 signals:
     void titleStateChanged(FreeRdpProcess::State state);
+    void reconnectRequested();
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
     void focusInEvent(QFocusEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
 
 private:
     void onStateChanged(FreeRdpProcess::State state);

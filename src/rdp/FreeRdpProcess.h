@@ -19,7 +19,9 @@ public:
                int port,
                const QString &username,
                const QString &password,
-               WId parentHwnd);
+               WId parentHwnd,
+               bool clipboardEnabled = true,
+               bool ignoreCertificate = true);
     void stop();
 
     State state() const { return m_state; }

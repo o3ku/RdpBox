@@ -4,6 +4,7 @@
 #include <QResizeEvent>
 #include <QTimer>
 #include <QDebug>
+#include <QMouseEvent>
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -25,7 +26,9 @@ void RdpSessionWidget::connectToHost(const QString &exePath,
                                       const QString &host,
                                       int port,
                                       const QString &username,
-                                      const QString &password)
+                                      const QString &password,
+                                      bool clipboardEnabled,
+                                      bool ignoreCertificate)
 {
     if (m_process) {
         m_process->disconnect(this);
@@ -38,7 +41,8 @@ void RdpSessionWidget::connectToHost(const QString &exePath,
     connect(m_process, &FreeRdpProcess::stateChanged,
             this, &RdpSessionWidget::onStateChanged);
 
-    m_process->start(exePath, host, port, username, password, winId());
+    m_process->start(exePath, host, port, username, password, winId(),
+                     clipboardEnabled, ignoreCertificate);
 
     showOverlay("Connecting...");
 }
@@ -63,7 +67,7 @@ void RdpSessionWidget::onStateChanged(FreeRdpProcess::State state)
         break;
     case FreeRdpProcess::State::Finished:
         m_childWindow = nullptr;
-        showOverlay("Disconnected");
+        showOverlay("Disconnected - Click to Reconnect");
         break;
     default:
         break;
@@ -116,4 +120,11 @@ void RdpSessionWidget::focusInEvent(QFocusEvent *event)
     QWidget::focusInEvent(event);
     if (m_childWindow)
         SetFocus(m_childWindow);
+}
+
+void RdpSessionWidget::mousePressEvent(QMouseEvent *event)
+{
+    QWidget::mousePressEvent(event);
+    if (m_process && m_process->state() == FreeRdpProcess::State::Finished)
+        emit reconnectRequested();
 }
