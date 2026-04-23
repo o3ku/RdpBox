@@ -1,9 +1,10 @@
 #pragma once
 
 #include <QMainWindow>
-#include "rdp/FreeRdpProcess.h"
 
-class RdpSessionWidget;
+class QTabWidget;
+class SessionManager;
+class ProfileRepository;
 
 class MainWindow : public QMainWindow
 {
@@ -11,12 +12,17 @@ class MainWindow : public QMainWindow
 
 public:
     explicit MainWindow(QWidget *parent = nullptr);
+    ~MainWindow();
 
-protected:
-    void closeEvent(QCloseEvent *event) override;
+private slots:
+    void onNewConnection();
+    void onOpenConnection();
+    void onTabCloseRequested(int index);
 
 private:
-    void updateTitle(FreeRdpProcess::State state);
+    void setupToolbar();
 
-    RdpSessionWidget *m_sessionWidget;
+    QTabWidget *m_tabWidget;
+    SessionManager *m_sessionManager;
+    ProfileRepository *m_profileRepo;
 };
