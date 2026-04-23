@@ -1,5 +1,6 @@
 #include "ConnectionListDialog.h"
 #include "ProfileEditDialog.h"
+#include "profiles/Profile.h"
 #include "profiles/ProfileRepository.h"
 
 #include <QHBoxLayout>
@@ -7,6 +8,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QUuid>
 #include <QVBoxLayout>
 
 ConnectionListDialog::ConnectionListDialog(ProfileRepository *repo, QWidget *parent)
@@ -78,7 +80,7 @@ void ConnectionListDialog::onNewClicked()
     if (dlg.exec() == QDialog::Accepted) {
         Profile p = dlg.profile();
         if (p.id.isEmpty())
-            p = Profile::create();
+            p.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
         m_repo->addProfile(p);
         refreshList(m_repo->search(m_searchEdit->text()));
     }

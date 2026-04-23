@@ -76,7 +76,7 @@ void MainWindow::onNewConnection()
     if (dlg.exec() == QDialog::Accepted) {
         Profile p = dlg.profile();
         if (p.id.isEmpty())
-            p = Profile::create();
+            p.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
         m_profileRepo->addProfile(p);
         m_sessionManager->openSession(p);
     }
