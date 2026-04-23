@@ -53,12 +53,13 @@ void FreeRdpProcess::start(const QString &exePath,
 void FreeRdpProcess::stop()
 {
     if (m_process) {
+        m_process->disconnect();
         m_process->kill();
         m_process->waitForFinished(3000);
-        m_process->deleteLater();
+        delete m_process;
         m_process = nullptr;
+        setState(State::Finished);
     }
-    setState(State::Finished);
 }
 
 void FreeRdpProcess::setState(State newState)
