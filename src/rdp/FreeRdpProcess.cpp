@@ -16,6 +16,8 @@ void FreeRdpProcess::start(const QString &exePath,
                             const QString &username,
                             const QString &password,
                             WId parentHwnd,
+                            int width,
+                            int height,
                             bool clipboardEnabled,
                             bool ignoreCertificate)
 {
@@ -45,7 +47,10 @@ void FreeRdpProcess::start(const QString &exePath,
     args << QStringLiteral("/u:%1").arg(username);
     args << QStringLiteral("/p:%1").arg(password);
     args << QStringLiteral("/parent-window:%1").arg(static_cast<qlonglong>(parentHwnd));
-    args << QStringLiteral("/smart-sizing");
+    if (width > 0 && height > 0) {
+        args << QStringLiteral("/w:%1").arg(width);
+        args << QStringLiteral("/h:%1").arg(height);
+    }
     if (clipboardEnabled)
         args << QStringLiteral("+clipboard");
     if (ignoreCertificate)

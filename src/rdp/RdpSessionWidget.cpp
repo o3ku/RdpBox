@@ -11,10 +11,17 @@
 
 RdpSessionWidget::RdpSessionWidget(QWidget *parent)
     : QWidget(parent)
+    , m_resizeTimer(new QTimer(this))
 {
     setAttribute(Qt::WA_NativeWindow);
-    setAttribute(Qt::WA_NoMousePropagation);
     setFocusPolicy(Qt::StrongFocus);
+
+    m_resizeTimer->setSingleShot(true);
+    m_resizeTimer->setInterval(1000);
+    connect(m_resizeTimer, &QTimer::timeout, this, [this]() {
+        if (m_connected)
+            scheduleReconnectWithSize(width(), height());
+    });
 }
 
 RdpSessionWidget::~RdpSessionWidget()
@@ -31,18 +38,28 @@ void RdpSessionWidget::connectToHost(const QString &exePath,
                                       bool clipboardEnabled,
                                       bool ignoreCertificate)
 {
+    m_exePath = exePath;
+    m_host = host;
+    m_port = port;
+    m_username = username;
+    m_password = password;
+    m_clipboardEnabled = clipboardEnabled;
+    m_ignoreCertificate = ignoreCertificate;
+
     if (m_process) {
         m_process->disconnect(this);
         delete m_process;
     }
 
     m_childWindow = nullptr;
+    m_connected = false;
     m_process = new FreeRdpProcess(this);
 
     connect(m_process, &FreeRdpProcess::stateChanged,
             this, &RdpSessionWidget::onStateChanged);
 
     m_process->start(exePath, host, port, username, password, winId(),
+                     width(), height(),
                      clipboardEnabled, ignoreCertificate);
 
     showOverlay("Connecting...");
@@ -54,23 +71,21 @@ void RdpSessionWidget::onStateChanged(FreeRdpProcess::State state)
 
     switch (state) {
     case FreeRdpProcess::State::Running:
-        // Retry finding the child window — wfreerdp may take a moment to create it
+        m_connected = true;
+        // Retry finding the FreeRDP child window
         {
-            int attempts = 0;
             auto *timer = new QTimer(this);
+            int attempts = 0;
             connect(timer, &QTimer::timeout, this, [this, timer, attempts]() mutable {
                 attempts++;
-                m_childWindow = findChildWindow();
+                m_childWindow = findFreeRdpWindow();
                 if (m_childWindow) {
-                    qDebug() << "RdpSessionWidget: found child window" << m_childWindow
-                             << "after" << attempts << "attempts";
-                    resizeChildWindow();
-                    SetForegroundWindow(m_childWindow);
-                    SetFocus(m_childWindow);
+                    qDebug() << "RdpSessionWidget: found FreeRDP window after" << attempts << "attempts";
+                    setFocusToFreeRdp();
                     timer->stop();
                     timer->deleteLater();
                 } else if (attempts >= 20) {
-                    qDebug("RdpSessionWidget: failed to find child window after 20 attempts");
+                    qDebug("RdpSessionWidget: failed to find FreeRDP window");
                     timer->stop();
                     timer->deleteLater();
                 }
@@ -82,6 +97,7 @@ void RdpSessionWidget::onStateChanged(FreeRdpProcess::State state)
         break;
     case FreeRdpProcess::State::Finished:
         m_childWindow = nullptr;
+        m_connected = false;
         showOverlay("Disconnected - Click to Reconnect");
         break;
     default:
@@ -89,12 +105,14 @@ void RdpSessionWidget::onStateChanged(FreeRdpProcess::State state)
     }
 }
 
-HWND RdpSessionWidget::findChildWindow() const
+HWND RdpSessionWidget::findFreeRdpWindow() const
 {
     HWND result = nullptr;
     EnumChildWindows(reinterpret_cast<HWND>(winId()),
         [](HWND child, LPARAM lParam) -> BOOL {
-            if (IsWindowVisible(child)) {
+            wchar_t className[256];
+            GetClassNameW(child, className, 256);
+            if (_wcsicmp(className, L"FreeRDP") == 0) {
                 *reinterpret_cast<HWND*>(lParam) = child;
                 return FALSE;
             }
@@ -103,11 +121,29 @@ HWND RdpSessionWidget::findChildWindow() const
     return result;
 }
 
-void RdpSessionWidget::resizeChildWindow()
+void RdpSessionWidget::setFocusToFreeRdp()
 {
     if (!m_childWindow)
         return;
-    MoveWindow(m_childWindow, 0, 0, width(), height(), TRUE);
+    PostMessage(m_childWindow, WM_SETFOCUS, 0, 0);
+    SetForegroundWindow(m_childWindow);
+}
+
+void RdpSessionWidget::scheduleReconnectWithSize(int w, int h)
+{
+    if (m_process)
+        m_process->stop();
+
+    m_childWindow = nullptr;
+    m_connected = false;
+    m_process = new FreeRdpProcess(this);
+
+    connect(m_process, &FreeRdpProcess::stateChanged,
+            this, &RdpSessionWidget::onStateChanged);
+
+    m_process->start(m_exePath, m_host, m_port, m_username, m_password,
+                     winId(), w, h,
+                     m_clipboardEnabled, m_ignoreCertificate);
 }
 
 void RdpSessionWidget::showOverlay(const QString &text)
@@ -128,18 +164,16 @@ void RdpSessionWidget::showOverlay(const QString &text)
 void RdpSessionWidget::resizeEvent(QResizeEvent *event)
 {
     QWidget::resizeEvent(event);
-    resizeChildWindow();
     if (m_overlay)
         m_overlay->setGeometry(0, 0, width(), height());
+    if (m_connected)
+        m_resizeTimer->start();
 }
 
 void RdpSessionWidget::focusInEvent(QFocusEvent *event)
 {
     QWidget::focusInEvent(event);
-    if (m_childWindow) {
-        SetForegroundWindow(m_childWindow);
-        SetFocus(m_childWindow);
-    }
+    setFocusToFreeRdp();
 }
 
 void RdpSessionWidget::mousePressEvent(QMouseEvent *event)
@@ -148,14 +182,21 @@ void RdpSessionWidget::mousePressEvent(QMouseEvent *event)
         emit reconnectRequested();
         return;
     }
-    if (m_childWindow) {
-        SetForegroundWindow(m_childWindow);
-        SetFocus(m_childWindow);
-    }
+    setFocusToFreeRdp();
 }
 
 void RdpSessionWidget::mouseReleaseEvent(QMouseEvent *event)
 {
-    if (m_childWindow)
-        SetFocus(m_childWindow);
+    setFocusToFreeRdp();
+}
+
+bool RdpSessionWidget::nativeEvent(const QByteArray &eventType, void *message, long *result)
+{
+    if (m_childWindow) {
+        auto *msg = static_cast<MSG*>(message);
+        if (msg->message == WM_MOUSEACTIVATE) {
+            setFocusToFreeRdp();
+        }
+    }
+    return QWidget::nativeEvent(eventType, message, result);
 }

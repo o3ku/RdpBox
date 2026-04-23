@@ -20,6 +20,8 @@ public:
                const QString &username,
                const QString &password,
                WId parentHwnd,
+               int width = 0,
+               int height = 0,
                bool clipboardEnabled = true,
                bool ignoreCertificate = true);
     void stop();
