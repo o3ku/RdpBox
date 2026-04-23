@@ -3,7 +3,9 @@
 #include <QLabel>
 #include <QResizeEvent>
 #include <QTimer>
+#include <QDebug>
 
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
 RdpSessionWidget::RdpSessionWidget(QWidget *parent)
@@ -25,8 +27,10 @@ void RdpSessionWidget::connectToHost(const QString &exePath,
                                       const QString &username,
                                       const QString &password)
 {
-    if (m_process)
-        m_process->stop();
+    if (m_process) {
+        m_process->disconnect(this);
+        delete m_process;
+    }
 
     m_childWindow = nullptr;
     m_process = new FreeRdpProcess(this);
@@ -50,6 +54,8 @@ void RdpSessionWidget::onStateChanged(FreeRdpProcess::State state)
             if (m_childWindow) {
                 resizeChildWindow();
                 SetFocus(m_childWindow);
+            } else {
+                qDebug("RdpSessionWidget: failed to find child window");
             }
         });
         delete m_overlay;
