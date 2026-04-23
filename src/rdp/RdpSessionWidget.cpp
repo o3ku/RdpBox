@@ -13,6 +13,7 @@ RdpSessionWidget::RdpSessionWidget(QWidget *parent)
     : QWidget(parent)
 {
     setAttribute(Qt::WA_NativeWindow);
+    setAttribute(Qt::WA_NoMousePropagation);
     setFocusPolicy(Qt::StrongFocus);
 }
 
@@ -53,15 +54,29 @@ void RdpSessionWidget::onStateChanged(FreeRdpProcess::State state)
 
     switch (state) {
     case FreeRdpProcess::State::Running:
-        QTimer::singleShot(500, this, [this]() {
-            m_childWindow = findChildWindow();
-            if (m_childWindow) {
-                resizeChildWindow();
-                SetFocus(m_childWindow);
-            } else {
-                qDebug("RdpSessionWidget: failed to find child window");
-            }
-        });
+        // Retry finding the child window — wfreerdp may take a moment to create it
+        {
+            int attempts = 0;
+            auto *timer = new QTimer(this);
+            connect(timer, &QTimer::timeout, this, [this, timer, attempts]() mutable {
+                attempts++;
+                m_childWindow = findChildWindow();
+                if (m_childWindow) {
+                    qDebug() << "RdpSessionWidget: found child window" << m_childWindow
+                             << "after" << attempts << "attempts";
+                    resizeChildWindow();
+                    SetForegroundWindow(m_childWindow);
+                    SetFocus(m_childWindow);
+                    timer->stop();
+                    timer->deleteLater();
+                } else if (attempts >= 20) {
+                    qDebug("RdpSessionWidget: failed to find child window after 20 attempts");
+                    timer->stop();
+                    timer->deleteLater();
+                }
+            });
+            timer->start(300);
+        }
         delete m_overlay;
         m_overlay = nullptr;
         break;
@@ -79,8 +94,11 @@ HWND RdpSessionWidget::findChildWindow() const
     HWND result = nullptr;
     EnumChildWindows(reinterpret_cast<HWND>(winId()),
         [](HWND child, LPARAM lParam) -> BOOL {
-            *reinterpret_cast<HWND*>(lParam) = child;
-            return FALSE;
+            if (IsWindowVisible(child)) {
+                *reinterpret_cast<HWND*>(lParam) = child;
+                return FALSE;
+            }
+            return TRUE;
         }, reinterpret_cast<LPARAM>(&result));
     return result;
 }
@@ -118,13 +136,26 @@ void RdpSessionWidget::resizeEvent(QResizeEvent *event)
 void RdpSessionWidget::focusInEvent(QFocusEvent *event)
 {
     QWidget::focusInEvent(event);
-    if (m_childWindow)
+    if (m_childWindow) {
+        SetForegroundWindow(m_childWindow);
         SetFocus(m_childWindow);
+    }
 }
 
 void RdpSessionWidget::mousePressEvent(QMouseEvent *event)
 {
-    QWidget::mousePressEvent(event);
-    if (m_process && m_process->state() == FreeRdpProcess::State::Finished)
+    if (m_process && m_process->state() == FreeRdpProcess::State::Finished) {
         emit reconnectRequested();
+        return;
+    }
+    if (m_childWindow) {
+        SetForegroundWindow(m_childWindow);
+        SetFocus(m_childWindow);
+    }
+}
+
+void RdpSessionWidget::mouseReleaseEvent(QMouseEvent *event)
+{
+    if (m_childWindow)
+        SetFocus(m_childWindow);
 }

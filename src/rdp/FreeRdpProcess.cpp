@@ -45,6 +45,7 @@ void FreeRdpProcess::start(const QString &exePath,
     args << QStringLiteral("/u:%1").arg(username);
     args << QStringLiteral("/p:%1").arg(password);
     args << QStringLiteral("/parent-window:%1").arg(static_cast<qlonglong>(parentHwnd));
+    args << QStringLiteral("/smart-sizing");
     if (clipboardEnabled)
         args << QStringLiteral("+clipboard");
     if (ignoreCertificate)
