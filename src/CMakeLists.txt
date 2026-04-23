@@ -6,6 +6,9 @@ set(RDPBOX_SOURCES
     rdp/FreeRdpProcess.cpp
     rdp/RdpSessionWidget.h
     rdp/RdpSessionWidget.cpp
+    profiles/Profile.h
+    profiles/ProfileRepository.h
+    profiles/ProfileRepository.cpp
 )
 
 add_executable(RdpBox WIN32 ${RDPBOX_SOURCES})
