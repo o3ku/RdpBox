@@ -11,6 +11,8 @@ set(RDPBOX_SOURCES
     profiles/ProfileRepository.cpp
     ui/ProfileEditDialog.h
     ui/ProfileEditDialog.cpp
+    session/SessionManager.h
+    session/SessionManager.cpp
 )
 
 add_executable(RdpBox WIN32 ${RDPBOX_SOURCES})
