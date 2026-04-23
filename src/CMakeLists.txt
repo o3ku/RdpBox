@@ -2,6 +2,8 @@ set(RDPBOX_SOURCES
     main.cpp
     MainWindow.h
     MainWindow.cpp
+    rdp/FreeRdpDownloader.h
+    rdp/FreeRdpDownloader.cpp
     rdp/FreeRdpProcess.h
     rdp/FreeRdpProcess.cpp
     rdp/RdpSessionWidget.h
@@ -23,4 +25,5 @@ target_include_directories(RdpBox PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_link_libraries(RdpBox PRIVATE
     Qt${QT_VERSION_MAJOR}::Widgets
+    Qt${QT_VERSION_MAJOR}::Network
 )

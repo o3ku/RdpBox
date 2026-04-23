@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 #include "profiles/Profile.h"
 #include "profiles/ProfileRepository.h"
+#include "rdp/FreeRdpDownloader.h"
 #include "session/SessionManager.h"
 #include "ui/ProfileEditDialog.h"
 #include "ui/ConnectionListDialog.h"
@@ -10,7 +11,7 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
-#include <QFileInfo>
+#include <QMessageBox>
 #include <QStandardPaths>
 #include <QTabWidget>
 #include <QToolBar>
@@ -31,11 +32,17 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_sessionManager = new SessionManager(m_tabWidget, this);
 
-    const QString exePath = QCoreApplication::applicationDirPath()
-                            + "/../../../tools/wfreerdp.exe";
-    qDebug() << "wfreerdp path:" << exePath
-             << "exists:" << QFileInfo::exists(exePath);
-    m_sessionManager->setExePath(exePath);
+    const QString appDir = QCoreApplication::applicationDirPath();
+    FreeRdpDownloader downloader;
+    QString exePath = downloader.ensureAvailable(appDir, this);
+
+    if (exePath.isEmpty()) {
+        QMessageBox::critical(this, "Error",
+            "Failed to download wfreerdp.exe.\n"
+            "Please manually place wfreerdp.exe in:\n" + appDir);
+    } else {
+        m_sessionManager->setExePath(exePath);
+    }
 
     const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QDir().mkpath(dataDir);
