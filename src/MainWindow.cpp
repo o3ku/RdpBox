@@ -8,7 +8,9 @@
 #include <QAction>
 #include <QCloseEvent>
 #include <QCoreApplication>
+#include <QDebug>
 #include <QDir>
+#include <QFileInfo>
 #include <QStandardPaths>
 #include <QTabWidget>
 #include <QToolBar>
@@ -30,7 +32,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_sessionManager = new SessionManager(m_tabWidget, this);
 
     const QString exePath = QCoreApplication::applicationDirPath()
-                            + "/../../tools/wfreerdp.exe";
+                            + "/../../../tools/wfreerdp.exe";
+    qDebug() << "wfreerdp path:" << exePath
+             << "exists:" << QFileInfo::exists(exePath);
     m_sessionManager->setExePath(exePath);
 
     const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
