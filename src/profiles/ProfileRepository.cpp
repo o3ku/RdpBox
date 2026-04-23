@@ -45,10 +45,10 @@ void ProfileRepository::updateProfile(const Profile &profile)
 
 void ProfileRepository::removeProfile(const QString &id)
 {
-    m_profiles.erase(
-        std::remove_if(m_profiles.begin(), m_profiles.end(),
-                       [&](const Profile &p) { return p.id == id; }),
-        m_profiles.end());
+    for (int i = m_profiles.size() - 1; i >= 0; --i) {
+        if (m_profiles[i].id == id)
+            m_profiles.removeAt(i);
+    }
     save();
 }
 

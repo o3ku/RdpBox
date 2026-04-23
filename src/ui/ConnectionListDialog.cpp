@@ -3,6 +3,7 @@
 #include "profiles/Profile.h"
 #include "profiles/ProfileRepository.h"
 
+#include <QDebug>
 #include <QHBoxLayout>
 #include <QListWidget>
 #include <QLineEdit>
@@ -116,17 +117,24 @@ void ConnectionListDialog::onEditClicked()
 void ConnectionListDialog::onDeleteClicked()
 {
     auto *item = m_listWidget->currentItem();
-    if (!item)
+    if (!item) {
+        qDebug("Delete: no item selected");
         return;
+    }
     QString id = item->data(Qt::UserRole).toString();
+    qDebug() << "Delete: id=" << id;
     Profile p = m_repo->profile(id);
-    if (!p.isValid())
+    if (!p.isValid()) {
+        qDebug("Delete: profile not found or invalid");
         return;
+    }
 
     auto result = QMessageBox::question(this, "Delete Connection",
         QString("Delete \"%1\"?").arg(p.name));
+    qDebug() << "Delete: dialog result=" << result;
     if (result == QMessageBox::Yes) {
         m_repo->removeProfile(id);
+        qDebug() << "Delete: removed, remaining=" << m_repo->profiles().size();
         refreshList(m_repo->search(m_searchEdit->text()));
     }
 }
