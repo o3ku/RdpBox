@@ -11,6 +11,8 @@ set(RDPBOX_SOURCES
     profiles/ProfileRepository.cpp
     ui/ProfileEditDialog.h
     ui/ProfileEditDialog.cpp
+    ui/ConnectionListDialog.h
+    ui/ConnectionListDialog.cpp
     session/SessionManager.h
     session/SessionManager.cpp
 )
