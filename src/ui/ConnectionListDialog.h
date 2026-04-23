@@ -19,6 +19,7 @@ public:
 private slots:
     void onSearchChanged(const QString &text);
     void onItemDoubleClicked();
+    void onNewClicked();
     void onConnectClicked();
     void onEditClicked();
     void onDeleteClicked();

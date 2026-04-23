@@ -26,10 +26,12 @@ ConnectionListDialog::ConnectionListDialog(ProfileRepository *repo, QWidget *par
     layout->addWidget(m_listWidget);
 
     auto *btnLayout = new QHBoxLayout;
+    auto *newBtn = new QPushButton("New", this);
     auto *connectBtn = new QPushButton("Connect", this);
     auto *editBtn = new QPushButton("Edit", this);
     auto *deleteBtn = new QPushButton("Delete", this);
     auto *closeBtn = new QPushButton("Close", this);
+    btnLayout->addWidget(newBtn);
     btnLayout->addWidget(connectBtn);
     btnLayout->addWidget(editBtn);
     btnLayout->addWidget(deleteBtn);
@@ -43,6 +45,8 @@ ConnectionListDialog::ConnectionListDialog(ProfileRepository *repo, QWidget *par
             this, &ConnectionListDialog::onSearchChanged);
     connect(m_listWidget, &QListWidget::itemDoubleClicked,
             this, &ConnectionListDialog::onItemDoubleClicked);
+    connect(newBtn, &QPushButton::clicked,
+            this, &ConnectionListDialog::onNewClicked);
     connect(connectBtn, &QPushButton::clicked,
             this, &ConnectionListDialog::onConnectClicked);
     connect(editBtn, &QPushButton::clicked,
@@ -66,6 +70,18 @@ void ConnectionListDialog::onSearchChanged(const QString &text)
 void ConnectionListDialog::onItemDoubleClicked()
 {
     onConnectClicked();
+}
+
+void ConnectionListDialog::onNewClicked()
+{
+    ProfileEditDialog dlg(this);
+    if (dlg.exec() == QDialog::Accepted) {
+        Profile p = dlg.profile();
+        if (p.id.isEmpty())
+            p = Profile::create();
+        m_repo->addProfile(p);
+        refreshList(m_repo->search(m_searchEdit->text()));
+    }
 }
 
 void ConnectionListDialog::onConnectClicked()
