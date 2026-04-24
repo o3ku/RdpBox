@@ -102,8 +102,10 @@ void ConnectionListDialog::onEditClicked()
     if (!item)
         return;
     QString id = item->data(Qt::UserRole).toString();
+    if (id.isEmpty())
+        return;
     Profile p = m_repo->profile(id);
-    if (!p.isValid())
+    if (p.id.isEmpty())
         return;
 
     ProfileEditDialog dlg(this);
@@ -122,19 +124,16 @@ void ConnectionListDialog::onDeleteClicked()
         return;
     }
     QString id = item->data(Qt::UserRole).toString();
-    qDebug() << "Delete: id=" << id;
-    Profile p = m_repo->profile(id);
-    if (!p.isValid()) {
-        qDebug("Delete: profile not found or invalid");
+    if (id.isEmpty())
         return;
-    }
+
+    Profile p = m_repo->profile(id);
+    QString displayName = p.name.isEmpty() ? QString("(unnamed - %1)").arg(id.left(8)) : p.name;
 
     auto result = QMessageBox::question(this, "Delete Connection",
-        QString("Delete \"%1\"?").arg(p.name));
-    qDebug() << "Delete: dialog result=" << result;
+        QString("Delete \"%1\"?").arg(displayName));
     if (result == QMessageBox::Yes) {
         m_repo->removeProfile(id);
-        qDebug() << "Delete: removed, remaining=" << m_repo->profiles().size();
         refreshList(m_repo->search(m_searchEdit->text()));
     }
 }
@@ -143,8 +142,11 @@ void ConnectionListDialog::refreshList(const QList<Profile> &profiles)
 {
     m_listWidget->clear();
     for (const auto &p : profiles) {
-        auto *item = new QListWidgetItem(
-            QString("%1 (%2:%3)").arg(p.name, p.host).arg(p.port), m_listWidget);
+        QString label = QString("%1 (%2:%3)")
+            .arg(p.name.isEmpty() ? QStringLiteral("(unnamed)") : p.name,
+                 p.host.isEmpty() ? QStringLiteral("?") : p.host)
+            .arg(p.port);
+        auto *item = new QListWidgetItem(label, m_listWidget);
         item->setData(Qt::UserRole, p.id);
     }
 }
