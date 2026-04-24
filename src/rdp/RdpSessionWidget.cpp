@@ -14,7 +14,7 @@ RdpSessionWidget::RdpSessionWidget(QWidget *parent)
     , m_resizeTimer(new QTimer(this))
 {
     setAttribute(Qt::WA_NativeWindow);
-    setFocusPolicy(Qt::StrongFocus);
+    setFocusPolicy(Qt::ClickFocus);
 
     m_resizeTimer->setSingleShot(true);
     m_resizeTimer->setInterval(1000);
@@ -72,7 +72,6 @@ void RdpSessionWidget::onStateChanged(FreeRdpProcess::State state)
     switch (state) {
     case FreeRdpProcess::State::Running:
         m_connected = true;
-        // Retry finding the FreeRDP child window
         {
             auto *timer = new QTimer(this);
             int attempts = 0;
@@ -81,6 +80,8 @@ void RdpSessionWidget::onStateChanged(FreeRdpProcess::State state)
                 m_childWindow = findFreeRdpWindow();
                 if (m_childWindow) {
                     qDebug() << "RdpSessionWidget: found FreeRDP window after" << attempts << "attempts";
+                    // Bring child window to top and size it
+                    SetWindowPos(m_childWindow, HWND_TOP, 0, 0, width(), height(), SWP_SHOWWINDOW);
                     setFocusToFreeRdp();
                     timer->stop();
                     timer->deleteLater();
@@ -125,8 +126,20 @@ void RdpSessionWidget::setFocusToFreeRdp()
 {
     if (!m_childWindow)
         return;
-    PostMessage(m_childWindow, WM_SETFOCUS, 0, 0);
-    SetForegroundWindow(m_childWindow);
+    const HWND thisWindow = reinterpret_cast<HWND>(winId());
+    const DWORD childThreadId = GetWindowThreadProcessId(m_childWindow, nullptr);
+    const DWORD currentThreadId = GetCurrentThreadId();
+
+    SetForegroundWindow(thisWindow);
+
+    bool attached = false;
+    if (childThreadId != 0 && childThreadId != currentThreadId)
+        attached = AttachThreadInput(currentThreadId, childThreadId, TRUE) != FALSE;
+
+    SetFocus(m_childWindow);
+
+    if (attached)
+        AttachThreadInput(currentThreadId, childThreadId, FALSE);
 }
 
 void RdpSessionWidget::scheduleReconnectWithSize(int w, int h)
@@ -136,14 +149,19 @@ void RdpSessionWidget::scheduleReconnectWithSize(int w, int h)
 
     m_childWindow = nullptr;
     m_connected = false;
-    m_process = new FreeRdpProcess(this);
+    showOverlay("Connecting...");
 
-    connect(m_process, &FreeRdpProcess::stateChanged,
-            this, &RdpSessionWidget::onStateChanged);
+    // Delay before reconnecting: give the RDP server time to release
+    // the old session after wfreerdp.exe was killed.
+    QTimer::singleShot(1500, this, [this, w, h]() {
+        m_process = new FreeRdpProcess(this);
+        connect(m_process, &FreeRdpProcess::stateChanged,
+                this, &RdpSessionWidget::onStateChanged);
 
-    m_process->start(m_exePath, m_host, m_port, m_username, m_password,
-                     winId(), w, h,
-                     m_clipboardEnabled, m_ignoreCertificate);
+        m_process->start(m_exePath, m_host, m_port, m_username, m_password,
+                         winId(), w, h,
+                         m_clipboardEnabled, m_ignoreCertificate);
+    });
 }
 
 void RdpSessionWidget::showOverlay(const QString &text)
