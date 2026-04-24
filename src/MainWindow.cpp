@@ -1,19 +1,16 @@
 #include "MainWindow.h"
 #include "profiles/Profile.h"
 #include "profiles/ProfileRepository.h"
-#include "rdp/FreeRdpDownloader.h"
 #include "session/SessionManager.h"
 #include "ui/ProfileEditDialog.h"
 #include "ui/ConnectionListDialog.h"
 
 #include <QAction>
 #include <QCloseEvent>
-#include <QCoreApplication>
-#include <QDebug>
 #include <QDir>
-#include <QMessageBox>
 #include <QStandardPaths>
 #include <QTabWidget>
+#include <QTimer>
 #include <QToolBar>
 
 MainWindow::MainWindow(QWidget *parent)
@@ -32,23 +29,13 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_sessionManager = new SessionManager(m_tabWidget, this);
 
-    const QString appDir = QCoreApplication::applicationDirPath();
-    FreeRdpDownloader downloader;
-    QString exePath = downloader.ensureAvailable(appDir, this);
-
-    if (exePath.isEmpty()) {
-        QMessageBox::critical(this, "Error",
-            "Failed to download wfreerdp.exe.\n"
-            "Please manually place wfreerdp.exe in:\n" + appDir);
-    } else {
-        m_sessionManager->setExePath(exePath);
-    }
-
     const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QDir().mkpath(dataDir);
     m_profileRepo = new ProfileRepository(dataDir + "/profiles.json");
 
     setupToolbar();
+
+    QTimer::singleShot(0, this, &MainWindow::onOpenConnection);
 }
 
 MainWindow::~MainWindow()

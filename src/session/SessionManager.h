@@ -15,8 +15,6 @@ class SessionManager : public QObject
 public:
     explicit SessionManager(QTabWidget *tabWidget, QObject *parent = nullptr);
 
-    void setExePath(const QString &path);
-
     QString openSession(const Profile &profile);
     void closeSession(const QString &sessionId);
     void reconnectSession(const QString &sessionId);
@@ -37,6 +35,5 @@ private:
     };
 
     QTabWidget *m_tabWidget;
-    QString m_exePath;
     QMap<QString, Session> m_sessions;
 };
