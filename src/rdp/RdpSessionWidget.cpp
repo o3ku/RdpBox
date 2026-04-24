@@ -1,5 +1,6 @@
 #include "RdpSessionWidget.h"
 
+#include <QEvent>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QMouseEvent>
@@ -142,6 +143,23 @@ void RdpSessionWidget::connectToHost(const QString &host,
                      clipboardEnabled, ignoreCertificate);
 
     showOverlay("Connecting...");
+}
+
+bool RdpSessionWidget::event(QEvent *event)
+{
+    if (m_process
+        && (event->type() == QEvent::KeyPress || event->type() == QEvent::KeyRelease)) {
+        auto *keyEvent = static_cast<QKeyEvent*>(event);
+        if (keyEvent->key() == Qt::Key_Tab || keyEvent->key() == Qt::Key_Backtab) {
+            if (event->type() == QEvent::KeyPress)
+                keyPressEvent(keyEvent);
+            else
+                keyReleaseEvent(keyEvent);
+            return true;
+        }
+    }
+
+    return QWidget::event(event);
 }
 
 void RdpSessionWidget::paintEvent(QPaintEvent *event)

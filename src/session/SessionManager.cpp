@@ -89,12 +89,9 @@ void SessionManager::onSessionStateChanged(const QString &sessionId,
     if (it == m_sessions.end())
         return;
 
-    QString title = it->profile.name;
-    switch (state) {
-    case FreeRdpProcess::State::Starting: title += " (Connecting...)"; break;
-    case FreeRdpProcess::State::Finished: title += " (Disconnected)"; break;
-    default: break;
-    }
+    Q_UNUSED(state);
+
+    const QString title = it->profile.name;
 
     int index = m_tabWidget->indexOf(it->widget);
     if (index >= 0)

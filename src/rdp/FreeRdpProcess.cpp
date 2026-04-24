@@ -309,6 +309,10 @@ static bool isCandidateCompatible(Qt::CursorShape shape, const CursorMaskFeature
             && features.antiDiagonalFill >= 0.42
             && features.antiDiagonalFill > features.mainDiagonalFill
             && diagonalGap >= 0.05;
+    case Qt::CrossCursor:
+        return std::abs(width - height) <= 6
+            && features.mainDiagonalFill >= 0.32
+            && features.antiDiagonalFill >= 0.32;
     default:
         return true;
     }
@@ -338,9 +342,30 @@ static bool isKnownRemoteIBeamSignature(const CursorMaskFeatures &features, cons
         && diagonalBalance <= 0.05;
 }
 
+static bool isGenericRemoteIBeamSignature(const CursorMaskFeatures &features, const QPoint &hotspot)
+{
+    if (!features.valid)
+        return false;
+
+    const int width = features.bounds.width();
+    const int height = features.bounds.height();
+    const int centerX = features.bounds.left() + (width / 2);
+    const int hotspotDistanceFromCenter = std::abs(hotspot.x() - centerX);
+
+    return width <= 9
+        && height >= 14
+        && (height >= (width * 2))
+        && hotspotDistanceFromCenter <= 3
+        && hotspot.y() >= features.bounds.top()
+        && hotspot.y() <= features.bounds.bottom()
+        && features.maxColumnFill >= 0.78
+        && features.maxRowFill >= 0.55;
+}
+
 static bool shouldUseLocalIBeamCursor(const CursorMaskFeatures &features, const QPoint &hotspot)
 {
-    return isKnownRemoteIBeamSignature(features, hotspot);
+    return isKnownRemoteIBeamSignature(features, hotspot)
+        || isGenericRemoteIBeamSignature(features, hotspot);
 }
 
 static const std::vector<CursorCandidate> &systemCursorCandidates()
@@ -353,7 +378,6 @@ static const std::vector<CursorCandidate> &systemCursorCandidates()
             { Qt::SizeFDiagCursor, IDC_SIZENWSE, {}, 0.20 },
             { Qt::SizeBDiagCursor, IDC_SIZENESW, {}, 0.20 },
             { Qt::SizeAllCursor, IDC_SIZEALL, {}, 0.20 },
-            { Qt::CrossCursor, IDC_CROSS, {}, 0.18 },
             { Qt::PointingHandCursor, IDC_HAND, {}, 0.18 },
             { Qt::WaitCursor, IDC_WAIT, {}, 0.18 },
             { Qt::BusyCursor, IDC_APPSTARTING, {}, 0.18 }

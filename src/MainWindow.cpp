@@ -115,6 +115,9 @@ MainWindow::~MainWindow()
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
+    m_isClosing = true;
+    if (m_connectionDialog)
+        m_connectionDialog->setSelectionRequired(false);
     saveWindowState();
     QMainWindow::closeEvent(event);
 }
@@ -152,7 +155,7 @@ void MainWindow::setupTabWidget()
         "QTabWidget::pane { border: 0; margin: 0; padding: 0; }"
         "QTabWidget::tab-bar { border: 0; }"
         "QTabBar { border: 0; qproperty-drawBase: 0; }"
-        "QTabBar::tab { min-height: 30px; }"
+        "QTabBar::tab { min-height: 30px; font-size: 14px; }"
         "QTabBar::close-button { image: url(:/close.svg); subcontrol-position: right; margin-left: 10px; }"
         "QTabBar::close-button:hover { image: url(:/close.svg); }"
         "#tabBarActions { background: transparent; }"
@@ -223,6 +226,38 @@ void MainWindow::restoreWindowState()
     settings.endGroup();
 }
 
+void MainWindow::openConnectionDialog(bool selectionRequired)
+{
+    if (m_connectionDialog) {
+        m_connectionDialog->setSelectionRequired(selectionRequired || !hasOpenTabs());
+        m_connectionDialog->raise();
+        m_connectionDialog->activateWindow();
+        return;
+    }
+
+    ConnectionListDialog dlg(m_profileRepo, this);
+    m_connectionDialog = &dlg;
+
+    const bool requireSelection = selectionRequired || !hasOpenTabs();
+    dlg.setSelectionRequired(requireSelection);
+
+    if (dlg.exec() == QDialog::Accepted) {
+        for (const QString &profileId : dlg.selectedProfileIds()) {
+            const Profile p = m_profileRepo->profile(profileId);
+            if (p.isValid())
+                m_sessionManager->openSession(p);
+        }
+    } else if (!m_isClosing && !hasOpenTabs()) {
+        QTimer::singleShot(0, this, [this]() {
+            if (!m_isClosing && !hasOpenTabs())
+                openConnectionDialog(true);
+        });
+    }
+
+    if (m_connectionDialog == &dlg)
+        m_connectionDialog = nullptr;
+}
+
 void MainWindow::saveWindowState() const
 {
     QSettings settings;
@@ -240,6 +275,11 @@ QString MainWindow::sessionIdByTabIndex(int index) const
     return m_sessionManager->sessionIdByWidget(m_tabWidget->widget(index));
 }
 
+bool MainWindow::hasOpenTabs() const
+{
+    return m_tabWidget->count() > 0;
+}
+
 void MainWindow::onNewConnection()
 {
     ProfileEditDialog dlg(this);
@@ -254,12 +294,7 @@ void MainWindow::onNewConnection()
 
 void MainWindow::onOpenConnection()
 {
-    ConnectionListDialog dlg(m_profileRepo, this);
-    if (dlg.exec() == QDialog::Accepted) {
-        Profile p = m_profileRepo->profile(dlg.selectedProfileId());
-        if (p.isValid())
-            m_sessionManager->openSession(p);
-    }
+    openConnectionDialog(false);
 }
 
 void MainWindow::onTabCloseRequested(int index)
@@ -267,6 +302,13 @@ void MainWindow::onTabCloseRequested(int index)
     const QString sessionId = sessionIdByTabIndex(index);
     if (!sessionId.isEmpty())
         m_sessionManager->closeSession(sessionId);
+
+    if (!m_isClosing && !hasOpenTabs()) {
+        QTimer::singleShot(0, this, [this]() {
+            if (!m_isClosing && !hasOpenTabs())
+                openConnectionDialog(true);
+        });
+    }
 }
 
 void MainWindow::onTabContextMenuRequested(const QPoint &pos)
