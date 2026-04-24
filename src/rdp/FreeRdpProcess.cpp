@@ -73,12 +73,6 @@ struct CursorMaskFeatures
     int maxRowIndex = 0;
 };
 
-struct CursorPattern
-{
-    CursorMaskFeatures features;
-    QPoint hotspot;
-};
-
 static QtRdpContext *toQtContext(rdpContext *context)
 {
     return reinterpret_cast<QtRdpContext*>(context);
@@ -289,18 +283,6 @@ static CursorMaskFeatures analyzeCursorMask(const QImage &mask)
     return features;
 }
 
-static const CursorPattern &localIBeamPattern()
-{
-    static const CursorPattern pattern = []() {
-        CursorPattern value;
-        const QImage image = cursorImageFromHandle(LoadCursor(nullptr, IDC_IBEAM), &value.hotspot);
-        value.features = analyzeCursorMask(normalizedCursorMask(image));
-        return value;
-    }();
-
-    return pattern;
-}
-
 static bool isCandidateCompatible(Qt::CursorShape shape, const CursorMaskFeatures &features)
 {
     if (!features.valid)
@@ -308,63 +290,28 @@ static bool isCandidateCompatible(Qt::CursorShape shape, const CursorMaskFeature
 
     const int width = features.bounds.width();
     const int height = features.bounds.height();
+    const double diagonalGap = std::abs(features.mainDiagonalFill - features.antiDiagonalFill);
 
     switch (shape) {
     case Qt::SizeHorCursor:
         return width >= height && features.maxRowFill >= 0.45;
     case Qt::SizeVerCursor:
         return height >= width && features.maxColumnFill >= 0.45;
+    case Qt::SizeFDiagCursor:
+        return width >= 10
+            && height >= 10
+            && features.mainDiagonalFill >= 0.42
+            && features.mainDiagonalFill > features.antiDiagonalFill
+            && diagonalGap >= 0.05;
+    case Qt::SizeBDiagCursor:
+        return width >= 10
+            && height >= 10
+            && features.antiDiagonalFill >= 0.42
+            && features.antiDiagonalFill > features.mainDiagonalFill
+            && diagonalGap >= 0.05;
     default:
         return true;
     }
-}
-
-static bool isLikelyIBeam(const CursorMaskFeatures &features, const QPoint &hotspot)
-{
-    if (!features.valid)
-        return false;
-
-    const CursorPattern &localPattern = localIBeamPattern();
-    if (!localPattern.features.valid)
-        return false;
-
-    const int width = features.bounds.width();
-    const int height = features.bounds.height();
-    if (width <= 0 || height <= 0)
-        return false;
-
-    const double dominantDiagonal = (features.mainDiagonalFill > features.antiDiagonalFill)
-        ? features.mainDiagonalFill
-        : features.antiDiagonalFill;
-    const double diagonalBalance = std::abs(features.mainDiagonalFill - features.antiDiagonalFill);
-    const int centerX = width / 2;
-    const int columnDistanceToCenter = std::abs(features.maxColumnIndex - centerX);
-    const int hotspotX = hotspot.x() - features.bounds.left();
-    const int hotspotY = hotspot.y() - features.bounds.top();
-    const bool hotspotInsideBounds =
-        hotspot.x() >= features.bounds.left() && hotspot.x() <= features.bounds.right()
-        && hotspot.y() >= features.bounds.top() && hotspot.y() <= features.bounds.bottom();
-    const int hotspotDistanceToStem = std::abs(features.maxColumnIndex - hotspotX);
-    const int hotspotDistanceToCenter = std::abs(hotspotX - centerX);
-    const int localWidth = localPattern.features.bounds.width();
-    const int localHeight = localPattern.features.bounds.height();
-    const int localHotspotX = localPattern.hotspot.x() - localPattern.features.bounds.left();
-    const int localHotspotY = localPattern.hotspot.y() - localPattern.features.bounds.top();
-
-    return hotspotInsideBounds
-        && width <= (localWidth + 6)
-        && height >= (localHeight - 8)
-        && height >= (width * 2)
-        && features.maxColumnFill >= (localPattern.features.maxColumnFill - 0.22)
-        && features.maxRowFill >= 0.72
-        && dominantDiagonal >= 0.45
-        && dominantDiagonal <= 0.85
-        && diagonalBalance <= 0.10
-        && columnDistanceToCenter <= ((width / 3) + 1)
-        && hotspotDistanceToStem <= 2
-        && hotspotDistanceToCenter <= ((width / 3) + 1)
-        && std::abs(hotspotX - localHotspotX) <= 3
-        && std::abs(hotspotY - localHotspotY) <= 8;
 }
 
 static bool isKnownRemoteIBeamSignature(const CursorMaskFeatures &features, const QPoint &hotspot)
@@ -393,8 +340,7 @@ static bool isKnownRemoteIBeamSignature(const CursorMaskFeatures &features, cons
 
 static bool shouldUseLocalIBeamCursor(const CursorMaskFeatures &features, const QPoint &hotspot)
 {
-    return isKnownRemoteIBeamSignature(features, hotspot)
-        || isLikelyIBeam(features, hotspot);
+    return isKnownRemoteIBeamSignature(features, hotspot);
 }
 
 static const std::vector<CursorCandidate> &systemCursorCandidates()
@@ -404,6 +350,8 @@ static const std::vector<CursorCandidate> &systemCursorCandidates()
             { Qt::ArrowCursor, IDC_ARROW, {}, 0.12 },
             { Qt::SizeHorCursor, IDC_SIZEWE, {}, 0.20 },
             { Qt::SizeVerCursor, IDC_SIZENS, {}, 0.20 },
+            { Qt::SizeFDiagCursor, IDC_SIZENWSE, {}, 0.20 },
+            { Qt::SizeBDiagCursor, IDC_SIZENESW, {}, 0.20 },
             { Qt::SizeAllCursor, IDC_SIZEALL, {}, 0.20 },
             { Qt::CrossCursor, IDC_CROSS, {}, 0.18 },
             { Qt::PointingHandCursor, IDC_HAND, {}, 0.18 },
