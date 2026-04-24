@@ -3,9 +3,13 @@
 #include "profiles/Profile.h"
 #include "profiles/ProfileRepository.h"
 
+#include <QAction>
 #include <QDebug>
+#include <QCloseEvent>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QListWidget>
+#include <QMenu>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
@@ -18,6 +22,7 @@ ConnectionListDialog::ConnectionListDialog(ProfileRepository *repo, QWidget *par
 {
     setWindowTitle("Connections");
     setMinimumSize(400, 350);
+    setWindowFlag(Qt::WindowContextHelpButtonHint, false);
 
     auto *layout = new QVBoxLayout(this);
 
@@ -26,20 +31,21 @@ ConnectionListDialog::ConnectionListDialog(ProfileRepository *repo, QWidget *par
     layout->addWidget(m_searchEdit);
 
     m_listWidget = new QListWidget(this);
+    m_listWidget->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_listWidget->setContextMenuPolicy(Qt::CustomContextMenu);
     layout->addWidget(m_listWidget);
 
     auto *btnLayout = new QHBoxLayout;
     auto *newBtn = new QPushButton("New", this);
-    auto *connectBtn = new QPushButton("Connect", this);
-    auto *editBtn = new QPushButton("Edit", this);
-    auto *deleteBtn = new QPushButton("Delete", this);
-    auto *closeBtn = new QPushButton("Close", this);
-    btnLayout->addWidget(newBtn);
-    btnLayout->addWidget(connectBtn);
-    btnLayout->addWidget(editBtn);
-    btnLayout->addWidget(deleteBtn);
+    m_editButton = new QPushButton("Edit", this);
+    m_deleteButton = new QPushButton("Delete", this);
+    m_connectButton = new QPushButton("Connect", this);
     btnLayout->addStretch();
-    btnLayout->addWidget(closeBtn);
+    btnLayout->addWidget(newBtn);
+    btnLayout->addWidget(m_editButton);
+    btnLayout->addWidget(m_deleteButton);
+    btnLayout->addSpacing(20);
+    btnLayout->addWidget(m_connectButton);
     layout->addLayout(btnLayout);
 
     refreshList(m_repo->profiles());
@@ -47,22 +53,37 @@ ConnectionListDialog::ConnectionListDialog(ProfileRepository *repo, QWidget *par
     connect(m_searchEdit, &QLineEdit::textChanged,
             this, &ConnectionListDialog::onSearchChanged);
     connect(m_listWidget, &QListWidget::itemDoubleClicked,
-            this, &ConnectionListDialog::onItemDoubleClicked);
+            this, &ConnectionListDialog::onItemActivated);
+    connect(m_listWidget, &QListWidget::itemActivated,
+            this, &ConnectionListDialog::onItemActivated);
+    connect(m_listWidget, &QListWidget::customContextMenuRequested,
+            this, &ConnectionListDialog::onContextMenuRequested);
     connect(newBtn, &QPushButton::clicked,
             this, &ConnectionListDialog::onNewClicked);
-    connect(connectBtn, &QPushButton::clicked,
+    connect(m_connectButton, &QPushButton::clicked,
             this, &ConnectionListDialog::onConnectClicked);
-    connect(editBtn, &QPushButton::clicked,
+    connect(m_editButton, &QPushButton::clicked,
             this, &ConnectionListDialog::onEditClicked);
-    connect(deleteBtn, &QPushButton::clicked,
+    connect(m_deleteButton, &QPushButton::clicked,
             this, &ConnectionListDialog::onDeleteClicked);
-    connect(closeBtn, &QPushButton::clicked,
-            this, &QDialog::reject);
+
+    updateCloseAvailability();
 }
 
 QString ConnectionListDialog::selectedProfileId() const
 {
-    return m_selectedId;
+    return m_selectedIds.isEmpty() ? QString() : m_selectedIds.constFirst();
+}
+
+QStringList ConnectionListDialog::selectedProfileIds() const
+{
+    return m_selectedIds;
+}
+
+void ConnectionListDialog::setSelectionRequired(bool required)
+{
+    m_selectionRequired = required;
+    updateCloseAvailability();
 }
 
 void ConnectionListDialog::onSearchChanged(const QString &text)
@@ -70,8 +91,10 @@ void ConnectionListDialog::onSearchChanged(const QString &text)
     refreshList(m_repo->search(text));
 }
 
-void ConnectionListDialog::onItemDoubleClicked()
+void ConnectionListDialog::onItemActivated(QListWidgetItem *item)
 {
+    if (!item)
+        return;
     onConnectClicked();
 }
 
@@ -89,22 +112,26 @@ void ConnectionListDialog::onNewClicked()
 
 void ConnectionListDialog::onConnectClicked()
 {
-    auto *item = m_listWidget->currentItem();
-    if (!item)
+    const auto items = selectedItems();
+    if (items.isEmpty())
         return;
-    m_selectedId = item->data(Qt::UserRole).toString();
+
+    m_selectedIds.clear();
+    for (auto *item : items) {
+        const QString id = item->data(Qt::UserRole).toString();
+        if (!id.isEmpty())
+            m_selectedIds.append(id);
+    }
+
+    if (m_selectedIds.isEmpty())
+        return;
+
     accept();
 }
 
 void ConnectionListDialog::onEditClicked()
 {
-    auto *item = m_listWidget->currentItem();
-    if (!item)
-        return;
-    QString id = item->data(Qt::UserRole).toString();
-    if (id.isEmpty())
-        return;
-    Profile p = m_repo->profile(id);
+    Profile p = currentProfile();
     if (p.id.isEmpty())
         return;
 
@@ -116,30 +143,109 @@ void ConnectionListDialog::onEditClicked()
     }
 }
 
+void ConnectionListDialog::onDuplicateClicked()
+{
+    const auto items = selectedItems();
+    if (items.isEmpty())
+        return;
+
+    for (auto *item : items) {
+        const QString id = item->data(Qt::UserRole).toString();
+        if (id.isEmpty())
+            continue;
+
+        const Profile p = m_repo->profile(id);
+        if (!p.id.isEmpty())
+            duplicateProfile(p);
+    }
+
+    refreshList(m_repo->search(m_searchEdit->text()));
+}
+
 void ConnectionListDialog::onDeleteClicked()
 {
-    auto *item = m_listWidget->currentItem();
-    if (!item) {
+    const auto items = selectedItems();
+    if (items.isEmpty()) {
         qDebug("Delete: no item selected");
         return;
     }
-    QString id = item->data(Qt::UserRole).toString();
-    if (id.isEmpty())
+
+    QStringList names;
+    QStringList ids;
+    for (auto *item : items) {
+        const QString id = item->data(Qt::UserRole).toString();
+        if (id.isEmpty())
+            continue;
+
+        const Profile p = m_repo->profile(id);
+        names.append(p.name.isEmpty() ? QString("(unnamed - %1)").arg(id.left(8)) : p.name);
+        ids.append(id);
+    }
+
+    if (ids.isEmpty())
         return;
 
-    Profile p = m_repo->profile(id);
-    QString displayName = p.name.isEmpty() ? QString("(unnamed - %1)").arg(id.left(8)) : p.name;
+    const QString message = ids.size() == 1
+        ? QString("Delete \"%1\"?").arg(names.constFirst())
+        : QString("Delete %1 connections?").arg(ids.size());
 
-    auto result = QMessageBox::question(this, "Delete Connection",
-        QString("Delete \"%1\"?").arg(displayName));
+    auto result = QMessageBox::question(this, "Delete Connection", message);
     if (result == QMessageBox::Yes) {
-        m_repo->removeProfile(id);
+        for (const QString &id : ids)
+            m_repo->removeProfile(id);
         refreshList(m_repo->search(m_searchEdit->text()));
     }
 }
 
+void ConnectionListDialog::onContextMenuRequested(const QPoint &pos)
+{
+    const auto items = selectedItems();
+    QListWidgetItem *item = m_listWidget->itemAt(pos);
+    if (items.isEmpty() && !item)
+        return;
+
+    if (item && !item->isSelected()) {
+        m_listWidget->clearSelection();
+        item->setSelected(true);
+        m_listWidget->setCurrentItem(item);
+    }
+
+    const auto selection = selectedItems();
+    const bool hasSelection = !selection.isEmpty();
+    const bool singleSelection = selection.size() == 1;
+
+    QMenu menu(this);
+    QAction *connectAction = menu.addAction("Connect");
+    QAction *editAction = menu.addAction("Edit");
+    QAction *duplicateAction = menu.addAction("duplicate");
+    menu.addSeparator();
+    QAction *deleteAction = menu.addAction("Delete");
+
+    connectAction->setEnabled(hasSelection);
+    editAction->setEnabled(singleSelection);
+    duplicateAction->setEnabled(hasSelection);
+    deleteAction->setEnabled(hasSelection);
+
+    QAction *chosen = menu.exec(m_listWidget->viewport()->mapToGlobal(pos));
+    if (chosen == connectAction)
+        onConnectClicked();
+    else if (chosen == editAction)
+        onEditClicked();
+    else if (chosen == duplicateAction)
+        onDuplicateClicked();
+    else if (chosen == deleteAction)
+        onDeleteClicked();
+}
+
 void ConnectionListDialog::refreshList(const QList<Profile> &profiles)
 {
+    QStringList previouslySelected;
+    for (auto *item : selectedItems()) {
+        const QString id = item->data(Qt::UserRole).toString();
+        if (!id.isEmpty())
+            previouslySelected.append(id);
+    }
+
     m_listWidget->clear();
     for (const auto &p : profiles) {
         QString label = QString("%1 (%2:%3)")
@@ -148,5 +254,59 @@ void ConnectionListDialog::refreshList(const QList<Profile> &profiles)
             .arg(p.port);
         auto *item = new QListWidgetItem(label, m_listWidget);
         item->setData(Qt::UserRole, p.id);
+        if (previouslySelected.contains(p.id))
+            item->setSelected(true);
     }
+
+    if (!m_listWidget->currentItem() && m_listWidget->count() > 0)
+        m_listWidget->setCurrentRow(0);
+}
+
+void ConnectionListDialog::closeEvent(QCloseEvent *event)
+{
+    if (m_selectionRequired) {
+        event->ignore();
+        return;
+    }
+
+    QDialog::closeEvent(event);
+}
+
+void ConnectionListDialog::reject()
+{
+    if (m_selectionRequired)
+        return;
+
+    QDialog::reject();
+}
+
+void ConnectionListDialog::updateCloseAvailability()
+{
+    setWindowFlag(Qt::WindowCloseButtonHint, !m_selectionRequired);
+    if (m_connectButton)
+        m_connectButton->setDefault(true);
+}
+
+QList<QListWidgetItem*> ConnectionListDialog::selectedItems() const
+{
+    return m_listWidget ? m_listWidget->selectedItems() : QList<QListWidgetItem*>{};
+}
+
+Profile ConnectionListDialog::currentProfile() const
+{
+    if (!m_listWidget || !m_listWidget->currentItem())
+        return {};
+
+    const QString id = m_listWidget->currentItem()->data(Qt::UserRole).toString();
+    return id.isEmpty() ? Profile{} : m_repo->profile(id);
+}
+
+void ConnectionListDialog::duplicateProfile(const Profile &profile)
+{
+    Profile duplicate = profile;
+    duplicate.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    duplicate.name = profile.name.isEmpty()
+        ? QStringLiteral("(unnamed)")
+        : QString("%1(n)").arg(profile.name);
+    m_repo->addProfile(duplicate);
 }

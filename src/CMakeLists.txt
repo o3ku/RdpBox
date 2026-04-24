@@ -2,6 +2,7 @@ set(RDPBOX_SOURCES
     main.cpp
     MainWindow.h
     MainWindow.cpp
+    resources/app_icon.rc
     resources/resources.qrc
     rdp/FreeRdpProcess.h
     rdp/FreeRdpProcess.cpp

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QPointer>
 
 class QAction;
 class QCloseEvent;
@@ -8,6 +9,7 @@ class QToolButton;
 class QTabWidget;
 class SessionManager;
 class ProfileRepository;
+class ConnectionListDialog;
 
 class MainWindow : public QMainWindow
 {
@@ -29,9 +31,11 @@ private:
     void setupActions();
     void setupTabWidget();
     void setupTabActions();
+    void openConnectionDialog(bool selectionRequired);
     void restoreWindowState();
     void saveWindowState() const;
     QString sessionIdByTabIndex(int index) const;
+    bool hasOpenTabs() const;
 
     QTabWidget *m_tabWidget;
     SessionManager *m_sessionManager;
@@ -41,4 +45,6 @@ private:
     QAction *m_reconnectAction;
     QToolButton *m_newButton;
     QToolButton *m_connectionsButton;
+    QPointer<ConnectionListDialog> m_connectionDialog;
+    bool m_isClosing = false;
 };
