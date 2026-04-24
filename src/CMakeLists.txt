@@ -2,6 +2,7 @@ set(RDPBOX_SOURCES
     main.cpp
     MainWindow.h
     MainWindow.cpp
+    resources/resources.qrc
     rdp/FreeRdpProcess.h
     rdp/FreeRdpProcess.cpp
     rdp/PlatformClipboardBackend.h
@@ -41,6 +42,7 @@ endforeach()
 target_link_libraries(RdpBox PRIVATE
     Qt${QT_VERSION_MAJOR}::Widgets
     Qt${QT_VERSION_MAJOR}::Network
+    Qt${QT_VERSION_MAJOR}::Svg
     freerdp
     freerdp-client
     winpr
