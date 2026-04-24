@@ -10,11 +10,6 @@ SessionManager::SessionManager(QTabWidget *tabWidget, QObject *parent)
 {
 }
 
-void SessionManager::setExePath(const QString &path)
-{
-    m_exePath = path;
-}
-
 QString SessionManager::openSession(const Profile &profile)
 {
     QString sessionId = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -35,7 +30,7 @@ QString SessionManager::openSession(const Profile &profile)
         reconnectSession(sessionId);
     });
 
-    widget->connectToHost(m_exePath, profile.host, profile.port,
+    widget->connectToHost(profile.host, profile.port,
                           profile.username, profile.password,
                           profile.clipboardEnabled, profile.ignoreCertificate);
 
@@ -62,7 +57,7 @@ void SessionManager::reconnectSession(const QString &sessionId)
     if (it == m_sessions.end())
         return;
 
-    it->widget->connectToHost(m_exePath, it->profile.host, it->profile.port,
+    it->widget->connectToHost(it->profile.host, it->profile.port,
                               it->profile.username, it->profile.password,
                               it->profile.clipboardEnabled, it->profile.ignoreCertificate);
 }
