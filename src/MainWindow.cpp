@@ -1,332 +1,255 @@
 #include "MainWindow.h"
+
 #include "profiles/Profile.h"
 #include "profiles/ProfileRepository.h"
 #include "session/SessionManager.h"
-#include "ui/ProfileEditDialog.h"
 #include "ui/ConnectionListDialog.h"
+#include "ui/ProfileEditDialog.h"
+#include "resources/resource.h"
 
-#include <QAction>
-#include <QCloseEvent>
-#include <QColor>
-#include <QFile>
-#include <QHBoxLayout>
-#include <QIcon>
-#include <QMenu>
-#include <QPainter>
-#include <QPixmap>
-#include <QPalette>
-#include <QSettings>
-#include <QStyle>
-#include <QSvgRenderer>
-#include <QTabBar>
 #include <QDir>
 #include <QStandardPaths>
-#include <QTabWidget>
-#include <QTimer>
-#include <QToolButton>
 #include <QUuid>
-#include <QProxyStyle>
+
+IMPLEMENT_DYNAMIC(MainWindow, CFrameWnd)
+
+BEGIN_MESSAGE_MAP(MainWindow, CFrameWnd)
+    ON_WM_CREATE()
+    ON_WM_SIZE()
+    ON_WM_CLOSE()
+    ON_WM_DESTROY()
+    ON_BN_CLICKED(ID_MAIN_NEW, &MainWindow::OnNewConnection)
+    ON_BN_CLICKED(ID_MAIN_CONNECTIONS, &MainWindow::OnOpenConnections)
+    ON_NOTIFY(TCN_SELCHANGE, 1, &MainWindow::OnTabSelectionChanged)
+    ON_WM_CONTEXTMENU()
+    ON_MESSAGE(WM_APP_OPEN_CONNECTIONS, &MainWindow::OnOpenConnectionsMessage)
+END_MESSAGE_MAP()
 
 namespace
 {
-class NoTabFrameStyle : public QProxyStyle
-{
-public:
-    using QProxyStyle::QProxyStyle;
-
-    void drawPrimitive(PrimitiveElement element, const QStyleOption *option,
-                       QPainter *painter, const QWidget *widget) const override
-    {
-        if (element == QStyle::PE_FrameTabWidget || element == QStyle::PE_FrameTabBarBase)
-            return;
-        QProxyStyle::drawPrimitive(element, option, painter, widget);
-    }
-
-    int pixelMetric(PixelMetric metric, const QStyleOption *option,
-                    const QWidget *widget) const override
-    {
-        if (metric == QStyle::PM_TabCloseIndicatorWidth
-            || metric == QStyle::PM_TabCloseIndicatorHeight)
-            return 24;
-        return QProxyStyle::pixelMetric(metric, option, widget);
-    }
-};
-constexpr auto kMainWindowGroup = "MainWindow";
-constexpr auto kGeometryKey = "Geometry";
-constexpr auto kStateKey = "WindowState";
-
-QIcon loadTintedSvgIcon(const QString &resourcePath, const QColor &color, const QSize &size)
-{
-    if (!QFile::exists(resourcePath))
-        return {};
-
-    QSvgRenderer renderer(resourcePath);
-    if (!renderer.isValid())
-        return {};
-
-    QPixmap pixmap(size);
-    pixmap.fill(Qt::transparent);
-
-    {
-        QPainter painter(&pixmap);
-        renderer.render(&painter, QRectF(0, 0, size.width(), size.height()));
-        painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
-        painter.fillRect(pixmap.rect(), color);
-    }
-
-    return QIcon(pixmap);
-}
+constexpr int kTopStripHeight = 34;
+constexpr int kButtonWidth = 100;
+constexpr int kButtonHeight = 26;
+constexpr int kMargin = 4;
 }
 
-MainWindow::MainWindow(QWidget *parent)
-    : QMainWindow(parent)
-    , m_tabWidget(new QTabWidget(this))
-    , m_sessionManager(nullptr)
-    , m_profileRepo(nullptr)
-    , m_newAction(nullptr)
-    , m_connectionsAction(nullptr)
-    , m_reconnectAction(nullptr)
-    , m_newButton(nullptr)
-    , m_connectionsButton(nullptr)
+MainWindow::MainWindow() = default;
+
+MainWindow::~MainWindow() = default;
+
+bool MainWindow::createShell()
 {
-    setWindowTitle("RdpBox");
-    setCentralWidget(m_tabWidget);
-    resize(1280, 800);
+    const CString className = AfxRegisterWndClass(CS_DBLCLKS,
+                                                  ::LoadCursor(nullptr, IDC_ARROW),
+                                                  reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1),
+                                                  AfxGetApp()->LoadIcon(IDI_APP_ICON));
+
+    if (!CreateEx(0, className, L"RdpBox",
+                  WS_OVERLAPPEDWINDOW | FWS_ADDTOTITLE,
+                  CW_USEDEFAULT, CW_USEDEFAULT, 1280, 800,
+                  nullptr, nullptr)) {
+        return false;
+    }
+
+    SetIcon(AfxGetApp()->LoadIcon(IDI_APP_ICON), TRUE);
+    SetIcon(AfxGetApp()->LoadIcon(IDI_APP_ICON), FALSE);
+    return true;
+}
+
+int MainWindow::OnCreate(LPCREATESTRUCT createStruct)
+{
+    if (CFrameWnd::OnCreate(createStruct) == -1)
+        return -1;
 
     const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QDir().mkpath(dataDir);
-    m_profileRepo = new ProfileRepository(dataDir + "/profiles.json");
-    m_sessionManager = new SessionManager(m_tabWidget, this);
+    m_profileRepository = std::make_unique<ProfileRepository>(dataDir + "/profiles.json");
 
-    setupActions();
-    setupTabWidget();
-    setupTabActions();
-    restoreWindowState();
+    CRect clientRect;
+    GetClientRect(&clientRect);
 
-    QTimer::singleShot(0, this, &MainWindow::onOpenConnection);
+    if (!m_tabCtrl.Create(WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | TCS_TABS | TCS_SINGLELINE,
+                          CRect(0, 0, 100, 100), this, 1)) {
+        return -1;
+    }
+
+    if (!m_newButton.Create(L"New", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                            CRect(0, 0, 100, 24), this, ID_MAIN_NEW)) {
+        return -1;
+    }
+
+    if (!m_connectionsButton.Create(L"Connections", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                                    CRect(0, 0, 100, 24), this, ID_MAIN_CONNECTIONS)) {
+        return -1;
+    }
+
+    if (!m_sessionHost.Create(AfxRegisterWndClass(CS_DBLCLKS, ::LoadCursor(nullptr, IDC_ARROW),
+                                                  reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1), nullptr),
+                              L"SessionHost",
+                              WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+                              CRect(0, 0, 100, 100), this, 2)) {
+        return -1;
+    }
+
+    m_sessionManager = std::make_unique<SessionManager>(&m_tabCtrl, &m_sessionHost);
+    layoutChildren();
+    return 0;
 }
 
-MainWindow::~MainWindow()
+void MainWindow::OnSize(UINT type, int cx, int cy)
+{
+    CFrameWnd::OnSize(type, cx, cy);
+    layoutChildren();
+}
+
+void MainWindow::OnClose()
+{
+    m_isClosing = true;
+    if (m_sessionManager)
+        m_sessionManager->closeAllSessions();
+    CFrameWnd::OnClose();
+}
+
+void MainWindow::OnDestroy()
 {
     if (m_sessionManager)
         m_sessionManager->closeAllSessions();
-    delete m_profileRepo;
+    CFrameWnd::OnDestroy();
 }
 
-void MainWindow::closeEvent(QCloseEvent *event)
+void MainWindow::OnNewConnection()
 {
-    m_isClosing = true;
-    if (m_connectionDialog)
-        m_connectionDialog->setSelectionRequired(false);
-    saveWindowState();
-    QMainWindow::closeEvent(event);
-}
-
-void MainWindow::setupActions()
-{
-    const QColor actionIconColor = palette().color(QPalette::ButtonText);
-    const QIcon newIcon = loadTintedSvgIcon(":/add.svg", actionIconColor, QSize(16, 16));
-    const QIcon connectionsIcon = loadTintedSvgIcon(":/connections.svg", actionIconColor, QSize(16, 16));
-
-    m_newAction = new QAction(newIcon, "New", this);
-    m_connectionsAction = new QAction(connectionsIcon, "Connections", this);
-    m_reconnectAction = new QAction(style()->standardIcon(QStyle::SP_BrowserReload), "Reconnect", this);
-
-    m_newAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+N")));
-    m_connectionsAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+O")));
-
-    addAction(m_newAction);
-    addAction(m_connectionsAction);
-
-    connect(m_newAction, &QAction::triggered, this, &MainWindow::onNewConnection);
-    connect(m_connectionsAction, &QAction::triggered, this, &MainWindow::onOpenConnection);
-}
-
-void MainWindow::setupTabWidget()
-{
-    m_tabWidget->setStyle(new NoTabFrameStyle);
-    m_tabWidget->setDocumentMode(true);
-    m_tabWidget->setTabsClosable(true);
-    m_tabWidget->setMovable(true);
-    m_tabWidget->setElideMode(Qt::ElideRight);
-    m_tabWidget->setIconSize(QSize(16, 16));
-    m_tabWidget->setStyleSheet(
-        "QTabWidget { border: 0; margin: 0; padding: 0; }"
-        "QTabWidget::pane { border: 0; margin: 0; padding: 0; }"
-        "QTabWidget::tab-bar { border: 0; }"
-        "QTabBar { border: 0; qproperty-drawBase: 0; }"
-        "QTabBar::tab { min-height: 30px; font-size: 14px; }"
-        "QTabBar::close-button { image: url(:/close.svg); subcontrol-position: right; margin-left: 10px; }"
-        "QTabBar::close-button:hover { image: url(:/close.svg); }"
-        "#tabBarActions { background: transparent; }"
-        "#tabBarActionButton {"
-        "  border: 0;"
-        "  background: transparent;"
-        "  padding: 0 3px;"
-        "  margin: 0;"
-        "  min-width: 20px;"
-        "  min-height: 30px;"
-        "}"
-        "#tabBarActionButton:hover { background: rgba(0, 0, 0, 18); }"
-        "#tabBarActionButton:pressed { background: rgba(0, 0, 0, 32); }");
-
-    connect(m_tabWidget, &QTabWidget::tabCloseRequested,
-            this, &MainWindow::onTabCloseRequested);
-}
-
-void MainWindow::setupTabActions()
-{
-    auto *tabBar = m_tabWidget->tabBar();
-    tabBar->setContextMenuPolicy(Qt::CustomContextMenu);
-
-    connect(tabBar, &QTabBar::customContextMenuRequested,
-            this, &MainWindow::onTabContextMenuRequested);
-
-    auto *cornerWidget = new QWidget(this);
-    cornerWidget->setObjectName("tabBarActions");
-    cornerWidget->setMinimumHeight(30);
-    auto *layout = new QHBoxLayout(cornerWidget);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(0);
-
-    m_newButton = new QToolButton(cornerWidget);
-    m_newButton->setObjectName("tabBarActionButton");
-    m_newButton->setAutoRaise(true);
-    m_newButton->setDefaultAction(m_newAction);
-    m_newButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
-    m_newButton->setIconSize(QSize(14, 14));
-    m_newButton->setToolTip("New");
-
-    m_connectionsButton = new QToolButton(cornerWidget);
-    m_connectionsButton->setObjectName("tabBarActionButton");
-    m_connectionsButton->setAutoRaise(true);
-    m_connectionsButton->setDefaultAction(m_connectionsAction);
-    m_connectionsButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
-    m_connectionsButton->setIconSize(QSize(14, 14));
-    m_connectionsButton->setToolTip("Connections");
-
-    layout->addWidget(m_newButton);
-    layout->addWidget(m_connectionsButton);
-    m_tabWidget->setCornerWidget(cornerWidget, Qt::TopRightCorner);
-}
-
-void MainWindow::restoreWindowState()
-{
-    QSettings settings;
-    settings.beginGroup(kMainWindowGroup);
-
-    const QByteArray geometry = settings.value(kGeometryKey).toByteArray();
-    if (!geometry.isEmpty())
-        restoreGeometry(geometry);
-
-    const QByteArray state = settings.value(kStateKey).toByteArray();
-    if (!state.isEmpty())
-        restoreState(state);
-
-    settings.endGroup();
-}
-
-void MainWindow::openConnectionDialog(bool selectionRequired)
-{
-    if (m_connectionDialog) {
-        m_connectionDialog->setSelectionRequired(selectionRequired || !hasOpenTabs());
-        m_connectionDialog->raise();
-        m_connectionDialog->activateWindow();
+    if (!m_profileRepository)
         return;
-    }
 
-    ConnectionListDialog dlg(m_profileRepo, this);
-    m_connectionDialog = &dlg;
+    ProfileEditDialog dialog(this);
+    if (dialog.DoModal() != IDOK)
+        return;
 
-    const bool requireSelection = selectionRequired || !hasOpenTabs();
-    dlg.setSelectionRequired(requireSelection);
+    Profile profile = dialog.profile();
+    if (profile.id.isEmpty())
+        profile.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
 
-    if (dlg.exec() == QDialog::Accepted) {
-        for (const QString &profileId : dlg.selectedProfileIds()) {
-            const Profile p = m_profileRepo->profile(profileId);
-            if (p.isValid())
-                m_sessionManager->openSession(p);
-        }
-    } else if (!m_isClosing && !hasOpenTabs()) {
-        QTimer::singleShot(0, this, [this]() {
-            if (!m_isClosing && !hasOpenTabs())
-                openConnectionDialog(true);
-        });
-    }
-
-    if (m_connectionDialog == &dlg)
-        m_connectionDialog = nullptr;
+    m_profileRepository->addProfile(profile);
+    if (m_sessionManager)
+        m_sessionManager->openSession(profile);
 }
 
-void MainWindow::saveWindowState() const
-{
-    QSettings settings;
-    settings.beginGroup(kMainWindowGroup);
-    settings.setValue(kGeometryKey, saveGeometry());
-    settings.setValue(kStateKey, saveState());
-    settings.endGroup();
-}
-
-QString MainWindow::sessionIdByTabIndex(int index) const
-{
-    if (index < 0)
-        return {};
-
-    return m_sessionManager->sessionIdByWidget(m_tabWidget->widget(index));
-}
-
-bool MainWindow::hasOpenTabs() const
-{
-    return m_tabWidget->count() > 0;
-}
-
-void MainWindow::onNewConnection()
-{
-    ProfileEditDialog dlg(this);
-    if (dlg.exec() == QDialog::Accepted) {
-        Profile p = dlg.profile();
-        if (p.id.isEmpty())
-            p.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-        m_profileRepo->addProfile(p);
-        m_sessionManager->openSession(p);
-    }
-}
-
-void MainWindow::onOpenConnection()
+void MainWindow::OnOpenConnections()
 {
     openConnectionDialog(false);
 }
 
-void MainWindow::onTabCloseRequested(int index)
+void MainWindow::OnTabSelectionChanged(NMHDR *notify, LRESULT *result)
 {
-    const QString sessionId = sessionIdByTabIndex(index);
-    if (!sessionId.isEmpty())
-        m_sessionManager->closeSession(sessionId);
+    UNREFERENCED_PARAMETER(notify);
 
-    if (!m_isClosing && !hasOpenTabs()) {
-        QTimer::singleShot(0, this, [this]() {
-            if (!m_isClosing && !hasOpenTabs())
-                openConnectionDialog(true);
-        });
-    }
+    if (m_sessionManager)
+        m_sessionManager->activateTab(m_tabCtrl.GetCurSel());
+
+    if (result)
+        *result = 0;
 }
 
-void MainWindow::onTabContextMenuRequested(const QPoint &pos)
+void MainWindow::OnContextMenu(CWnd *window, CPoint point)
 {
-    auto *tabBar = m_tabWidget->tabBar();
-    const int index = tabBar->tabAt(pos);
-    const QString sessionId = sessionIdByTabIndex(index);
+    if (!window || window->GetSafeHwnd() != m_tabCtrl.GetSafeHwnd()) {
+        CFrameWnd::OnContextMenu(window, point);
+        return;
+    }
+
+    const int index = tabIndexAtScreenPoint(point);
+    if (index < 0 || !m_sessionManager)
+        return;
+
+    CMenu menu;
+    menu.CreatePopupMenu();
+    menu.AppendMenu(MF_STRING, ID_TAB_RECONNECT, L"Reconnect");
+    menu.AppendMenu(MF_STRING, ID_TAB_CLOSE, L"Close");
+
+    const UINT command = menu.TrackPopupMenu(TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN,
+                                             point.x, point.y, this);
+    const QString sessionId = m_sessionManager->sessionIdByTabIndex(index);
     if (sessionId.isEmpty())
         return;
 
-    QMenu menu(this);
-    QAction *reconnectAction = menu.addAction(m_reconnectAction->icon(), m_reconnectAction->text());
-    QAction *closeAction = menu.addAction(QIcon(":/close.svg"), "Close");
-
-    QAction *chosen = menu.exec(tabBar->mapToGlobal(pos));
-    if (chosen == reconnectAction) {
+    if (command == ID_TAB_RECONNECT) {
         m_sessionManager->reconnectSession(sessionId);
-    } else if (chosen == closeAction) {
+    } else if (command == ID_TAB_CLOSE) {
         m_sessionManager->closeSession(sessionId);
+        if (!m_isClosing && !hasOpenTabs())
+            PostMessage(WM_APP_OPEN_CONNECTIONS, TRUE, 0);
     }
 }
+
+LRESULT MainWindow::OnOpenConnectionsMessage(WPARAM selectionRequired, LPARAM)
+{
+    openConnectionDialog(selectionRequired != FALSE);
+    return 0;
+}
+
+void MainWindow::layoutChildren()
+{
+    if (!GetSafeHwnd())
+        return;
+
+    CRect clientRect;
+    GetClientRect(&clientRect);
+
+    const int buttonTop = kMargin;
+    const int buttonLeft2 = clientRect.right - kMargin - kButtonWidth;
+    const int buttonLeft1 = buttonLeft2 - kMargin - kButtonWidth;
+
+    if (m_newButton.GetSafeHwnd())
+        m_newButton.MoveWindow(buttonLeft1, buttonTop, kButtonWidth, kButtonHeight);
+    if (m_connectionsButton.GetSafeHwnd())
+        m_connectionsButton.MoveWindow(buttonLeft2, buttonTop, kButtonWidth, kButtonHeight);
+
+    if (m_tabCtrl.GetSafeHwnd())
+        m_tabCtrl.MoveWindow(kMargin, 0, std::max(0, buttonLeft1 - (kMargin * 2)), kTopStripHeight);
+
+    if (m_sessionHost.GetSafeHwnd())
+        m_sessionHost.MoveWindow(0, kTopStripHeight, clientRect.Width(), std::max(0, clientRect.Height() - kTopStripHeight));
+
+    if (m_sessionManager)
+        m_sessionManager->layoutSessions();
+}
+
+void MainWindow::openConnectionDialog(bool selectionRequired)
+{
+    if (!m_profileRepository)
+        return;
+
+    ConnectionListDialog dialog(m_profileRepository.get(), this);
+    dialog.setSelectionRequired(selectionRequired || !hasOpenTabs());
+
+    if (dialog.DoModal() == IDOK) {
+        const QStringList profileIds = dialog.selectedProfileIds();
+        for (const QString &profileId : profileIds) {
+            const Profile profile = m_profileRepository->profile(profileId);
+            if (profile.isValid() && m_sessionManager)
+                m_sessionManager->openSession(profile);
+        }
+    } else if (!m_isClosing && !hasOpenTabs()) {
+        PostMessage(WM_APP_OPEN_CONNECTIONS, TRUE, 0);
+    }
+}
+
+bool MainWindow::hasOpenTabs() const
+{
+    return m_sessionManager && m_sessionManager->hasOpenSessions();
+}
+
+int MainWindow::tabIndexAtScreenPoint(CPoint point) const
+{
+    if (!m_tabCtrl.GetSafeHwnd())
+        return -1;
+
+    CPoint clientPoint(point);
+    m_tabCtrl.ScreenToClient(&clientPoint);
+
+    TCHITTESTINFO hitTest = {};
+    hitTest.pt = clientPoint;
+    return m_tabCtrl.HitTest(&hitTest);
+}
+

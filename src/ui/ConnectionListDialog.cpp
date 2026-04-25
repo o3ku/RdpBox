@@ -1,312 +1,300 @@
 #include "ConnectionListDialog.h"
+
 #include "ProfileEditDialog.h"
-#include "profiles/Profile.h"
+
 #include "profiles/ProfileRepository.h"
 
-#include <QAction>
-#include <QDebug>
-#include <QCloseEvent>
-#include <QHBoxLayout>
-#include <QKeyEvent>
-#include <QListWidget>
-#include <QMenu>
-#include <QLineEdit>
-#include <QMessageBox>
-#include <QPushButton>
-#include <QUuid>
-#include <QVBoxLayout>
+#include "resources/resource.h"
 
-ConnectionListDialog::ConnectionListDialog(ProfileRepository *repo, QWidget *parent)
-    : QDialog(parent)
+#include <algorithm>
+
+#include <QMessageBox>
+#include <QUuid>
+
+IMPLEMENT_DYNAMIC(ConnectionListDialog, CDialogEx)
+
+BEGIN_MESSAGE_MAP(ConnectionListDialog, CDialogEx)
+    ON_EN_CHANGE(IDC_CONNECTION_SEARCH, &ConnectionListDialog::OnSearchChanged)
+    ON_NOTIFY(NM_DBLCLK, IDC_CONNECTION_LIST, &ConnectionListDialog::OnItemDoubleClicked)
+    ON_BN_CLICKED(IDC_CONNECTION_NEW, &ConnectionListDialog::OnNewClicked)
+    ON_BN_CLICKED(IDC_CONNECTION_EDIT, &ConnectionListDialog::OnEditClicked)
+    ON_BN_CLICKED(IDC_CONNECTION_DELETE, &ConnectionListDialog::OnDeleteClicked)
+    ON_BN_CLICKED(IDC_CONNECTION_CONNECT, &ConnectionListDialog::OnConnectClicked)
+    ON_BN_CLICKED(IDC_CONNECTION_DUPLICATE, &ConnectionListDialog::OnDuplicateClicked)
+    ON_NOTIFY(LVN_ITEMCHANGED, IDC_CONNECTION_LIST, &ConnectionListDialog::OnItemChanged)
+END_MESSAGE_MAP()
+
+ConnectionListDialog::ConnectionListDialog(ProfileRepository *repo, CWnd *parent)
+    : CDialogEx(IDD_CONNECTION_DIALOG, parent)
     , m_repo(repo)
 {
-    setWindowTitle("Connections");
-    setMinimumSize(400, 350);
-    setWindowFlag(Qt::WindowContextHelpButtonHint, false);
-
-    auto *layout = new QVBoxLayout(this);
-
-    m_searchEdit = new QLineEdit(this);
-    m_searchEdit->setPlaceholderText("Search by name or host...");
-    layout->addWidget(m_searchEdit);
-
-    m_listWidget = new QListWidget(this);
-    m_listWidget->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    m_listWidget->setContextMenuPolicy(Qt::CustomContextMenu);
-    layout->addWidget(m_listWidget);
-
-    auto *btnLayout = new QHBoxLayout;
-    auto *newBtn = new QPushButton("New", this);
-    m_editButton = new QPushButton("Edit", this);
-    m_deleteButton = new QPushButton("Delete", this);
-    m_connectButton = new QPushButton("Connect", this);
-    btnLayout->addStretch();
-    btnLayout->addWidget(newBtn);
-    btnLayout->addWidget(m_editButton);
-    btnLayout->addWidget(m_deleteButton);
-    btnLayout->addSpacing(20);
-    btnLayout->addWidget(m_connectButton);
-    layout->addLayout(btnLayout);
-
-    refreshList(m_repo->profiles());
-
-    connect(m_searchEdit, &QLineEdit::textChanged,
-            this, &ConnectionListDialog::onSearchChanged);
-    connect(m_listWidget, &QListWidget::itemDoubleClicked,
-            this, &ConnectionListDialog::onItemActivated);
-    connect(m_listWidget, &QListWidget::itemActivated,
-            this, &ConnectionListDialog::onItemActivated);
-    connect(m_listWidget, &QListWidget::customContextMenuRequested,
-            this, &ConnectionListDialog::onContextMenuRequested);
-    connect(newBtn, &QPushButton::clicked,
-            this, &ConnectionListDialog::onNewClicked);
-    connect(m_connectButton, &QPushButton::clicked,
-            this, &ConnectionListDialog::onConnectClicked);
-    connect(m_editButton, &QPushButton::clicked,
-            this, &ConnectionListDialog::onEditClicked);
-    connect(m_deleteButton, &QPushButton::clicked,
-            this, &ConnectionListDialog::onDeleteClicked);
-
-    updateCloseAvailability();
 }
 
-QString ConnectionListDialog::selectedProfileId() const
+ConnectionListDialog::~ConnectionListDialog() = default;
+
+void ConnectionListDialog::DoDataExchange(CDataExchange *dx)
 {
-    return m_selectedIds.isEmpty() ? QString() : m_selectedIds.constFirst();
+    CDialogEx::DoDataExchange(dx);
+    DDX_Text(dx, IDC_CONNECTION_SEARCH, m_searchText);
+}
+
+BOOL ConnectionListDialog::OnInitDialog()
+{
+    CDialogEx::OnInitDialog();
+
+    CListCtrl *list = static_cast<CListCtrl*>(GetDlgItem(IDC_CONNECTION_LIST));
+    if (list) {
+        list->SetExtendedStyle(list->GetExtendedStyle() | LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+        list->InsertColumn(0, L"Name", LVCFMT_LEFT, 150);
+        list->InsertColumn(1, L"Host", LVCFMT_LEFT, 180);
+        list->InsertColumn(2, L"Port", LVCFMT_LEFT, 60);
+    }
+
+    if (m_repo)
+        refreshList(m_repo->profiles());
+
+    updateButtonStates();
+    return TRUE;
+}
+
+void ConnectionListDialog::OnOK()
+{
+    OnConnectClicked();
+}
+
+void ConnectionListDialog::OnCancel()
+{
+    if (m_selectionRequired)
+        return;
+
+    CDialogEx::OnCancel();
+}
+
+void ConnectionListDialog::OnClose()
+{
+    if (m_selectionRequired)
+        return;
+
+    CDialogEx::OnCancel();
+}
+
+void ConnectionListDialog::OnSearchChanged()
+{
+    UpdateData(TRUE);
+    const QString query = QString::fromWCharArray(m_searchText.GetString());
+    if (m_repo)
+        refreshList(m_repo->search(query));
+}
+
+void ConnectionListDialog::OnItemDoubleClicked(NMHDR *notify, LRESULT *result)
+{
+    UNREFERENCED_PARAMETER(result);
+    auto *nmItem = reinterpret_cast<NMITEMACTIVATE*>(notify);
+    if (nmItem && nmItem->iItem >= 0)
+        OnConnectClicked();
+}
+
+void ConnectionListDialog::OnNewClicked()
+{
+    ProfileEditDialog dialog(this);
+    if (dialog.DoModal() != IDOK)
+        return;
+
+    Profile p = dialog.profile();
+    if (p.id.isEmpty())
+        p.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+
+    if (m_repo) {
+        m_repo->addProfile(p);
+        refreshList(m_repo->search(QString::fromWCharArray(m_searchText.GetString())));
+    }
+}
+
+void ConnectionListDialog::OnEditClicked()
+{
+    const Profile cur = currentProfile();
+    if (cur.id.isEmpty())
+        return;
+
+    ProfileEditDialog dialog(this);
+    dialog.setProfile(cur);
+    if (dialog.DoModal() != IDOK)
+        return;
+
+    if (m_repo) {
+        m_repo->updateProfile(dialog.profile());
+        refreshList(m_repo->search(QString::fromWCharArray(m_searchText.GetString())));
+    }
+}
+
+void ConnectionListDialog::OnDeleteClicked()
+{
+    const auto indices = selectedIndices();
+    if (indices.empty())
+        return;
+
+    const int count = static_cast<int>(indices.size());
+    CString message;
+    if (count == 1)
+        message = L"Delete this connection?";
+    else
+        message.Format(L"Delete %d connections?", count);
+
+    if (MessageBox(message, L"Delete Connection", MB_YESNO | MB_ICONQUESTION) != IDYES)
+        return;
+
+    if (!m_repo)
+        return;
+
+    QStringList ids;
+    for (int idx : indices) {
+        if (idx >= 0 && idx < m_currentProfiles.size())
+            ids.append(m_currentProfiles[idx].id);
+    }
+    for (const QString &id : ids)
+        m_repo->removeProfile(id);
+
+    refreshList(m_repo->search(QString::fromWCharArray(m_searchText.GetString())));
+}
+
+void ConnectionListDialog::OnConnectClicked()
+{
+    const auto indices = selectedIndices();
+    if (indices.empty())
+        return;
+
+    if (!m_repo)
+        return;
+
+    m_currentProfiles = m_repo->search(QString::fromWCharArray(m_searchText.GetString()));
+    CDialogEx::OnOK();
+}
+
+void ConnectionListDialog::OnDuplicateClicked()
+{
+    const auto indices = selectedIndices();
+    if (indices.empty() || !m_repo)
+        return;
+
+    m_currentProfiles = m_repo->search(QString::fromWCharArray(m_searchText.GetString()));
+    for (int idx : indices) {
+        if (idx < 0 || idx >= m_currentProfiles.size())
+            continue;
+
+        Profile dup = m_currentProfiles[idx];
+        dup.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        if (!dup.name.isEmpty())
+            dup.name += "(n)";
+        else
+            dup.name = "(unnamed)";
+
+        m_repo->addProfile(dup);
+    }
+
+    refreshList(m_repo->search(QString::fromWCharArray(m_searchText.GetString())));
+}
+
+void ConnectionListDialog::OnItemChanged(NMHDR *notify, LRESULT *result)
+{
+    UNREFERENCED_PARAMETER(notify);
+    UNREFERENCED_PARAMETER(result);
+    updateButtonStates();
 }
 
 QStringList ConnectionListDialog::selectedProfileIds() const
 {
-    return m_selectedIds;
+    QStringList ids;
+    const auto indices = selectedIndices();
+    for (int idx : indices) {
+        if (idx >= 0 && idx < m_currentProfiles.size())
+            ids.append(m_currentProfiles[idx].id);
+    }
+    return ids;
 }
 
 void ConnectionListDialog::setSelectionRequired(bool required)
 {
     m_selectionRequired = required;
-    updateCloseAvailability();
-}
-
-void ConnectionListDialog::onSearchChanged(const QString &text)
-{
-    refreshList(m_repo->search(text));
-}
-
-void ConnectionListDialog::onItemActivated(QListWidgetItem *item)
-{
-    if (!item)
-        return;
-    onConnectClicked();
-}
-
-void ConnectionListDialog::onNewClicked()
-{
-    ProfileEditDialog dlg(this);
-    if (dlg.exec() == QDialog::Accepted) {
-        Profile p = dlg.profile();
-        if (p.id.isEmpty())
-            p.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-        m_repo->addProfile(p);
-        refreshList(m_repo->search(m_searchEdit->text()));
-    }
-}
-
-void ConnectionListDialog::onConnectClicked()
-{
-    const auto items = selectedItems();
-    if (items.isEmpty())
-        return;
-
-    m_selectedIds.clear();
-    for (auto *item : items) {
-        const QString id = item->data(Qt::UserRole).toString();
-        if (!id.isEmpty())
-            m_selectedIds.append(id);
-    }
-
-    if (m_selectedIds.isEmpty())
-        return;
-
-    accept();
-}
-
-void ConnectionListDialog::onEditClicked()
-{
-    Profile p = currentProfile();
-    if (p.id.isEmpty())
-        return;
-
-    ProfileEditDialog dlg(this);
-    dlg.setProfile(p);
-    if (dlg.exec() == QDialog::Accepted) {
-        m_repo->updateProfile(dlg.profile());
-        refreshList(m_repo->search(m_searchEdit->text()));
-    }
-}
-
-void ConnectionListDialog::onDuplicateClicked()
-{
-    const auto items = selectedItems();
-    if (items.isEmpty())
-        return;
-
-    for (auto *item : items) {
-        const QString id = item->data(Qt::UserRole).toString();
-        if (id.isEmpty())
-            continue;
-
-        const Profile p = m_repo->profile(id);
-        if (!p.id.isEmpty())
-            duplicateProfile(p);
-    }
-
-    refreshList(m_repo->search(m_searchEdit->text()));
-}
-
-void ConnectionListDialog::onDeleteClicked()
-{
-    const auto items = selectedItems();
-    if (items.isEmpty()) {
-        qDebug("Delete: no item selected");
-        return;
-    }
-
-    QStringList names;
-    QStringList ids;
-    for (auto *item : items) {
-        const QString id = item->data(Qt::UserRole).toString();
-        if (id.isEmpty())
-            continue;
-
-        const Profile p = m_repo->profile(id);
-        names.append(p.name.isEmpty() ? QString("(unnamed - %1)").arg(id.left(8)) : p.name);
-        ids.append(id);
-    }
-
-    if (ids.isEmpty())
-        return;
-
-    const QString message = ids.size() == 1
-        ? QString("Delete \"%1\"?").arg(names.constFirst())
-        : QString("Delete %1 connections?").arg(ids.size());
-
-    auto result = QMessageBox::question(this, "Delete Connection", message);
-    if (result == QMessageBox::Yes) {
-        for (const QString &id : ids)
-            m_repo->removeProfile(id);
-        refreshList(m_repo->search(m_searchEdit->text()));
-    }
-}
-
-void ConnectionListDialog::onContextMenuRequested(const QPoint &pos)
-{
-    const auto items = selectedItems();
-    QListWidgetItem *item = m_listWidget->itemAt(pos);
-    if (items.isEmpty() && !item)
-        return;
-
-    if (item && !item->isSelected()) {
-        m_listWidget->clearSelection();
-        item->setSelected(true);
-        m_listWidget->setCurrentItem(item);
-    }
-
-    const auto selection = selectedItems();
-    const bool hasSelection = !selection.isEmpty();
-    const bool singleSelection = selection.size() == 1;
-
-    QMenu menu(this);
-    QAction *connectAction = menu.addAction("Connect");
-    QAction *editAction = menu.addAction("Edit");
-    QAction *duplicateAction = menu.addAction("duplicate");
-    menu.addSeparator();
-    QAction *deleteAction = menu.addAction("Delete");
-
-    connectAction->setEnabled(hasSelection);
-    editAction->setEnabled(singleSelection);
-    duplicateAction->setEnabled(hasSelection);
-    deleteAction->setEnabled(hasSelection);
-
-    QAction *chosen = menu.exec(m_listWidget->viewport()->mapToGlobal(pos));
-    if (chosen == connectAction)
-        onConnectClicked();
-    else if (chosen == editAction)
-        onEditClicked();
-    else if (chosen == duplicateAction)
-        onDuplicateClicked();
-    else if (chosen == deleteAction)
-        onDeleteClicked();
 }
 
 void ConnectionListDialog::refreshList(const QList<Profile> &profiles)
 {
-    QStringList previouslySelected;
-    for (auto *item : selectedItems()) {
-        const QString id = item->data(Qt::UserRole).toString();
-        if (!id.isEmpty())
-            previouslySelected.append(id);
-    }
-
-    m_listWidget->clear();
-    for (const auto &p : profiles) {
-        QString label = QString("%1 (%2:%3)")
-            .arg(p.name.isEmpty() ? QStringLiteral("(unnamed)") : p.name,
-                 p.host.isEmpty() ? QStringLiteral("?") : p.host)
-            .arg(p.port);
-        auto *item = new QListWidgetItem(label, m_listWidget);
-        item->setData(Qt::UserRole, p.id);
-        if (previouslySelected.contains(p.id))
-            item->setSelected(true);
-    }
-
-    if (!m_listWidget->currentItem() && m_listWidget->count() > 0)
-        m_listWidget->setCurrentRow(0);
-}
-
-void ConnectionListDialog::closeEvent(QCloseEvent *event)
-{
-    if (m_selectionRequired) {
-        event->ignore();
-        return;
-    }
-
-    QDialog::closeEvent(event);
-}
-
-void ConnectionListDialog::reject()
-{
-    if (m_selectionRequired)
+    CListCtrl *list = static_cast<CListCtrl*>(GetDlgItem(IDC_CONNECTION_LIST));
+    if (!list)
         return;
 
-    QDialog::reject();
+    m_currentProfiles = profiles;
+    list->SetRedraw(FALSE);
+    list->DeleteAllItems();
+
+    for (int idx = 0; idx < profiles.size(); ++idx) {
+        const auto &p = profiles[idx];
+        const CString name(p.name.toStdWString().c_str());
+        const CString host(p.host.toStdWString().c_str());
+        CString portStr;
+        portStr.Format(L"%d", p.port);
+
+        list->InsertItem(idx, name);
+        list->SetItemText(idx, 1, host);
+        list->SetItemText(idx, 2, portStr);
+        list->SetItemData(idx, static_cast<DWORD_PTR>(idx));
+    }
+
+    if (list->GetItemCount() > 0 && list->GetSelectedCount() == 0)
+        list->SetItemState(0, LVIS_SELECTED, LVIS_SELECTED);
+
+    list->SetRedraw(TRUE);
+    updateButtonStates();
 }
 
-void ConnectionListDialog::updateCloseAvailability()
+void ConnectionListDialog::updateButtonStates()
 {
-    setWindowFlag(Qt::WindowCloseButtonHint, !m_selectionRequired);
-    if (m_connectButton)
-        m_connectButton->setDefault(true);
-}
+    CListCtrl *list = static_cast<CListCtrl*>(GetDlgItem(IDC_CONNECTION_LIST));
+    const int selectedCount = list ? list->GetSelectedCount() : 0;
 
-QList<QListWidgetItem*> ConnectionListDialog::selectedItems() const
-{
-    return m_listWidget ? m_listWidget->selectedItems() : QList<QListWidgetItem*>{};
+    CWnd *editButton = GetDlgItem(IDC_CONNECTION_EDIT);
+    CWnd *deleteButton = GetDlgItem(IDC_CONNECTION_DELETE);
+    CWnd *connectButton = GetDlgItem(IDC_CONNECTION_CONNECT);
+    CWnd *duplicateButton = GetDlgItem(IDC_CONNECTION_DUPLICATE);
+
+    if (editButton)
+        editButton->EnableWindow(selectedCount == 1);
+    if (deleteButton)
+        deleteButton->EnableWindow(selectedCount > 0);
+    if (connectButton)
+        connectButton->EnableWindow(selectedCount > 0);
+    if (duplicateButton)
+        duplicateButton->EnableWindow(selectedCount > 0);
 }
 
 Profile ConnectionListDialog::currentProfile() const
 {
-    if (!m_listWidget || !m_listWidget->currentItem())
+    CListCtrl *list = static_cast<CListCtrl*>(GetDlgItem(IDC_CONNECTION_LIST));
+    if (!list)
         return {};
 
-    const QString id = m_listWidget->currentItem()->data(Qt::UserRole).toString();
-    return id.isEmpty() ? Profile{} : m_repo->profile(id);
+    POSITION pos = list->GetFirstSelectedItemPosition();
+    if (!pos)
+        return {};
+
+    const int idx = list->GetNextSelectedItem(pos);
+    if (idx < 0 || idx >= m_currentProfiles.size())
+        return {};
+
+    return m_currentProfiles[idx];
 }
 
-void ConnectionListDialog::duplicateProfile(const Profile &profile)
+std::vector<int> ConnectionListDialog::selectedIndices() const
 {
-    Profile duplicate = profile;
-    duplicate.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    duplicate.name = profile.name.isEmpty()
-        ? QStringLiteral("(unnamed)")
-        : QString("%1(n)").arg(profile.name);
-    m_repo->addProfile(duplicate);
+    std::vector<int> indices;
+    CListCtrl *list = static_cast<CListCtrl*>(GetDlgItem(IDC_CONNECTION_LIST));
+    if (!list)
+        return indices;
+
+    POSITION pos = list->GetFirstSelectedItemPosition();
+    while (pos) {
+        const int idx = list->GetNextSelectedItem(pos);
+        indices.push_back(idx);
+    }
+    return indices;
 }

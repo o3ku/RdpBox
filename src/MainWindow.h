@@ -1,50 +1,49 @@
 #pragma once
 
-#include <QMainWindow>
-#include <QPointer>
+#include <afxcmn.h>
+#include <afxwin.h>
 
-class QAction;
-class QCloseEvent;
-class QToolButton;
-class QTabWidget;
-class SessionManager;
+#include <memory>
+
 class ProfileRepository;
-class ConnectionListDialog;
+class SessionManager;
 
-class MainWindow : public QMainWindow
+class MainWindow : public CFrameWnd
 {
-    Q_OBJECT
+    DECLARE_DYNAMIC(MainWindow)
 
 public:
-    explicit MainWindow(QWidget *parent = nullptr);
-    ~MainWindow();
+    static constexpr UINT WM_APP_OPEN_CONNECTIONS = WM_APP + 1;
 
-private slots:
-    void onNewConnection();
-    void onOpenConnection();
-    void onTabCloseRequested(int index);
-    void onTabContextMenuRequested(const QPoint &pos);
+    MainWindow();
+    ~MainWindow() override;
+
+    bool createShell();
+
+protected:
+    afx_msg int OnCreate(LPCREATESTRUCT createStruct);
+    afx_msg void OnSize(UINT type, int cx, int cy);
+    afx_msg void OnClose();
+    afx_msg void OnDestroy();
+    afx_msg void OnNewConnection();
+    afx_msg void OnOpenConnections();
+    afx_msg void OnTabSelectionChanged(NMHDR *notify, LRESULT *result);
+    afx_msg void OnContextMenu(CWnd *window, CPoint point);
+    afx_msg LRESULT OnOpenConnectionsMessage(WPARAM selectionRequired, LPARAM);
+
+    DECLARE_MESSAGE_MAP()
 
 private:
-    void closeEvent(QCloseEvent *event) override;
-
-    void setupActions();
-    void setupTabWidget();
-    void setupTabActions();
+    void layoutChildren();
     void openConnectionDialog(bool selectionRequired);
-    void restoreWindowState();
-    void saveWindowState() const;
-    QString sessionIdByTabIndex(int index) const;
     bool hasOpenTabs() const;
+    int tabIndexAtScreenPoint(CPoint point) const;
 
-    QTabWidget *m_tabWidget;
-    SessionManager *m_sessionManager;
-    ProfileRepository *m_profileRepo;
-    QAction *m_newAction;
-    QAction *m_connectionsAction;
-    QAction *m_reconnectAction;
-    QToolButton *m_newButton;
-    QToolButton *m_connectionsButton;
-    QPointer<ConnectionListDialog> m_connectionDialog;
+    CTabCtrl m_tabCtrl;
+    CButton m_newButton;
+    CButton m_connectionsButton;
+    CWnd m_sessionHost;
+    std::unique_ptr<SessionManager> m_sessionManager;
+    std::unique_ptr<ProfileRepository> m_profileRepository;
     bool m_isClosing = false;
 };

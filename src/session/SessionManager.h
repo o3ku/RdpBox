@@ -1,39 +1,42 @@
 #pragma once
 
-#include <QObject>
-#include <QMap>
 #include "profiles/Profile.h"
-#include "rdp/FreeRdpProcess.h"
 
-class RdpSessionWidget;
-class QTabWidget;
+#include <memory>
+#include <vector>
 
-class SessionManager : public QObject
+class CTabCtrl;
+class CWnd;
+class CRdpSessionView;
+
+class SessionManager
 {
-    Q_OBJECT
-
 public:
-    explicit SessionManager(QTabWidget *tabWidget, QObject *parent = nullptr);
+    SessionManager(CTabCtrl *tabCtrl, CWnd *sessionHost);
+    ~SessionManager();
 
     QString openSession(const Profile &profile);
     void closeSession(const QString &sessionId);
     void reconnectSession(const QString &sessionId);
     void closeAllSessions();
+    void activateTab(int index);
+    void layoutSessions();
 
-    QString sessionIdByWidget(QWidget *widget) const;
-
-signals:
-    void sessionTitleChanged(const QString &sessionId, const QString &title);
+    QString sessionIdByTabIndex(int index) const;
+    bool hasOpenSessions() const;
 
 private:
-    void onSessionStateChanged(const QString &sessionId, FreeRdpProcess::State state);
-
-    struct Session {
+    struct Session
+    {
         QString id;
         Profile profile;
-        RdpSessionWidget *widget = nullptr;
+        std::unique_ptr<CRdpSessionView> view;
     };
 
-    QTabWidget *m_tabWidget;
-    QMap<QString, Session> m_sessions;
+    int indexOfSession(const QString &sessionId) const;
+    void showSessionAtIndex(int index);
+
+    CTabCtrl *m_tabCtrl = nullptr;
+    CWnd *m_sessionHost = nullptr;
+    std::vector<std::unique_ptr<Session>> m_sessions;
 };

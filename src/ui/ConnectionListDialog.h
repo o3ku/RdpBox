@@ -1,52 +1,55 @@
 #pragma once
 
-#include <QDialog>
-#include <QStringList>
-#include "profiles/Profile.h"
+#include <afxcmn.h>
+#include <afxdialogex.h>
+#include <afxwin.h>
 
-class QListWidget;
-class QLineEdit;
-class QPushButton;
-class QListWidgetItem;
-class QCloseEvent;
+#include "profiles/Profile.h"
+#include <QList>
+
+#include <string>
+#include <vector>
+
 class ProfileRepository;
 
-class ConnectionListDialog : public QDialog
+class ConnectionListDialog : public CDialogEx
 {
-    Q_OBJECT
+    DECLARE_DYNAMIC(ConnectionListDialog)
 
 public:
-    explicit ConnectionListDialog(ProfileRepository *repo, QWidget *parent = nullptr);
+    ConnectionListDialog(ProfileRepository *repo, CWnd *parent = nullptr);
+    virtual ~ConnectionListDialog();
 
-    QString selectedProfileId() const;
     QStringList selectedProfileIds() const;
     void setSelectionRequired(bool required);
 
-private slots:
-    void onSearchChanged(const QString &text);
-    void onItemActivated(QListWidgetItem *item);
-    void onNewClicked();
-    void onConnectClicked();
-    void onEditClicked();
-    void onDuplicateClicked();
-    void onDeleteClicked();
-    void onContextMenuRequested(const QPoint &pos);
+protected:
+    virtual BOOL OnInitDialog();
+    virtual void OnOK();
+    virtual void OnCancel();
+    virtual void OnClose();
+    virtual void DoDataExchange(CDataExchange *dx);
+
+    afx_msg void OnSearchChanged();
+    afx_msg void OnItemDoubleClicked(NMHDR *notify, LRESULT *result);
+    afx_msg void OnNewClicked();
+    afx_msg void OnEditClicked();
+    afx_msg void OnDeleteClicked();
+    afx_msg void OnConnectClicked();
+    afx_msg void OnDuplicateClicked();
+    afx_msg void OnItemChanged(NMHDR *notify, LRESULT *result);
+
+    DECLARE_MESSAGE_MAP()
 
 private:
-    void closeEvent(QCloseEvent *event) override;
-    void reject() override;
     void refreshList(const QList<Profile> &profiles);
-    void updateCloseAvailability();
-    QList<QListWidgetItem*> selectedItems() const;
+    void updateButtonStates();
     Profile currentProfile() const;
-    void duplicateProfile(const Profile &profile);
+    std::vector<int> selectedIndices() const;
 
-    ProfileRepository *m_repo;
-    QListWidget *m_listWidget;
-    QLineEdit *m_searchEdit;
-    QPushButton *m_connectButton;
-    QPushButton *m_editButton;
-    QPushButton *m_deleteButton;
-    QStringList m_selectedIds;
+    ProfileRepository *m_repo = nullptr;
+    QList<Profile> m_currentProfiles;
+    CString m_searchText;
     bool m_selectionRequired = false;
 };
+
