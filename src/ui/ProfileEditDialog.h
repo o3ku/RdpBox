@@ -1,29 +1,35 @@
 #pragma once
 
-#include <QDialog>
+#include <afxwin.h>
+#include <afxdialogex.h>
+
 #include "profiles/Profile.h"
 
-class QLineEdit;
-class QSpinBox;
-class QCheckBox;
-
-class ProfileEditDialog : public QDialog
+class ProfileEditDialog : public CDialogEx
 {
-    Q_OBJECT
+    DECLARE_DYNAMIC(ProfileEditDialog)
 
 public:
-    explicit ProfileEditDialog(QWidget *parent = nullptr);
+    explicit ProfileEditDialog(CWnd *parent = nullptr);
+    virtual ~ProfileEditDialog();
 
     void setProfile(const Profile &profile);
     Profile profile() const;
 
+protected:
+    virtual BOOL OnInitDialog();
+    virtual void OnOK();
+    virtual void DoDataExchange(CDataExchange *dx);
+
+    DECLARE_MESSAGE_MAP()
+
 private:
-    QLineEdit *m_nameEdit;
-    QLineEdit *m_hostEdit;
-    QSpinBox *m_portSpin;
-    QLineEdit *m_userEdit;
-    QLineEdit *m_passEdit;
-    QCheckBox *m_clipboardCheck;
-    QCheckBox *m_certCheck;
     Profile m_profile;
+    CString m_name;
+    CString m_host;
+    int m_port = 3389;
+    CString m_username;
+    CString m_password;
+    BOOL m_clipboardEnabled = TRUE;
+    BOOL m_ignoreCertificate = TRUE;
 };

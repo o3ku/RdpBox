@@ -1,101 +1,147 @@
 #include "SessionManager.h"
-#include "rdp/RdpSessionWidget.h"
 
-#include <QTabWidget>
+#include "rdp/RdpSessionView.h"
+
+#include <afxcmn.h>
+#include <afxwin.h>
+
 #include <QUuid>
+#include <string>
 
-SessionManager::SessionManager(QTabWidget *tabWidget, QObject *parent)
-    : QObject(parent)
-    , m_tabWidget(tabWidget)
+SessionManager::SessionManager(CTabCtrl *tabCtrl, CWnd *sessionHost)
+    : m_tabCtrl(tabCtrl)
+    , m_sessionHost(sessionHost)
 {
+}
+
+SessionManager::~SessionManager()
+{
+    closeAllSessions();
 }
 
 QString SessionManager::openSession(const Profile &profile)
 {
-    QString sessionId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    if (!m_tabCtrl || !m_sessionHost)
+        return {};
 
-    auto *widget = new RdpSessionWidget();
-    Session session{sessionId, profile, widget};
-    m_sessions.insert(sessionId, session);
+    auto session = std::make_unique<Session>();
+    session->id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    session->profile = profile;
+    session->view = std::make_unique<CRdpSessionView>();
 
-    int index = m_tabWidget->addTab(widget, profile.name);
-    m_tabWidget->setCurrentIndex(index);
+    CRect hostRect;
+    m_sessionHost->GetClientRect(&hostRect);
+    if (!session->view->create(m_sessionHost, hostRect))
+        return {};
 
-    connect(widget, &RdpSessionWidget::titleStateChanged,
-            this, [this, sessionId](FreeRdpProcess::State state) {
-        onSessionStateChanged(sessionId, state);
-    });
-    connect(widget, &RdpSessionWidget::reconnectRequested,
-            this, [this, sessionId]() {
+    session->view->setReconnectRequestedCallback([this, sessionId = session->id]() {
         reconnectSession(sessionId);
     });
+    session->view->connectToHost(profile);
 
-    widget->connectToHost(profile.host, profile.port,
-                          profile.username, profile.password,
-                          profile.clipboardEnabled, profile.ignoreCertificate);
+    TCITEM item = {};
+    item.mask = TCIF_TEXT;
+    std::wstring title = profile.name.toStdWString();
+    item.pszText = title.empty() ? const_cast<wchar_t*>(L"(unnamed)") : title.data();
+    const int index = m_tabCtrl->InsertItem(static_cast<int>(m_sessions.size()), &item);
 
-    return sessionId;
+    if (index < 0)
+        return {};
+
+    m_sessions.push_back(std::move(session));
+    m_tabCtrl->SetCurSel(index);
+    showSessionAtIndex(index);
+    return m_sessions[static_cast<size_t>(index)]->id;
 }
 
 void SessionManager::closeSession(const QString &sessionId)
 {
-    auto it = m_sessions.find(sessionId);
-    if (it == m_sessions.end())
+    const int index = indexOfSession(sessionId);
+    if (index < 0 || !m_tabCtrl)
         return;
 
-    int index = m_tabWidget->indexOf(it->widget);
-    if (index >= 0)
-        m_tabWidget->removeTab(index);
+    m_sessions[static_cast<size_t>(index)]->view->DestroyWindow();
+    m_sessions.erase(m_sessions.begin() + index);
+    m_tabCtrl->DeleteItem(index);
 
-    it->widget->deleteLater();
-    m_sessions.erase(it);
+    if (m_sessions.empty())
+        return;
+
+    const int nextIndex = std::min(index, static_cast<int>(m_sessions.size()) - 1);
+    m_tabCtrl->SetCurSel(nextIndex);
+    showSessionAtIndex(nextIndex);
 }
 
 void SessionManager::reconnectSession(const QString &sessionId)
 {
-    auto it = m_sessions.find(sessionId);
-    if (it == m_sessions.end())
+    const int index = indexOfSession(sessionId);
+    if (index < 0)
         return;
 
-    it->widget->connectToHost(it->profile.host, it->profile.port,
-                              it->profile.username, it->profile.password,
-                              it->profile.clipboardEnabled, it->profile.ignoreCertificate);
+    m_sessions[static_cast<size_t>(index)]->view->reconnect();
 }
 
 void SessionManager::closeAllSessions()
 {
-    for (auto it = m_sessions.begin(); it != m_sessions.end(); ++it) {
-        int index = m_tabWidget->indexOf(it->widget);
-        if (index >= 0)
-            m_tabWidget->removeTab(index);
-        it->widget->deleteLater();
+    for (auto &session : m_sessions) {
+        if (session->view)
+            session->view->DestroyWindow();
     }
     m_sessions.clear();
-}
 
-QString SessionManager::sessionIdByWidget(QWidget *widget) const
-{
-    for (auto it = m_sessions.constBegin(); it != m_sessions.constEnd(); ++it) {
-        if (it->widget == widget)
-            return it.key();
+    if (m_tabCtrl) {
+        while (m_tabCtrl->GetItemCount() > 0)
+            m_tabCtrl->DeleteItem(0);
     }
-    return {};
 }
 
-void SessionManager::onSessionStateChanged(const QString &sessionId,
-                                             FreeRdpProcess::State state)
+void SessionManager::activateTab(int index)
 {
-    auto it = m_sessions.find(sessionId);
-    if (it == m_sessions.end())
+    showSessionAtIndex(index);
+}
+
+void SessionManager::layoutSessions()
+{
+    if (!m_sessionHost)
         return;
 
-    Q_UNUSED(state);
-
-    const QString title = it->profile.name;
-
-    int index = m_tabWidget->indexOf(it->widget);
-    if (index >= 0)
-        m_tabWidget->setTabText(index, title);
-
-    emit sessionTitleChanged(sessionId, title);
+    CRect rect;
+    m_sessionHost->GetClientRect(&rect);
+    for (auto &session : m_sessions) {
+        if (session->view && session->view->GetSafeHwnd())
+            session->view->MoveWindow(rect);
+    }
 }
+
+QString SessionManager::sessionIdByTabIndex(int index) const
+{
+    if (index < 0 || index >= static_cast<int>(m_sessions.size()))
+        return {};
+
+    return m_sessions[static_cast<size_t>(index)]->id;
+}
+
+bool SessionManager::hasOpenSessions() const
+{
+    return !m_sessions.empty();
+}
+
+int SessionManager::indexOfSession(const QString &sessionId) const
+{
+    for (size_t index = 0; index < m_sessions.size(); ++index) {
+        if (m_sessions[index]->id == sessionId)
+            return static_cast<int>(index);
+    }
+    return -1;
+}
+
+void SessionManager::showSessionAtIndex(int index)
+{
+    for (size_t currentIndex = 0; currentIndex < m_sessions.size(); ++currentIndex) {
+        if (!m_sessions[currentIndex]->view || !m_sessions[currentIndex]->view->GetSafeHwnd())
+            continue;
+
+        m_sessions[currentIndex]->view->ShowWindow(static_cast<int>(currentIndex) == index ? SW_SHOW : SW_HIDE);
+    }
+}
+

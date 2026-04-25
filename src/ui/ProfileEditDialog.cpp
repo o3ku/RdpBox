@@ -1,73 +1,67 @@
 #include "ProfileEditDialog.h"
 
-#include <QCheckBox>
-#include <QDialogButtonBox>
-#include <QFormLayout>
-#include <QLineEdit>
-#include <QSpinBox>
+#include "resources/resource.h"
 
-ProfileEditDialog::ProfileEditDialog(QWidget *parent)
-    : QDialog(parent)
+IMPLEMENT_DYNAMIC(ProfileEditDialog, CDialogEx)
+
+BEGIN_MESSAGE_MAP(ProfileEditDialog, CDialogEx)
+END_MESSAGE_MAP()
+
+ProfileEditDialog::ProfileEditDialog(CWnd *parent)
+    : CDialogEx(IDD_PROFILE_DIALOG, parent)
 {
-    setWindowTitle("Connection Properties");
-    setMinimumWidth(350);
+}
 
-    auto *layout = new QFormLayout(this);
+ProfileEditDialog::~ProfileEditDialog() = default;
 
-    m_nameEdit = new QLineEdit(this);
-    m_hostEdit = new QLineEdit(this);
-    m_portSpin = new QSpinBox(this);
-    m_portSpin->setRange(1, 65535);
-    m_portSpin->setValue(3389);
-    m_userEdit = new QLineEdit(this);
-    m_passEdit = new QLineEdit(this);
-    m_passEdit->setEchoMode(QLineEdit::Password);
-    m_clipboardCheck = new QCheckBox("Enable clipboard", this);
-    m_clipboardCheck->setChecked(true);
-    m_certCheck = new QCheckBox("Ignore certificate errors", this);
-    m_certCheck->setChecked(true);
+void ProfileEditDialog::DoDataExchange(CDataExchange *dx)
+{
+    CDialogEx::DoDataExchange(dx);
+    DDX_Text(dx, IDC_PROFILE_NAME, m_name);
+    DDX_Text(dx, IDC_PROFILE_HOST, m_host);
+    DDX_Text(dx, IDC_PROFILE_PORT, m_port);
+    DDX_Text(dx, IDC_PROFILE_USERNAME, m_username);
+    DDX_Text(dx, IDC_PROFILE_PASSWORD, m_password);
+    DDX_Check(dx, IDC_PROFILE_CLIPBOARD, m_clipboardEnabled);
+    DDX_Check(dx, IDC_PROFILE_IGNORE_CERT, m_ignoreCertificate);
+}
 
-    layout->addRow("Name:", m_nameEdit);
-    layout->addRow("Host:", m_hostEdit);
-    layout->addRow("Port:", m_portSpin);
-    layout->addRow("Username:", m_userEdit);
-    layout->addRow("Password:", m_passEdit);
-    layout->addRow(m_clipboardCheck);
-    layout->addRow(m_certCheck);
+BOOL ProfileEditDialog::OnInitDialog()
+{
+    CDialogEx::OnInitDialog();
+    return TRUE;
+}
 
-    auto *buttons = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-    layout->addRow(buttons);
+void ProfileEditDialog::OnOK()
+{
+    UpdateData(TRUE);
+    if (m_name.IsEmpty() || m_host.IsEmpty())
+        return;
 
-    connect(buttons, &QDialogButtonBox::accepted, this, [this]() {
-        if (m_nameEdit->text().isEmpty() || m_hostEdit->text().isEmpty())
-            return;
-        accept();
-    });
-    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    CDialogEx::OnOK();
 }
 
 void ProfileEditDialog::setProfile(const Profile &profile)
 {
     m_profile = profile;
-    m_nameEdit->setText(profile.name);
-    m_hostEdit->setText(profile.host);
-    m_portSpin->setValue(profile.port);
-    m_userEdit->setText(profile.username);
-    m_passEdit->setText(profile.password);
-    m_clipboardCheck->setChecked(profile.clipboardEnabled);
-    m_certCheck->setChecked(profile.ignoreCertificate);
+    m_name = CString(profile.name.toStdWString().c_str());
+    m_host = CString(profile.host.toStdWString().c_str());
+    m_port = profile.port;
+    m_username = CString(profile.username.toStdWString().c_str());
+    m_password = CString(profile.password.toStdWString().c_str());
+    m_clipboardEnabled = profile.clipboardEnabled ? TRUE : FALSE;
+    m_ignoreCertificate = profile.ignoreCertificate ? TRUE : FALSE;
 }
 
 Profile ProfileEditDialog::profile() const
 {
     Profile p = m_profile;
-    p.name = m_nameEdit->text();
-    p.host = m_hostEdit->text();
-    p.port = m_portSpin->value();
-    p.username = m_userEdit->text();
-    p.password = m_passEdit->text();
-    p.clipboardEnabled = m_clipboardCheck->isChecked();
-    p.ignoreCertificate = m_certCheck->isChecked();
+    p.name = QString::fromWCharArray(m_name.GetString());
+    p.host = QString::fromWCharArray(m_host.GetString());
+    p.port = m_port;
+    p.username = QString::fromWCharArray(m_username.GetString());
+    p.password = QString::fromWCharArray(m_password.GetString());
+    p.clipboardEnabled = m_clipboardEnabled != FALSE;
+    p.ignoreCertificate = m_ignoreCertificate != FALSE;
     return p;
 }
