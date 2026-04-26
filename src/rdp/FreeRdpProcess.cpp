@@ -84,7 +84,7 @@ CursorInfo duplicateCursorInfo(const CursorInfo &cursor)
     if (!cursor.handle)
         return CursorInfo{cursor.kind, nullptr, false};
 
-    HCURSOR copyHandle = reinterpret_cast<HCURSOR>(CopyImage(cursor.handle, IMAGE_CURSOR, 0, 0, LR_COPYRETURNORG));
+    HCURSOR copyHandle = CopyCursor(cursor.handle);
     if (!copyHandle)
         return CursorInfo{cursor.kind, nullptr, false};
 

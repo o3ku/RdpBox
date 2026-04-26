@@ -30,6 +30,9 @@ public:
     SizeI desktopSize() const;
     CursorInfo cursor() const;
 
+    // Callbacks may be invoked from the FreeRDP worker thread after start()
+    // returns. Consumers must marshal to their own thread before touching
+    // thread-affine UI objects. No UI-thread marshalling is performed here.
     void setStateChangedCallback(std::function<void(State)> callback);
     void setFrameUpdatedCallback(std::function<void()> callback);
     void setDesktopResizedCallback(std::function<void(const SizeI &)> callback);
