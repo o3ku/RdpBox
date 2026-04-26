@@ -5,7 +5,6 @@ project(RdpBox VERSION 0.1.0 LANGUAGES CXX RC)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_AUTOMOC ON)
 
 include(GNUInstallDirs)
 
@@ -19,25 +18,14 @@ find_package(FreeRDP CONFIG REQUIRED)
 find_package(FreeRDP-Client CONFIG REQUIRED)
 find_package(WinPR CONFIG REQUIRED)
 
-set(QT_DEFAULT_MAJOR_VERSION 5)
-set(RDPBOX_QT_COMPONENTS Core Gui)
-if(BUILD_TEST)
-    list(APPEND RDPBOX_QT_COMPONENTS Test)
-endif()
-
-find_package(QT NAMES Qt5 Qt6 REQUIRED COMPONENTS ${RDPBOX_QT_COMPONENTS})
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS ${RDPBOX_QT_COMPONENTS})
-
-if(QT_VERSION_MAJOR GREATER_EQUAL 6)
-    qt_standard_project_setup()
-endif()
-
 set(RDPBOX_SOURCES
     RdpBoxApp.h
     RdpBoxApp.cpp
-    qtmain_stub.cpp
+    WinMain.cpp
     MainWindow.h
     MainWindow.cpp
+    common/NativeTypes.h
+    common/Win32String.h
     profiles/Profile.h
     profiles/ProfileRepository.h
     profiles/ProfileRepository.cpp
@@ -75,6 +63,8 @@ target_compile_definitions(RdpBox PRIVATE
     UNICODE
     _UNICODE
     _CRT_SECURE_NO_WARNINGS
+    WINVER=0x0A00
+    _WIN32_WINNT=0x0A00
     NOMINMAX
     WIN32_LEAN_AND_MEAN
 )
@@ -91,19 +81,18 @@ foreach(_freerdp_include_dir IN LISTS FREERDP_INCLUDE_DIRS)
 endforeach()
 
 target_link_libraries(RdpBox PRIVATE
-    Qt${QT_VERSION_MAJOR}::Core
-    Qt${QT_VERSION_MAJOR}::Gui
     freerdp
     freerdp-client
     winpr
     cjson
+    Imm32
     Ole32
     Shell32
     Comctl32
 )
 
 if(MSVC)
-    set_target_properties(RdpBox PROPERTIES LINK_FLAGS "/ENTRY:WinMainCRTStartup /NODEFAULTLIB:qtmaind.lib /NODEFAULTLIB:qtmain.lib")
+    set_target_properties(RdpBox PROPERTIES LINK_FLAGS "/ENTRY:WinMainCRTStartup")
 endif()
 
 if(BUILD_TEST)

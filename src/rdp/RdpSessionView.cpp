@@ -1,17 +1,11 @@
 #include "RdpSessionView.h"
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
-
-#include <QBitmap>
-#include <QCursor>
-#include <QImage>
-#include <QPixmap>
-#include <QVector>
+#include "rdp/RdpCursorClassifier.h"
 
 #include <algorithm>
-#include <cmath>
+#include <cstring>
+
+#include <imm.h>
 
 namespace
 {
@@ -45,21 +39,24 @@ LRESULT CALLBACK keyboardHookProc(int code, WPARAM wParam, LPARAM lParam)
     if (code < HC_ACTION || !g_systemKeyTarget)
         return CallNextHookEx(g_keyboardHook, code, wParam, lParam);
 
-    auto *info = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
+    auto *info = reinterpret_cast<KBDLLHOOKSTRUCT *>(lParam);
     if (!shouldCaptureLowLevelKey(info) || !g_systemKeyTarget->canCaptureSystemKeys())
         return CallNextHookEx(g_keyboardHook, code, wParam, lParam);
 
     const bool keyUp = (wParam == WM_KEYUP || wParam == WM_SYSKEYUP || (info->flags & LLKHF_UP));
     const bool extended = (info->flags & LLKHF_EXTENDED) != 0;
     const bool sysContext = isAltKey(info->vkCode) || (info->flags & LLKHF_ALTDOWN);
-    const quint32 message = keyUp
+    const std::uint32_t message = keyUp
         ? (sysContext ? WM_SYSKEYUP : WM_KEYUP)
         : (sysContext ? WM_SYSKEYDOWN : WM_KEYDOWN);
+    const std::intptr_t keyLParam = static_cast<std::intptr_t>((info->scanCode & 0xFFu) << 16)
+        | (extended ? 0x01000000 : 0)
+        | (keyUp ? 0xC0000000 : 0);
 
-    g_systemKeyTarget->forwardNativeKeyMessage(message, info->vkCode,
-                                               static_cast<qintptr>((info->scanCode & 0xFFu) << 16)
-                                               | (extended ? 0x01000000 : 0)
-                                               | (keyUp ? 0xC0000000 : 0));
+    g_systemKeyTarget->forwardNativeKeyMessage(
+        message,
+        static_cast<std::uintptr_t>(info->vkCode),
+        keyLParam);
     return 1;
 }
 
@@ -75,68 +72,6 @@ void releaseKeyboardHookIfUnused()
         UnhookWindowsHookEx(g_keyboardHook);
         g_keyboardHook = nullptr;
     }
-}
-
-QImage imageFromQPixmap(const QPixmap &pixmap)
-{
-    return pixmap.toImage().convertToFormat(QImage::Format_ARGB32);
-}
-
-HCURSOR createCursorFromImage(const QImage &image, const QPoint &hotspot)
-{
-    if (image.isNull())
-        return nullptr;
-
-    QImage argb = image.convertToFormat(QImage::Format_ARGB32);
-    BITMAPV5HEADER bi = {};
-    bi.bV5Size = sizeof(BITMAPV5HEADER);
-    bi.bV5Width = argb.width();
-    bi.bV5Height = -argb.height();
-    bi.bV5Planes = 1;
-    bi.bV5BitCount = 32;
-    bi.bV5Compression = BI_BITFIELDS;
-    bi.bV5RedMask = 0x00FF0000;
-    bi.bV5GreenMask = 0x0000FF00;
-    bi.bV5BlueMask = 0x000000FF;
-    bi.bV5AlphaMask = 0xFF000000;
-
-    void *bits = nullptr;
-    HDC screenDc = GetDC(nullptr);
-    HDC memDc = CreateCompatibleDC(screenDc);
-    HBITMAP dib = CreateDIBSection(screenDc, reinterpret_cast<BITMAPINFO*>(&bi), DIB_RGB_COLORS,
-                                   &bits, nullptr, 0);
-    if (!dib || !bits) {
-        if (dib)
-            DeleteObject(dib);
-        if (memDc)
-            DeleteDC(memDc);
-        if (screenDc)
-            ReleaseDC(nullptr, screenDc);
-        return nullptr;
-    }
-
-    memcpy(bits, argb.bits(), static_cast<size_t>(argb.sizeInBytes()));
-    HBITMAP mask = CreateBitmap(argb.width(), argb.height(), 1, 1, nullptr);
-
-    ICONINFO iconInfo = {};
-    iconInfo.fIcon = FALSE;
-    iconInfo.xHotspot = static_cast<DWORD>(std::clamp(hotspot.x(), 0, std::max(0, argb.width() - 1)));
-    iconInfo.yHotspot = static_cast<DWORD>(std::clamp(hotspot.y(), 0, std::max(0, argb.height() - 1)));
-    iconInfo.hbmColor = dib;
-    iconInfo.hbmMask = mask;
-
-    HCURSOR cursor = CreateIconIndirect(&iconInfo);
-
-    if (mask)
-        DeleteObject(mask);
-    if (dib)
-        DeleteObject(dib);
-    if (memDc)
-        DeleteDC(memDc);
-    if (screenDc)
-        ReleaseDC(nullptr, screenDc);
-
-    return cursor;
 }
 }
 
@@ -157,6 +92,9 @@ BEGIN_MESSAGE_MAP(CRdpSessionView, CWnd)
     ON_WM_MBUTTONDOWN()
     ON_WM_MBUTTONUP()
     ON_WM_MOUSEWHEEL()
+    ON_MESSAGE(CRdpSessionView::WM_APP_RDP_STATE, &CRdpSessionView::OnRdpStateChanged)
+    ON_MESSAGE(CRdpSessionView::WM_APP_RDP_FRAME, &CRdpSessionView::OnRdpFrameUpdated)
+    ON_MESSAGE(CRdpSessionView::WM_APP_RDP_CURSOR, &CRdpSessionView::OnRdpCursorUpdated)
 END_MESSAGE_MAP()
 
 CRdpSessionView::CRdpSessionView() = default;
@@ -165,10 +103,11 @@ CRdpSessionView::~CRdpSessionView()
 {
     if (g_systemKeyTarget == this)
         g_systemKeyTarget = nullptr;
+
     releaseKeyboardHookIfUnused();
-    disconnectSignals();
     stopProcess();
     releaseCursorHandle();
+    releaseRenderSurface();
 }
 
 bool CRdpSessionView::create(CWnd *parent, const CRect &rect)
@@ -181,23 +120,21 @@ bool CRdpSessionView::create(CWnd *parent, const CRect &rect)
     m_created = CreateEx(0, className, L"RdpSessionView",
                          WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
                          rect, parent, 0) != FALSE;
-    if (m_created)
+    if (m_created) {
+        disableLocalIme();
         SetFocus();
-    return m_created;
-}
+    }
 
-void CRdpSessionView::setReconnectRequestedCallback(std::function<void()> callback)
-{
-    m_reconnectRequested = std::move(callback);
+    return m_created;
 }
 
 void CRdpSessionView::connectToHost(const Profile &profile)
 {
     m_profile = profile;
     stopProcess();
-    disconnectSignals();
+
     m_process = std::make_unique<FreeRdpProcess>();
-    connectSignals();
+    bindProcessCallbacks(++m_processGeneration);
     startProcess();
 }
 
@@ -214,49 +151,116 @@ void CRdpSessionView::disconnect()
     stopProcess();
 }
 
-void CRdpSessionView::connectSignals()
+void CRdpSessionView::setReconnectRequestedCallback(std::function<void()> callback)
+{
+    m_reconnectRequested = std::move(callback);
+}
+
+void CRdpSessionView::setResizeSuppressed(bool suppressed)
+{
+    m_resizeSuppressed = suppressed;
+    if (suppressed) {
+        KillTimer(kResizeTimerId);
+        m_resizeBurstTracker.reset();
+    }
+}
+
+void CRdpSessionView::flushPendingResize()
+{
+    if (!m_hasPendingResize || !m_connected || !m_process)
+        return;
+
+    m_hasPendingResize = false;
+    m_resizeBurstTracker.reset();
+    m_process->requestResize(m_pendingResize);
+}
+
+void CRdpSessionView::bindProcessCallbacks(std::uintptr_t generation)
 {
     if (!m_process)
         return;
 
-    m_stateConnection = QObject::connect(m_process.get(), &FreeRdpProcess::stateChanged,
-        [this](FreeRdpProcess::State state) {
-            onStateChanged(state);
-        });
+    m_process->setStateChangedCallback([this, generation](FreeRdpProcess::State state) {
+        postProcessMessage(WM_APP_RDP_STATE, static_cast<WPARAM>(state), generation);
+    });
 
-    m_frameConnection = QObject::connect(m_process.get(), &FreeRdpProcess::frameUpdated,
-        [this]() {
-            if (GetSafeHwnd())
-                Invalidate(FALSE);
-        });
+    m_process->setFrameUpdatedCallback([this, generation]() {
+        postProcessMessage(WM_APP_RDP_FRAME, 0, generation);
+    });
 
-    m_desktopConnection = QObject::connect(m_process.get(), &FreeRdpProcess::desktopResized,
-        [this](const QSize &) {
-            if (GetSafeHwnd())
-                Invalidate(FALSE);
-        });
+    m_process->setDesktopResizedCallback([this, generation](const SizeI &) {
+        postProcessMessage(WM_APP_RDP_FRAME, 0, generation);
+    });
 
-    m_cursorConnection = QObject::connect(m_process.get(), &FreeRdpProcess::cursorUpdated,
-        [this]() {
-            updateCursorFromProcess();
-        });
+    m_process->setCursorUpdatedCallback([this, generation]() {
+        postProcessMessage(WM_APP_RDP_CURSOR, 0, generation);
+    });
 }
 
-void CRdpSessionView::disconnectSignals()
+void CRdpSessionView::clearProcessCallbacks()
 {
-    if (m_stateConnection)
-        QObject::disconnect(m_stateConnection);
-    if (m_frameConnection)
-        QObject::disconnect(m_frameConnection);
-    if (m_desktopConnection)
-        QObject::disconnect(m_desktopConnection);
-    if (m_cursorConnection)
-        QObject::disconnect(m_cursorConnection);
+    if (!m_process)
+        return;
 
-    m_stateConnection = {};
-    m_frameConnection = {};
-    m_desktopConnection = {};
-    m_cursorConnection = {};
+    m_process->setStateChangedCallback({});
+    m_process->setFrameUpdatedCallback({});
+    m_process->setDesktopResizedCallback({});
+    m_process->setCursorUpdatedCallback({});
+}
+
+bool CRdpSessionView::postProcessMessage(UINT message, WPARAM wParam, std::uintptr_t generation) const
+{
+    const HWND hwnd = GetSafeHwnd();
+    if (!hwnd || !::IsWindow(hwnd))
+        return false;
+
+    return ::PostMessageW(hwnd, message, wParam, static_cast<LPARAM>(generation)) != FALSE;
+}
+
+bool CRdpSessionView::isCurrentGeneration(std::uintptr_t generation) const
+{
+    return generation == m_processGeneration;
+}
+
+bool CRdpSessionView::isInTopLevelResizeBorder() const
+{
+    const HWND hwnd = GetSafeHwnd();
+    if (!hwnd)
+        return false;
+
+    HWND root = ::GetAncestor(hwnd, GA_ROOT);
+    if (!root)
+        root = ::GetParent(hwnd);
+    if (!root)
+        return false;
+
+    POINT cursorPos = {};
+    if (!::GetCursorPos(&cursorPos))
+        return false;
+
+    RECT windowRect = {};
+    if (!::GetWindowRect(root, &windowRect))
+        return false;
+
+    const int frameX = std::max(0, ::GetSystemMetrics(SM_CXSIZEFRAME) + ::GetSystemMetrics(SM_CXPADDEDBORDER));
+    const int frameY = std::max(0, ::GetSystemMetrics(SM_CYSIZEFRAME) + ::GetSystemMetrics(SM_CXPADDEDBORDER));
+    if (frameX == 0 && frameY == 0)
+        return false;
+
+    const bool nearLeft = cursorPos.x >= windowRect.left && cursorPos.x < (windowRect.left + frameX);
+    const bool nearRight = cursorPos.x < windowRect.right && cursorPos.x >= (windowRect.right - frameX);
+    const bool nearTop = cursorPos.y >= windowRect.top && cursorPos.y < (windowRect.top + frameY);
+    const bool nearBottom = cursorPos.y < windowRect.bottom && cursorPos.y >= (windowRect.bottom - frameY);
+    return nearLeft || nearRight || nearTop || nearBottom;
+}
+
+void CRdpSessionView::disableLocalIme() const
+{
+    const HWND hwnd = GetSafeHwnd();
+    if (!hwnd)
+        return;
+
+    ImmAssociateContext(hwnd, nullptr);
 }
 
 void CRdpSessionView::startProcess()
@@ -264,26 +268,37 @@ void CRdpSessionView::startProcess()
     if (!m_process || !GetSafeHwnd())
         return;
 
-    CRect rect;
-    GetClientRect(&rect);
-
     m_connected = false;
+    m_cachedFrameGeneration = 0;
+    m_renderedFrameGeneration = 0;
+    m_cachedFrame = {};
     m_resizeBurstTracker.reset();
     m_modifierTracker.reset();
     showOverlay(L"Connecting...");
 
+    const SizeI viewSize = currentViewSize();
     m_process->start(m_profile.host, m_profile.port,
                      m_profile.username, m_profile.password,
-                     std::max(1, rect.Width()), std::max(1, rect.Height()),
+                     viewSize.width, viewSize.height,
                      m_profile.clipboardEnabled, m_profile.ignoreCertificate);
 }
 
 void CRdpSessionView::stopProcess()
 {
-    if (m_process)
+    KillTimer(kResizeTimerId);
+    ++m_processGeneration;
+
+    if (m_process) {
+        clearProcessCallbacks();
         m_process->stop();
+        m_process.reset();
+    }
 
     m_connected = false;
+    m_cachedFrameGeneration = 0;
+    m_renderedFrameGeneration = 0;
+    m_cachedFrame = {};
+    releaseRenderSurface();
     m_resizeBurstTracker.reset();
     m_modifierTracker.reset();
     showOverlay(L"Disconnected - Click to Reconnect");
@@ -300,15 +315,13 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
         m_resizeBurstTracker.reset();
         updateCursorFromProcess();
         setFocusToFreeRdp();
-        if (m_process) {
-            CRect rect;
-            GetClientRect(&rect);
-            m_process->requestResize(QSize(std::max(1, rect.Width()), std::max(1, rect.Height())));
-        }
+        if (m_process)
+            m_process->requestResize(currentViewSize());
         Invalidate(FALSE);
         break;
     case FreeRdpProcess::State::Finished:
         m_connected = false;
+        KillTimer(kResizeTimerId);
         showOverlay(L"Disconnected - Click to Reconnect");
         releaseCursorHandle();
         Invalidate(FALSE);
@@ -324,18 +337,23 @@ void CRdpSessionView::updateCursorFromProcess()
         return;
 
     releaseCursorHandle();
-    const QCursor cursor = m_process->cursor();
-    m_cursorHandle = cursorHandleFromQtCursor(cursor);
+
+    const CursorInfo cursorInfo = m_process->cursor();
+    m_cursorHandle = RdpCursorClassifier::cursorHandleFromInfo(cursorInfo);
+    m_ownsCursorHandle = cursorInfo.ownsHandle;
+
     if (GetSafeHwnd())
-        ::SetCursor(m_cursorHandle ? m_cursorHandle : ::LoadCursor(nullptr, IDC_ARROW));
+        ::SetCursor(m_cursorHandle);
 }
 
 void CRdpSessionView::setFocusToFreeRdp()
 {
-    if (!m_process)
+    if (!m_process || !GetSafeHwnd())
         return;
 
-    SetFocus();
+    if (::GetFocus() != GetSafeHwnd())
+        SetFocus();
+
     g_systemKeyTarget = this;
     ensureKeyboardHook();
     m_process->sendFocusIn();
@@ -358,62 +376,33 @@ void CRdpSessionView::clearOverlay()
 void CRdpSessionView::syncMouseModifiers(UINT flags)
 {
     UNREFERENCED_PARAMETER(flags);
+
     if (!m_process)
         return;
 
-    const QVector<RdpModifierSyncTracker::KeyAction> actions = m_modifierTracker.synchronize(currentModifiers());
+    const std::vector<RdpModifierSyncTracker::KeyAction> actions =
+        m_modifierTracker.synchronize(currentModifiers());
     for (const auto &action : actions)
         m_process->sendKeyMessage(action.message, action.virtualKey, 0);
 }
 
-Qt::KeyboardModifiers CRdpSessionView::currentModifiers() const
+unsigned int CRdpSessionView::currentModifiers() const
 {
-    Qt::KeyboardModifiers modifiers;
+    unsigned int modifiers = ModifierNone;
     if (GetKeyState(VK_CONTROL) & 0x8000)
-        modifiers |= Qt::ControlModifier;
+        modifiers |= ModifierControl;
     if (GetKeyState(VK_SHIFT) & 0x8000)
-        modifiers |= Qt::ShiftModifier;
+        modifiers |= ModifierShift;
     if (GetKeyState(VK_MENU) & 0x8000)
-        modifiers |= Qt::AltModifier;
+        modifiers |= ModifierAlt;
     return modifiers;
 }
 
-QSize CRdpSessionView::currentViewSize() const
+SizeI CRdpSessionView::currentViewSize() const
 {
     CRect rect;
     GetClientRect(&rect);
-    return QSize(std::max(1, rect.Width()), std::max(1, rect.Height()));
-}
-
-HCURSOR CRdpSessionView::cursorHandleFromPixmap(const QPixmap &pixmap, const QPoint &hotspot)
-{
-    return createCursorFromImage(imageFromQPixmap(pixmap), hotspot);
-}
-
-HCURSOR CRdpSessionView::cursorHandleFromQtCursor(const QCursor &cursor)
-{
-    if (cursor.shape() == Qt::BlankCursor)
-        return ::LoadCursor(nullptr, IDC_ARROW);
-
-    switch (cursor.shape()) {
-    case Qt::ArrowCursor: return ::LoadCursor(nullptr, IDC_ARROW);
-    case Qt::IBeamCursor: return ::LoadCursor(nullptr, IDC_IBEAM);
-    case Qt::CrossCursor: return ::LoadCursor(nullptr, IDC_CROSS);
-    case Qt::WaitCursor: return ::LoadCursor(nullptr, IDC_WAIT);
-    case Qt::BusyCursor: return ::LoadCursor(nullptr, IDC_APPSTARTING);
-    case Qt::PointingHandCursor: return ::LoadCursor(nullptr, IDC_HAND);
-    case Qt::SizeHorCursor: return ::LoadCursor(nullptr, IDC_SIZEWE);
-    case Qt::SizeVerCursor: return ::LoadCursor(nullptr, IDC_SIZENS);
-    case Qt::SizeFDiagCursor: return ::LoadCursor(nullptr, IDC_SIZENWSE);
-    case Qt::SizeBDiagCursor: return ::LoadCursor(nullptr, IDC_SIZENESW);
-    case Qt::SizeAllCursor: return ::LoadCursor(nullptr, IDC_SIZEALL);
-    case Qt::BitmapCursor:
-        return cursorHandleFromPixmap(cursor.pixmap(), cursor.hotSpot());
-    default:
-        if (!cursor.pixmap().isNull())
-            return cursorHandleFromPixmap(cursor.pixmap(), cursor.hotSpot());
-        return ::LoadCursor(nullptr, IDC_ARROW);
-    }
+    return SizeI{std::max(1, rect.Width()), std::max(1, rect.Height())};
 }
 
 void CRdpSessionView::releaseCursorHandle()
@@ -423,6 +412,113 @@ void CRdpSessionView::releaseCursorHandle()
 
     m_cursorHandle = nullptr;
     m_ownsCursorHandle = false;
+}
+
+bool CRdpSessionView::ensureRenderSurface(const FrameBuffer &frame)
+{
+    if (frame.empty())
+        return false;
+
+    if (m_renderDc && m_renderBitmap && m_renderBits
+        && m_renderWidth == frame.width
+        && m_renderHeight == frame.height) {
+        return true;
+    }
+
+    releaseRenderSurface();
+
+    HDC screenDc = ::GetDC(nullptr);
+    if (!screenDc)
+        return false;
+
+    m_renderDc = ::CreateCompatibleDC(screenDc);
+    if (!m_renderDc) {
+        ::ReleaseDC(nullptr, screenDc);
+        return false;
+    }
+
+    BITMAPINFO bmi = {};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = frame.width;
+    bmi.bmiHeader.biHeight = -frame.height;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    m_renderBitmap = ::CreateDIBSection(m_renderDc, &bmi, DIB_RGB_COLORS, &m_renderBits, nullptr, 0);
+    ::ReleaseDC(nullptr, screenDc);
+
+    if (!m_renderBitmap || !m_renderBits) {
+        releaseRenderSurface();
+        return false;
+    }
+
+    m_renderOldBitmap = ::SelectObject(m_renderDc, m_renderBitmap);
+    m_renderWidth = frame.width;
+    m_renderHeight = frame.height;
+    return true;
+}
+
+void CRdpSessionView::releaseRenderSurface()
+{
+    if (m_renderDc && m_renderOldBitmap) {
+        ::SelectObject(m_renderDc, m_renderOldBitmap);
+        m_renderOldBitmap = nullptr;
+    }
+
+    if (m_renderBitmap) {
+        ::DeleteObject(m_renderBitmap);
+        m_renderBitmap = nullptr;
+    }
+
+    if (m_renderDc) {
+        ::DeleteDC(m_renderDc);
+        m_renderDc = nullptr;
+    }
+
+    m_renderBits = nullptr;
+    m_renderWidth = 0;
+    m_renderHeight = 0;
+    m_renderedFrameGeneration = 0;
+}
+
+void CRdpSessionView::copyFrameToRenderSurface(const FrameBuffer &frame)
+{
+    if (!m_renderBits || frame.empty())
+        return;
+
+    const int dstStride = m_renderWidth * 4;
+    auto *dst = static_cast<std::uint8_t *>(m_renderBits);
+    const auto *src = frame.pixels.data();
+
+    if (frame.stride == dstStride) {
+        std::memcpy(dst, src, static_cast<std::size_t>(dstStride) * static_cast<std::size_t>(frame.height));
+        return;
+    }
+
+    for (int y = 0; y < frame.height; ++y) {
+        std::memcpy(dst + static_cast<std::size_t>(y) * static_cast<std::size_t>(dstStride),
+                    src + static_cast<std::size_t>(y) * static_cast<std::size_t>(frame.stride),
+                    static_cast<std::size_t>(dstStride));
+    }
+}
+
+void CRdpSessionView::drawRenderSurface(HDC targetDc, const CRect &targetRect) const
+{
+    if (!targetDc || !m_renderDc || !m_renderBitmap)
+        return;
+
+    if (targetRect.Width() == m_renderWidth && targetRect.Height() == m_renderHeight) {
+        ::BitBlt(targetDc, 0, 0, m_renderWidth, m_renderHeight, m_renderDc, 0, 0, SRCCOPY);
+        return;
+    }
+
+    ::SetStretchBltMode(targetDc, COLORONCOLOR);
+    ::StretchBlt(targetDc,
+                 0, 0, targetRect.Width(), targetRect.Height(),
+                 m_renderDc,
+                 0, 0, m_renderWidth, m_renderHeight,
+                 SRCCOPY);
 }
 
 BOOL CRdpSessionView::OnEraseBkgnd(CDC *dc)
@@ -436,21 +532,48 @@ void CRdpSessionView::OnPaint()
     CPaintDC dc(this);
     CRect rect;
     GetClientRect(&rect);
-    dc.FillSolidRect(rect, RGB(17, 17, 17));
 
     if (m_process) {
-        const QImage frame = m_process->frame();
-        if (!frame.isNull()) {
+        auto newFrame = m_process->frameIfNewer(m_cachedFrameGeneration);
+        if (newFrame) {
+            m_cachedFrame = std::move(*newFrame);
+        }
+
+        const FrameBuffer &frame = m_cachedFrame;
+        if (!frame.empty() && ensureRenderSurface(frame)) {
+            if (m_renderedFrameGeneration != m_cachedFrameGeneration) {
+                copyFrameToRenderSurface(frame);
+                m_renderedFrameGeneration = m_cachedFrameGeneration;
+            }
+            drawRenderSurface(dc.GetSafeHdc(), rect);
+        } else if (!frame.empty()) {
             BITMAPINFO bmi = {};
             bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-            bmi.bmiHeader.biWidth = frame.width();
-            bmi.bmiHeader.biHeight = -frame.height();
+            bmi.bmiHeader.biWidth = frame.width;
+            bmi.bmiHeader.biHeight = -frame.height;
             bmi.bmiHeader.biPlanes = 1;
             bmi.bmiHeader.biBitCount = 32;
             bmi.bmiHeader.biCompression = BI_RGB;
-            StretchDIBits(dc.GetSafeHdc(), 0, 0, rect.Width(), rect.Height(), 0, 0,
-                          frame.width(), frame.height(), frame.constBits(), &bmi, DIB_RGB_COLORS, SRCCOPY);
+            if (rect.Width() == frame.width && rect.Height() == frame.height) {
+                SetDIBitsToDevice(dc.GetSafeHdc(),
+                                  0, 0,
+                                  static_cast<DWORD>(frame.width),
+                                  static_cast<DWORD>(frame.height),
+                                  0, 0,
+                                  0,
+                                  static_cast<UINT>(frame.height),
+                                  frame.pixels.data(),
+                                  &bmi,
+                                  DIB_RGB_COLORS);
+            } else {
+                StretchDIBits(dc.GetSafeHdc(), 0, 0, rect.Width(), rect.Height(), 0, 0,
+                              frame.width, frame.height, frame.pixels.data(), &bmi, DIB_RGB_COLORS, SRCCOPY);
+            }
+        } else {
+            dc.FillSolidRect(rect, RGB(17, 17, 17));
         }
+    } else {
+        dc.FillSolidRect(rect, RGB(17, 17, 17));
     }
 
     if (!m_overlayText.IsEmpty()) {
@@ -459,7 +582,7 @@ void CRdpSessionView::OnPaint()
         dc.FillSolidRect(overlayRect, RGB(30, 30, 30));
         dc.SetBkMode(TRANSPARENT);
         dc.SetTextColor(RGB(204, 204, 204));
-        dc.DrawText(m_overlayText, &overlayRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_WORDBREAK);
+        dc.DrawText(m_overlayText, &overlayRect, DT_CENTER | DT_VCENTER | DT_WORDBREAK);
     }
 }
 
@@ -470,8 +593,16 @@ void CRdpSessionView::OnSize(UINT type, int cx, int cy)
     if (!m_connected || !m_process)
         return;
 
-    if (m_resizeBurstTracker.onResize(QSize(std::max(1, cx), std::max(1, cy)))) {
-        m_process->requestResize(QSize(std::max(1, cx), std::max(1, cy)));
+    const SizeI size{std::max(1, cx), std::max(1, cy)};
+
+    if (m_resizeSuppressed) {
+        m_pendingResize = size;
+        m_hasPendingResize = true;
+        return;
+    }
+
+    if (m_resizeBurstTracker.onResize(size)) {
+        m_process->requestResize(size);
         SetTimer(kResizeTimerId, 50, nullptr);
     }
 }
@@ -489,7 +620,7 @@ void CRdpSessionView::OnTimer(UINT_PTR timerId)
         return;
     }
 
-    const QSize size = currentViewSize();
+    const SizeI size = currentViewSize();
     if (m_resizeBurstTracker.onTimeout(size)) {
         m_process->requestResize(size);
         return;
@@ -501,6 +632,7 @@ void CRdpSessionView::OnTimer(UINT_PTR timerId)
 void CRdpSessionView::OnSetFocus(CWnd *oldWnd)
 {
     CWnd::OnSetFocus(oldWnd);
+    disableLocalIme();
     setFocusToFreeRdp();
 }
 
@@ -516,7 +648,7 @@ void CRdpSessionView::OnMouseMove(UINT flags, CPoint point)
 {
     syncMouseModifiers(flags);
     if (m_process)
-        m_process->sendMouseMove(QPoint(point.x, point.y), currentViewSize());
+        m_process->sendMouseMove(PointI{point.x, point.y}, currentViewSize());
 }
 
 void CRdpSessionView::OnLButtonDown(UINT flags, CPoint point)
@@ -530,14 +662,14 @@ void CRdpSessionView::OnLButtonDown(UINT flags, CPoint point)
     setFocusToFreeRdp();
     syncMouseModifiers(flags);
     if (m_process)
-        m_process->sendMouseButton(Qt::LeftButton, true, QPoint(point.x, point.y), currentViewSize());
+        m_process->sendMouseButton(MouseButton::Left, true, PointI{point.x, point.y}, currentViewSize());
 }
 
 void CRdpSessionView::OnLButtonUp(UINT flags, CPoint point)
 {
     syncMouseModifiers(flags);
     if (m_process)
-        m_process->sendMouseButton(Qt::LeftButton, false, QPoint(point.x, point.y), currentViewSize());
+        m_process->sendMouseButton(MouseButton::Left, false, PointI{point.x, point.y}, currentViewSize());
 }
 
 void CRdpSessionView::OnRButtonDown(UINT flags, CPoint point)
@@ -545,14 +677,14 @@ void CRdpSessionView::OnRButtonDown(UINT flags, CPoint point)
     setFocusToFreeRdp();
     syncMouseModifiers(flags);
     if (m_process)
-        m_process->sendMouseButton(Qt::RightButton, true, QPoint(point.x, point.y), currentViewSize());
+        m_process->sendMouseButton(MouseButton::Right, true, PointI{point.x, point.y}, currentViewSize());
 }
 
 void CRdpSessionView::OnRButtonUp(UINT flags, CPoint point)
 {
     syncMouseModifiers(flags);
     if (m_process)
-        m_process->sendMouseButton(Qt::RightButton, false, QPoint(point.x, point.y), currentViewSize());
+        m_process->sendMouseButton(MouseButton::Right, false, PointI{point.x, point.y}, currentViewSize());
 }
 
 void CRdpSessionView::OnMButtonDown(UINT flags, CPoint point)
@@ -560,27 +692,63 @@ void CRdpSessionView::OnMButtonDown(UINT flags, CPoint point)
     setFocusToFreeRdp();
     syncMouseModifiers(flags);
     if (m_process)
-        m_process->sendMouseButton(Qt::MiddleButton, true, QPoint(point.x, point.y), currentViewSize());
+        m_process->sendMouseButton(MouseButton::Middle, true, PointI{point.x, point.y}, currentViewSize());
 }
 
 void CRdpSessionView::OnMButtonUp(UINT flags, CPoint point)
 {
     syncMouseModifiers(flags);
     if (m_process)
-        m_process->sendMouseButton(Qt::MiddleButton, false, QPoint(point.x, point.y), currentViewSize());
+        m_process->sendMouseButton(MouseButton::Middle, false, PointI{point.x, point.y}, currentViewSize());
 }
 
 BOOL CRdpSessionView::OnMouseWheel(UINT flags, short zDelta, CPoint point)
 {
     syncMouseModifiers(flags);
-    if (m_process)
-        m_process->sendWheel(QPoint(0, zDelta), QPoint(point.x, point.y), currentViewSize());
+    if (m_process) {
+        CPoint clientPoint(point);
+        ScreenToClient(&clientPoint);
+        m_process->sendWheel(PointI{0, zDelta}, PointI{clientPoint.x, clientPoint.y}, currentViewSize());
+    }
     return TRUE;
 }
 
 UINT CRdpSessionView::OnGetDlgCode()
 {
     return DLGC_WANTALLKEYS | DLGC_WANTARROWS | DLGC_WANTTAB | DLGC_WANTCHARS;
+}
+
+LRESULT CRdpSessionView::OnRdpStateChanged(WPARAM state, LPARAM generation)
+{
+    if (!isCurrentGeneration(static_cast<std::uintptr_t>(generation)))
+        return 0;
+
+    onStateChanged(static_cast<FreeRdpProcess::State>(state));
+    return 0;
+}
+
+LRESULT CRdpSessionView::OnRdpFrameUpdated(WPARAM, LPARAM generation)
+{
+    if (!isCurrentGeneration(static_cast<std::uintptr_t>(generation)))
+        return 0;
+
+    // Drain any queued frame messages so we only paint the latest.
+    MSG msg = {};
+    while (::PeekMessageW(&msg, GetSafeHwnd(), WM_APP_RDP_FRAME, WM_APP_RDP_FRAME, PM_REMOVE)) {
+        // discarded stale frame notification
+    }
+
+    Invalidate(FALSE);
+    return 0;
+}
+
+LRESULT CRdpSessionView::OnRdpCursorUpdated(WPARAM, LPARAM generation)
+{
+    if (!isCurrentGeneration(static_cast<std::uintptr_t>(generation)))
+        return 0;
+
+    updateCursorFromProcess();
+    return 0;
 }
 
 LRESULT CRdpSessionView::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
@@ -590,22 +758,36 @@ LRESULT CRdpSessionView::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
         return MA_ACTIVATE;
     }
 
-    if (message == WM_KEYDOWN || message == WM_KEYUP || message == WM_SYSKEYDOWN || message == WM_SYSKEYUP) {
-        forwardNativeKeyMessage(static_cast<quint32>(message), wParam, lParam);
-        const bool down = (message == WM_KEYDOWN || message == WM_SYSKEYDOWN);
-        switch (wParam) {
-        case VK_CONTROL:
-            m_modifierTracker.recordKeyState(Qt::Key_Control, down);
-            break;
-        case VK_SHIFT:
-            m_modifierTracker.recordKeyState(Qt::Key_Shift, down);
-            break;
-        case VK_MENU:
-            m_modifierTracker.recordKeyState(Qt::Key_Alt, down);
-            break;
-        default:
-            break;
+    if (message == WM_IME_SETCONTEXT
+        || message == WM_IME_STARTCOMPOSITION
+        || message == WM_IME_COMPOSITION
+        || message == WM_IME_ENDCOMPOSITION
+        || message == WM_IME_NOTIFY
+        || message == WM_IME_CHAR
+        || message == WM_CHAR
+        || message == WM_SYSCHAR
+        || message == WM_UNICHAR
+        || message == WM_DEADCHAR
+        || message == WM_SYSDEADCHAR) {
+        return 0;
+    }
+
+    if (message == WM_SETCURSOR && LOWORD(lParam) == HTCLIENT) {
+        if (m_process
+            && m_process->state() == FreeRdpProcess::State::Running
+            && !isInTopLevelResizeBorder()) {
+            ::SetCursor(m_cursorHandle);
+            return TRUE;
         }
+    }
+
+    if (message == WM_KEYDOWN || message == WM_KEYUP || message == WM_SYSKEYDOWN || message == WM_SYSKEYUP) {
+        forwardNativeKeyMessage(static_cast<std::uint32_t>(message),
+                                static_cast<std::uintptr_t>(wParam),
+                                static_cast<std::intptr_t>(lParam));
+
+        const bool down = (message == WM_KEYDOWN || message == WM_SYSKEYDOWN);
+        m_modifierTracker.recordKeyState(static_cast<unsigned int>(wParam), down);
         return 0;
     }
 
@@ -621,7 +803,9 @@ bool CRdpSessionView::canCaptureSystemKeys() const
         && ::GetFocus() == GetSafeHwnd();
 }
 
-void CRdpSessionView::forwardNativeKeyMessage(quint32 message, quintptr wParam, qintptr lParam)
+void CRdpSessionView::forwardNativeKeyMessage(std::uint32_t message,
+                                              std::uintptr_t wParam,
+                                              std::intptr_t lParam)
 {
     if (!m_process)
         return;

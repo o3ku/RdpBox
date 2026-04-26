@@ -48,6 +48,7 @@ private:
 
     ProfileRepository *m_repo = nullptr;
     std::vector<Profile> m_currentProfiles;
+    std::vector<std::string> m_selectedProfileIds;
     CString m_searchText;
     bool m_selectionRequired = false;
 };

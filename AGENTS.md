@@ -22,6 +22,8 @@ Use C++20 and follow the existing Qt-oriented style: 4-space indentation, braces
 
 Prefer small classes with clear ownership boundaries between UI, session management, and RDP process control. Match nearby include ordering and signal/slot patterns before introducing new conventions.
 
+Centralize visual styling in `src/resources/style.css`, add it to `src/resources/resources.qrc`, and load/apply it only from `src/main.cpp`. Do not write widget-local styles in other code files with APIs such as `setStyleSheet()`, ad-hoc font styling, or palette-based visual tweaks unless there is no feasible QSS-based option.
+
 ## Testing Guidelines
 There is a CMake test hook, but no committed `tests/` directory yet. Add new tests under `tests/` and wire them through the top-level `BUILD_TEST` option and `add_test(...)`. Name tests after the behavior they verify, for example `ProfileRepositoryTests` or `SessionManager_Reconnect`.
 

@@ -3,7 +3,9 @@
 #include <cstdint>
 #include <vector>
 
-#include <windef.h>
+struct HICON__;
+using HICON = HICON__*;
+using HCURSOR = HICON;
 
 struct PointI
 {
