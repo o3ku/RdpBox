@@ -1,23 +1,29 @@
 #pragma once
 
-#include <QString>
-#include <QUuid>
+#include <string>
 
-struct Profile {
-    QString id;
-    QString name;
-    QString host;
+#include "common/Win32String.h"
+
+struct Profile
+{
+    std::string id;
+    std::wstring name;
+    std::wstring host;
     int port = 3389;
-    QString username;
-    QString password;
+    std::wstring username;
+    std::wstring password;
     bool clipboardEnabled = true;
     bool ignoreCertificate = true;
 
-    static Profile create() {
-        Profile p;
-        p.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-        return p;
+    static Profile create()
+    {
+        Profile profile;
+        profile.id = createGuidString();
+        return profile;
     }
 
-    bool isValid() const { return !id.isEmpty() && !host.isEmpty(); }
+    bool isValid() const
+    {
+        return !id.empty() && !host.empty();
+    }
 };
