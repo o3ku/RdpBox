@@ -1,11 +1,12 @@
-#include "SessionManager.h"
-
-#include "rdp/RdpSessionView.h"
-
 #include <afxcmn.h>
 #include <afxwin.h>
 
-#include <QUuid>
+#include "SessionManager.h"
+
+#include "common/Win32String.h"
+#include "rdp/RdpSessionView.h"
+
+#include <algorithm>
 #include <string>
 
 SessionManager::SessionManager(CTabCtrl *tabCtrl, CWnd *sessionHost)
@@ -19,13 +20,13 @@ SessionManager::~SessionManager()
     closeAllSessions();
 }
 
-QString SessionManager::openSession(const Profile &profile)
+std::string SessionManager::openSession(const Profile &profile)
 {
     if (!m_tabCtrl || !m_sessionHost)
         return {};
 
     auto session = std::make_unique<Session>();
-    session->id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    session->id = createGuidString();
     session->profile = profile;
     session->view = std::make_unique<CRdpSessionView>();
 
@@ -41,12 +42,14 @@ QString SessionManager::openSession(const Profile &profile)
 
     TCITEM item = {};
     item.mask = TCIF_TEXT;
-    std::wstring title = profile.name.toStdWString();
-    item.pszText = title.empty() ? const_cast<wchar_t*>(L"(unnamed)") : title.data();
+    std::wstring title = profile.name.empty() ? L"(unnamed)" : profile.name;
+    item.pszText = title.data();
     const int index = m_tabCtrl->InsertItem(static_cast<int>(m_sessions.size()), &item);
 
-    if (index < 0)
+    if (index < 0) {
+        session->view->DestroyWindow();
         return {};
+    }
 
     m_sessions.push_back(std::move(session));
     m_tabCtrl->SetCurSel(index);
@@ -54,7 +57,7 @@ QString SessionManager::openSession(const Profile &profile)
     return m_sessions[static_cast<size_t>(index)]->id;
 }
 
-void SessionManager::closeSession(const QString &sessionId)
+void SessionManager::closeSession(const std::string &sessionId)
 {
     const int index = indexOfSession(sessionId);
     if (index < 0 || !m_tabCtrl)
@@ -72,7 +75,7 @@ void SessionManager::closeSession(const QString &sessionId)
     showSessionAtIndex(nextIndex);
 }
 
-void SessionManager::reconnectSession(const QString &sessionId)
+void SessionManager::reconnectSession(const std::string &sessionId)
 {
     const int index = indexOfSession(sessionId);
     if (index < 0)
@@ -113,7 +116,23 @@ void SessionManager::layoutSessions()
     }
 }
 
-QString SessionManager::sessionIdByTabIndex(int index) const
+void SessionManager::setResizeSuppressed(bool suppressed)
+{
+    for (auto &session : m_sessions) {
+        if (session->view && session->view->GetSafeHwnd())
+            session->view->setResizeSuppressed(suppressed);
+    }
+}
+
+void SessionManager::flushPendingResize()
+{
+    for (auto &session : m_sessions) {
+        if (session->view && session->view->GetSafeHwnd())
+            session->view->flushPendingResize();
+    }
+}
+
+std::string SessionManager::sessionIdByTabIndex(int index) const
 {
     if (index < 0 || index >= static_cast<int>(m_sessions.size()))
         return {};
@@ -126,7 +145,7 @@ bool SessionManager::hasOpenSessions() const
     return !m_sessions.empty();
 }
 
-int SessionManager::indexOfSession(const QString &sessionId) const
+int SessionManager::indexOfSession(const std::string &sessionId) const
 {
     for (size_t index = 0; index < m_sessions.size(); ++index) {
         if (m_sessions[index]->id == sessionId)

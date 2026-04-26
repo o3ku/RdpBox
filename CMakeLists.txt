@@ -13,6 +13,10 @@ option(BUILD_TEST "Build test targets." OFF)
 set(RDPBOX_HAS_GRPC OFF)
 set(RDPBOX_HAS_LINGUISTTOOLS OFF)
 
+if(BUILD_TEST)
+    include(CTest)
+endif()
+
 add_subdirectory(src)
 
 set(CPACK_GENERATOR "ZIP")

@@ -162,7 +162,15 @@ void ConnectionListDialog::OnConnectClicked()
     if (!m_repo)
         return;
 
-    m_currentProfiles = m_repo->search(m_searchText.GetString());
+    m_selectedProfileIds.clear();
+    for (int idx : indices) {
+        if (idx >= 0 && idx < static_cast<int>(m_currentProfiles.size()))
+            m_selectedProfileIds.push_back(m_currentProfiles[idx].id);
+    }
+
+    if (m_selectedProfileIds.empty())
+        return;
+
     CDialogEx::OnOK();
 }
 
@@ -199,13 +207,7 @@ void ConnectionListDialog::OnItemChanged(NMHDR *notify, LRESULT *result)
 
 std::vector<std::string> ConnectionListDialog::selectedProfileIds() const
 {
-    std::vector<std::string> ids;
-    const auto indices = selectedIndices();
-    for (int idx : indices) {
-        if (idx >= 0 && idx < static_cast<int>(m_currentProfiles.size()))
-            ids.push_back(m_currentProfiles[idx].id);
-    }
-    return ids;
+    return m_selectedProfileIds;
 }
 
 void ConnectionListDialog::setSelectionRequired(bool required)

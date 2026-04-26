@@ -22,6 +22,8 @@ BEGIN_MESSAGE_MAP(MainWindow, CFrameWnd)
     ON_BN_CLICKED(ID_MAIN_CONNECTIONS, &MainWindow::OnOpenConnections)
     ON_NOTIFY(TCN_SELCHANGE, 1, &MainWindow::OnTabSelectionChanged)
     ON_WM_CONTEXTMENU()
+    ON_MESSAGE(WM_NCLBUTTONDOWN, &MainWindow::OnNcLButtonDown)
+    ON_MESSAGE(WM_EXITSIZEMOVE, &MainWindow::OnExitSizeMove)
     ON_MESSAGE(WM_APP_OPEN_CONNECTIONS, &MainWindow::OnOpenConnectionsMessage)
 END_MESSAGE_MAP()
 
@@ -95,6 +97,7 @@ int MainWindow::OnCreate(LPCREATESTRUCT createStruct)
         return -1;
     }
 
+    applyUiFont();
     m_sessionManager = std::make_unique<SessionManager>(&m_tabCtrl, &m_sessionHost);
     layoutChildren();
     return 0;
@@ -111,14 +114,18 @@ void MainWindow::OnClose()
     m_isClosing = true;
     if (m_sessionManager)
         m_sessionManager->closeAllSessions();
-    CFrameWnd::OnClose();
+    DestroyWindow();
 }
 
 void MainWindow::OnDestroy()
 {
-    if (m_sessionManager)
+    if (m_sessionManager) {
         m_sessionManager->closeAllSessions();
+        m_sessionManager.reset();
+    }
+    m_profileRepository.reset();
     CFrameWnd::OnDestroy();
+    PostQuitMessage(0);
 }
 
 void MainWindow::OnNewConnection()
@@ -174,7 +181,7 @@ void MainWindow::OnContextMenu(CWnd *window, CPoint point)
     const UINT command = menu.TrackPopupMenu(TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN,
                                              point.x, point.y, this);
     const auto sessionId = m_sessionManager->sessionIdByTabIndex(index);
-    if (sessionId.isEmpty())
+    if (sessionId.empty())
         return;
 
     if (command == ID_TAB_RECONNECT) {
@@ -184,6 +191,26 @@ void MainWindow::OnContextMenu(CWnd *window, CPoint point)
         if (!m_isClosing && !hasOpenTabs())
             PostMessage(WM_APP_OPEN_CONNECTIONS, TRUE, 0);
     }
+}
+
+LRESULT MainWindow::OnNcLButtonDown(WPARAM hitTest, LPARAM lParam)
+{
+    if (hitTest >= HTLEFT && hitTest <= HTBOTTOMRIGHT) {
+        if (m_sessionManager)
+            m_sessionManager->setResizeSuppressed(true);
+    }
+
+    return Default();
+}
+
+LRESULT MainWindow::OnExitSizeMove(WPARAM, LPARAM)
+{
+    if (m_sessionManager) {
+        m_sessionManager->setResizeSuppressed(false);
+        m_sessionManager->flushPendingResize();
+    }
+
+    return 0;
 }
 
 LRESULT MainWindow::OnOpenConnectionsMessage(WPARAM selectionRequired, LPARAM)
@@ -255,5 +282,26 @@ int MainWindow::tabIndexAtScreenPoint(CPoint point) const
     TCHITTESTINFO hitTest = {};
     hitTest.pt = clientPoint;
     return m_tabCtrl.HitTest(&hitTest);
+}
+
+void MainWindow::applyUiFont()
+{
+    NONCLIENTMETRICSW metrics = {};
+    metrics.cbSize = sizeof(metrics);
+    if (!::SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0))
+        return;
+
+    if (m_uiFont.GetSafeHandle())
+        m_uiFont.DeleteObject();
+
+    if (!m_uiFont.CreateFontIndirectW(&metrics.lfMessageFont))
+        return;
+
+    if (m_tabCtrl.GetSafeHwnd())
+        m_tabCtrl.SetFont(&m_uiFont);
+    if (m_newButton.GetSafeHwnd())
+        m_newButton.SetFont(&m_uiFont);
+    if (m_connectionsButton.GetSafeHwnd())
+        m_connectionsButton.SetFont(&m_uiFont);
 }
 

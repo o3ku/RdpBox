@@ -341,7 +341,7 @@ bool isCandidateCompatible(CursorKind kind, const CursorMaskFeatures &features)
     case CursorKind::SizeWE:
         return width >= height && features.maxRowFill >= 0.45;
     case CursorKind::SizeNS:
-        return height >= width && features.maxColumnFill >= 0.45;
+        return height >= width && height >= (width * 2) && features.maxColumnFill >= 0.40;
     case CursorKind::SizeNWSE:
         return width >= 10
             && height >= 10
@@ -397,9 +397,9 @@ bool isGenericRemoteIBeamSignature(const CursorMaskFeatures &features, PointI ho
     const int centerX = features.left + (width / 2);
     const int hotspotDistanceFromCenter = std::abs(hotspot.x - centerX);
 
-    return width <= 9
+    return width <= 7
         && height >= 14
-        && (height >= (width * 2))
+        && (height >= (width * 3))
         && hotspotDistanceFromCenter <= 3
         && hotspot.y >= features.top
         && hotspot.y <= features.bottom
@@ -415,11 +415,11 @@ bool isLooseIBeamSignature(const CursorMaskFeatures &features)
     const int width = features.right - features.left + 1;
     const int height = features.bottom - features.top + 1;
 
-    return width <= 12
-        && height >= 14
-        && height >= (width * 2)
-        && features.maxColumnFill >= 0.78
-        && features.maxRowFill >= 0.35;
+    return width <= 9
+        && height >= 15
+        && height >= (width * 3)
+        && features.maxColumnFill >= 0.80
+        && features.maxRowFill < 0.55;
 }
 
 bool shouldUseLocalIBeamCursor(const CursorMaskFeatures &features, PointI hotspot)

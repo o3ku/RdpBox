@@ -1,4 +1,4 @@
-#include "FreeRdpProcess.h"
+﻿#include "FreeRdpProcess.h"
 
 #include "common/Win32String.h"
 #include "RdpClipboardBridge.h"
@@ -35,6 +35,8 @@
 
 namespace
 {
+constexpr DWORD kEventWaitTimeoutMs = 10;
+
 struct NativeRdpContext
 {
     rdpClientContext common;
@@ -122,14 +124,6 @@ PointI clampToDesktop(PointI point, SizeI desktop)
     };
 }
 
-void notifyFrameUpdate(FreeRdpProcess *owner, const FrameBuffer &frame, const SizeI &desktopSize)
-{
-    if (!owner)
-        return;
-
-    owner->updateFrameFromBackend(frame, desktopSize);
-}
-
 void notifyStateUpdate(FreeRdpProcess *owner, FreeRdpProcess::State state)
 {
     if (!owner)
@@ -193,11 +187,8 @@ void nativefreerdp_copy_frame(rdpContext *context)
     if (!nativeContext || !nativeContext->owner)
         return;
 
-    const FrameBuffer frame = copyPrimaryBuffer(context);
-    if (frame.empty())
-        return;
-
-    notifyFrameUpdate(nativeContext->owner, frame, SizeI{frame.width, frame.height});
+    if (nativeContext->owner)
+        nativeContext->owner->writeFrameFromContext(context);
 }
 
 BOOL nativefreerdp_end_paint(rdpContext *context)
@@ -562,6 +553,8 @@ struct FreeRdpProcess::Private
     std::atomic_bool stopRequested = false;
     mutable std::mutex mutex;
     FrameBuffer frame;
+    FrameBuffer backBuffer;
+    uint64_t frameGeneration = 0;
     SizeI desktopSize;
     CursorInfo cursor;
     bool hasFirstFrame = false;
@@ -678,7 +671,7 @@ void FreeRdpProcess::start(const std::wstring &host,
                 if (handleCount == 0)
                     break;
 
-                const DWORD waitResult = WaitForMultipleObjects(handleCount, handles, FALSE, 50);
+                const DWORD waitResult = WaitForMultipleObjects(handleCount, handles, FALSE, kEventWaitTimeoutMs);
                 if (waitResult == WAIT_TIMEOUT)
                     continue;
                 if (waitResult == WAIT_FAILED)
@@ -715,8 +708,10 @@ void FreeRdpProcess::stop()
         std::scoped_lock lock(m_d->mutex);
         oldCursor = std::exchange(m_d->cursor, defaultCursorInfo());
         m_d->frame = {};
+        m_d->backBuffer = {};
         m_d->desktopSize = {};
         m_d->hasFirstFrame = false;
+        m_d->frameGeneration = 0;
     }
     destroyCursorInfo(oldCursor);
 
@@ -733,6 +728,15 @@ FreeRdpProcess::State FreeRdpProcess::state() const
 FrameBuffer FreeRdpProcess::frame() const
 {
     std::scoped_lock lock(m_d->mutex);
+    return m_d->frame;
+}
+
+std::optional<FrameBuffer> FreeRdpProcess::frameIfNewer(uint64_t &lastSeenGeneration)
+{
+    std::scoped_lock lock(m_d->mutex);
+    if (m_d->frameGeneration == lastSeenGeneration)
+        return std::nullopt;
+    lastSeenGeneration = m_d->frameGeneration;
     return m_d->frame;
 }
 
@@ -940,19 +944,48 @@ void FreeRdpProcess::requestResize(SizeI size)
     context->disp->SendMonitorLayout(context->disp, 1, &layout);
 }
 
-void FreeRdpProcess::updateFrameFromBackend(const FrameBuffer &frame, const SizeI &desktopSize)
+void FreeRdpProcess::writeFrameFromContext(void *rawContext)
 {
+    const rdpContext *context = static_cast<rdpContext *>(rawContext);
+    if (!context || !context->gdi || !context->gdi->primary_buffer)
+        return;
+
+    const int width = context->gdi->width;
+    const int height = context->gdi->height;
+    const int stride = static_cast<int>(context->gdi->stride);
+    if (width <= 0 || height <= 0 || stride <= 0)
+        return;
+
+    const std::size_t requiredBytes = static_cast<std::size_t>(stride) * static_cast<std::size_t>(height);
+
     std::function<void(const SizeI &)> desktopCallback;
     std::function<void()> frameCallback;
     std::function<void()> cursorCallback;
     bool firstFrameArrived = false;
+    SizeI desktopSize{width, height};
 
     {
         std::scoped_lock lock(m_d->mutex);
-        m_d->frame = frame;
+
+        // Reuse backBuffer allocation when possible
+        if (static_cast<int>(m_d->backBuffer.pixels.size()) != static_cast<int>(requiredBytes)
+            || m_d->backBuffer.width != width
+            || m_d->backBuffer.height != height
+            || m_d->backBuffer.stride != stride) {
+            m_d->backBuffer.width = width;
+            m_d->backBuffer.height = height;
+            m_d->backBuffer.stride = stride;
+            m_d->backBuffer.pixels.resize(requiredBytes);
+        }
+
+        std::memcpy(m_d->backBuffer.pixels.data(), context->gdi->primary_buffer, requiredBytes);
+
+        using std::swap;
+        swap(m_d->frame, m_d->backBuffer);
         m_d->desktopSize = desktopSize;
-        firstFrameArrived = !m_d->hasFirstFrame && !frame.empty();
-        m_d->hasFirstFrame = m_d->hasFirstFrame || !frame.empty();
+        ++m_d->frameGeneration;
+        firstFrameArrived = !m_d->hasFirstFrame;
+        m_d->hasFirstFrame = true;
         desktopCallback = m_d->desktopResized;
         frameCallback = m_d->frameUpdated;
         cursorCallback = m_d->cursorUpdated;

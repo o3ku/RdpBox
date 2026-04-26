@@ -1,8 +1,9 @@
-#pragma once
+﻿#pragma once
 
 #include "common/NativeTypes.h"
 
 #include <cstdint>
+#include <optional>
 #include <functional>
 #include <memory>
 #include <string>
@@ -27,6 +28,8 @@ public:
 
     State state() const;
     FrameBuffer frame() const;
+    void writeFrameFromContext(void *rdpContext);
+    std::optional<FrameBuffer> frameIfNewer(uint64_t &lastSeenGeneration);
     SizeI desktopSize() const;
     CursorInfo cursor() const;
 
@@ -45,7 +48,6 @@ public:
     void sendWheel(PointI angleDelta, PointI pos, SizeI viewSize);
     void requestResize(SizeI size);
 
-    void updateFrameFromBackend(const FrameBuffer &frame, const SizeI &desktopSize);
     void updateStateFromBackend(State state);
     void updateCursorFromBackend(const CursorInfo &cursor);
     void resetCursorFromBackend();
