@@ -4,10 +4,8 @@
 #include <cwctype>
 #include <string>
 
-#define NOMINMAX
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
 #include <objbase.h>
+#include <stringapiset.h>
 
 inline std::string utf8FromWide(const std::wstring &text)
 {
@@ -19,7 +17,9 @@ inline std::string utf8FromWide(const std::wstring &text)
         return {};
 
     std::string result(static_cast<size_t>(size), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), result.data(), size, nullptr, nullptr);
+    const int written = WideCharToMultiByte(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), result.data(), size, nullptr, nullptr);
+    if (written != size)
+        return {};
     return result;
 }
 
@@ -33,7 +33,9 @@ inline std::wstring wideFromUtf8(const std::string &text)
         return {};
 
     std::wstring result(static_cast<size_t>(size), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), result.data(), size);
+    const int written = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), result.data(), size);
+    if (written != size)
+        return {};
     return result;
 }
 
