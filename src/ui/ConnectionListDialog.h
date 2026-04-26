@@ -5,7 +5,6 @@
 #include <afxwin.h>
 
 #include "profiles/Profile.h"
-#include <QList>
 
 #include <string>
 #include <vector>
@@ -20,7 +19,7 @@ public:
     ConnectionListDialog(ProfileRepository *repo, CWnd *parent = nullptr);
     virtual ~ConnectionListDialog();
 
-    QStringList selectedProfileIds() const;
+    std::vector<std::string> selectedProfileIds() const;
     void setSelectionRequired(bool required);
 
 protected:
@@ -42,13 +41,13 @@ protected:
     DECLARE_MESSAGE_MAP()
 
 private:
-    void refreshList(const QList<Profile> &profiles);
+    void refreshList(const std::vector<Profile> &profiles);
     void updateButtonStates();
     Profile currentProfile() const;
     std::vector<int> selectedIndices() const;
 
     ProfileRepository *m_repo = nullptr;
-    QList<Profile> m_currentProfiles;
+    std::vector<Profile> m_currentProfiles;
     CString m_searchText;
     bool m_selectionRequired = false;
 };

@@ -1,127 +1,177 @@
 #include "ProfileRepository.h"
 
 #include <algorithm>
-#include <QFile>
-#include <QJsonArray>
-#include <QJsonDocument>
-#include <QJsonObject>
+#include <cstdio>
+#include <vector>
 
-ProfileRepository::ProfileRepository(const QString &filePath)
+#include <cjson/cJSON.h>
+
+#include "common/Win32String.h"
+
+namespace
+{
+static cJSON *profileToJson(const Profile &profile)
+{
+    cJSON *object = cJSON_CreateObject();
+    cJSON_AddStringToObject(object, "id", profile.id.c_str());
+    cJSON_AddStringToObject(object, "name", utf8FromWide(profile.name).c_str());
+    cJSON_AddStringToObject(object, "host", utf8FromWide(profile.host).c_str());
+    cJSON_AddNumberToObject(object, "port", profile.port);
+    cJSON_AddStringToObject(object, "username", utf8FromWide(profile.username).c_str());
+    cJSON_AddStringToObject(object, "password", utf8FromWide(profile.password).c_str());
+    cJSON_AddBoolToObject(object, "clipboardEnabled", profile.clipboardEnabled);
+    cJSON_AddBoolToObject(object, "ignoreCertificate", profile.ignoreCertificate);
+    return object;
+}
+
+static Profile profileFromJson(const cJSON *object)
+{
+    Profile profile;
+    const cJSON *id = cJSON_GetObjectItemCaseSensitive(object, "id");
+    const cJSON *name = cJSON_GetObjectItemCaseSensitive(object, "name");
+    const cJSON *host = cJSON_GetObjectItemCaseSensitive(object, "host");
+    const cJSON *port = cJSON_GetObjectItemCaseSensitive(object, "port");
+    const cJSON *username = cJSON_GetObjectItemCaseSensitive(object, "username");
+    const cJSON *password = cJSON_GetObjectItemCaseSensitive(object, "password");
+    const cJSON *clipboardEnabled = cJSON_GetObjectItemCaseSensitive(object, "clipboardEnabled");
+    const cJSON *ignoreCertificate = cJSON_GetObjectItemCaseSensitive(object, "ignoreCertificate");
+
+    profile.id = cJSON_GetStringValue(id) ? cJSON_GetStringValue(id) : "";
+    profile.name = wideFromUtf8(cJSON_GetStringValue(name) ? cJSON_GetStringValue(name) : "");
+    profile.host = wideFromUtf8(cJSON_GetStringValue(host) ? cJSON_GetStringValue(host) : "");
+    profile.port = cJSON_IsNumber(port) ? port->valueint : 3389;
+    profile.username = wideFromUtf8(cJSON_GetStringValue(username) ? cJSON_GetStringValue(username) : "");
+    profile.password = wideFromUtf8(cJSON_GetStringValue(password) ? cJSON_GetStringValue(password) : "");
+    profile.clipboardEnabled = cJSON_IsTrue(clipboardEnabled);
+    profile.ignoreCertificate = !cJSON_IsFalse(ignoreCertificate);
+    return profile;
+}
+
+static std::string readFile(const std::wstring &filePath)
+{
+    std::FILE *file = nullptr;
+    if (_wfopen_s(&file, filePath.c_str(), L"rb") != 0 || !file)
+        return {};
+
+    std::string contents;
+    char buffer[4096];
+    while (const size_t read = std::fread(buffer, 1, sizeof(buffer), file)) {
+        contents.append(buffer, read);
+    }
+
+    std::fclose(file);
+    return contents;
+}
+
+static void writeFile(const std::wstring &filePath, const std::string &contents)
+{
+    std::FILE *file = nullptr;
+    if (_wfopen_s(&file, filePath.c_str(), L"wb") != 0 || !file)
+        return;
+
+    if (!contents.empty())
+        std::fwrite(contents.data(), 1, contents.size(), file);
+
+    std::fclose(file);
+}
+}
+
+ProfileRepository::ProfileRepository(std::wstring filePath)
     : m_filePath(filePath)
 {
     load();
 }
 
-QList<Profile> ProfileRepository::profiles() const
+const std::vector<Profile> &ProfileRepository::profiles() const
 {
     return m_profiles;
 }
 
-Profile ProfileRepository::profile(const QString &id) const
+Profile ProfileRepository::profileById(const std::string &id) const
 {
-    for (const auto &p : m_profiles) {
-        if (p.id == id)
-            return p;
-    }
-    return {};
+    const auto it = std::find_if(m_profiles.begin(), m_profiles.end(),
+        [&](const Profile &profile) { return profile.id == id; });
+    return (it != m_profiles.end()) ? *it : Profile{};
 }
 
 void ProfileRepository::addProfile(const Profile &profile)
 {
-    m_profiles.append(profile);
+    m_profiles.push_back(profile);
     save();
 }
 
 void ProfileRepository::updateProfile(const Profile &profile)
 {
-    for (int i = 0; i < m_profiles.size(); ++i) {
-        if (m_profiles[i].id == profile.id) {
-            m_profiles[i] = profile;
+    for (auto &item : m_profiles) {
+        if (item.id == profile.id) {
+            item = profile;
             save();
             return;
         }
     }
 }
 
-void ProfileRepository::removeProfile(const QString &id)
+void ProfileRepository::removeProfile(const std::string &id)
 {
-    for (int i = m_profiles.size() - 1; i >= 0; --i) {
-        if (m_profiles[i].id == id)
-            m_profiles.removeAt(i);
-    }
+    m_profiles.erase(std::remove_if(m_profiles.begin(), m_profiles.end(),
+        [&](const Profile &profile) { return profile.id == id; }), m_profiles.end());
     save();
 }
 
-QList<Profile> ProfileRepository::search(const QString &query) const
+std::vector<Profile> ProfileRepository::search(const std::wstring &query) const
 {
-    if (query.isEmpty())
+    if (query.empty())
         return m_profiles;
 
-    QList<Profile> result;
-    QString lower = query.toLower();
-    for (const auto &p : m_profiles) {
-        if (p.name.toLower().contains(lower) || p.host.toLower().contains(lower))
-            result.append(p);
+    const std::wstring needle = lowerWide(query);
+    std::vector<Profile> result;
+    for (const Profile &profile : m_profiles) {
+        if (lowerWide(profile.name).find(needle) != std::wstring::npos
+            || lowerWide(profile.host).find(needle) != std::wstring::npos) {
+            result.push_back(profile);
+        }
     }
     return result;
 }
 
-static Profile profileFromJson(const QJsonObject &obj)
-{
-    Profile p;
-    p.id = obj["id"].toString();
-    p.name = obj["name"].toString();
-    p.host = obj["host"].toString();
-    p.port = obj["port"].toInt(3389);
-    p.username = obj["username"].toString();
-    p.password = obj["password"].toString();
-    p.clipboardEnabled = obj["clipboardEnabled"].toBool(true);
-    p.ignoreCertificate = obj["ignoreCertificate"].toBool(true);
-    return p;
-}
-
-static QJsonObject profileToJson(const Profile &p)
-{
-    QJsonObject obj;
-    obj["id"] = p.id;
-    obj["name"] = p.name;
-    obj["host"] = p.host;
-    obj["port"] = p.port;
-    obj["username"] = p.username;
-    obj["password"] = p.password;
-    obj["clipboardEnabled"] = p.clipboardEnabled;
-    obj["ignoreCertificate"] = p.ignoreCertificate;
-    return obj;
-}
-
 void ProfileRepository::load()
 {
-    QFile file(m_filePath);
-    if (!file.open(QIODevice::ReadOnly))
+    const std::string contents = readFile(m_filePath);
+    if (contents.empty())
         return;
 
-    QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-    file.close();
-
-    if (!doc.isArray())
+    cJSON *root = cJSON_Parse(contents.c_str());
+    if (!root)
         return;
 
     m_profiles.clear();
-    for (const auto &val : doc.array()) {
-        if (val.isObject())
-            m_profiles.append(profileFromJson(val.toObject()));
+    if (!cJSON_IsArray(root)) {
+        cJSON_Delete(root);
+        return;
     }
+
+    cJSON *item = nullptr;
+    cJSON_ArrayForEach(item, root) {
+        if (cJSON_IsObject(item))
+            m_profiles.push_back(profileFromJson(item));
+    }
+
+    cJSON_Delete(root);
 }
 
 void ProfileRepository::save() const
 {
-    QJsonArray arr;
-    for (const auto &p : m_profiles)
-        arr.append(profileToJson(p));
+    cJSON *root = cJSON_CreateArray();
+    for (const Profile &profile : m_profiles)
+        cJSON_AddItemToArray(root, profileToJson(profile));
 
-    QFile file(m_filePath);
-    if (!file.open(QIODevice::WriteOnly))
+    char *json = cJSON_Print(root);
+    if (!json) {
+        cJSON_Delete(root);
         return;
-    file.write(QJsonDocument(arr).toJson());
-    file.close();
+    }
+
+    writeFile(m_filePath, json);
+    cJSON_free(json);
+    cJSON_Delete(root);
 }

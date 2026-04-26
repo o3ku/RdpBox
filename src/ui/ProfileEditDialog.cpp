@@ -44,11 +44,11 @@ void ProfileEditDialog::OnOK()
 void ProfileEditDialog::setProfile(const Profile &profile)
 {
     m_profile = profile;
-    m_name = CString(profile.name.toStdWString().c_str());
-    m_host = CString(profile.host.toStdWString().c_str());
+    m_name = profile.name.c_str();
+    m_host = profile.host.c_str();
     m_port = profile.port;
-    m_username = CString(profile.username.toStdWString().c_str());
-    m_password = CString(profile.password.toStdWString().c_str());
+    m_username = profile.username.c_str();
+    m_password = profile.password.c_str();
     m_clipboardEnabled = profile.clipboardEnabled ? TRUE : FALSE;
     m_ignoreCertificate = profile.ignoreCertificate ? TRUE : FALSE;
 }
@@ -56,11 +56,11 @@ void ProfileEditDialog::setProfile(const Profile &profile)
 Profile ProfileEditDialog::profile() const
 {
     Profile p = m_profile;
-    p.name = QString::fromWCharArray(m_name.GetString());
-    p.host = QString::fromWCharArray(m_host.GetString());
+    p.name = static_cast<LPCWSTR>(m_name);
+    p.host = static_cast<LPCWSTR>(m_host);
     p.port = m_port;
-    p.username = QString::fromWCharArray(m_username.GetString());
-    p.password = QString::fromWCharArray(m_password.GetString());
+    p.username = static_cast<LPCWSTR>(m_username);
+    p.password = static_cast<LPCWSTR>(m_password);
     p.clipboardEnabled = m_clipboardEnabled != FALSE;
     p.ignoreCertificate = m_ignoreCertificate != FALSE;
     return p;
