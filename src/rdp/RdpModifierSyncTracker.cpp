@@ -16,12 +16,18 @@ void RdpModifierSyncTracker::reset()
 void RdpModifierSyncTracker::recordKeyState(unsigned int virtualKey, bool down)
 {
     switch (virtualKey) {
+    case VK_LCONTROL:
+    case VK_RCONTROL:
     case VK_CONTROL:
         m_controlDown = down;
         break;
+    case VK_LSHIFT:
+    case VK_RSHIFT:
     case VK_SHIFT:
         m_shiftDown = down;
         break;
+    case VK_LMENU:
+    case VK_RMENU:
     case VK_MENU:
         m_altDown = down;
         break;
