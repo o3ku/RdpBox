@@ -1,27 +1,24 @@
 #pragma once
 
-#include <QCursor>
-#include <QImage>
-#include <QObject>
-#include <QPoint>
-#include <QSize>
+#include "common/NativeTypes.h"
 
+#include <cstdint>
+#include <functional>
 #include <memory>
+#include <string>
 
-class FreeRdpProcess : public QObject
+class FreeRdpProcess
 {
-    Q_OBJECT
-
 public:
     enum class State { Idle, Starting, Running, Finished };
 
-    explicit FreeRdpProcess(QObject *parent = nullptr);
+    FreeRdpProcess();
     ~FreeRdpProcess();
 
-    void start(const QString &host,
+    void start(const std::wstring &host,
                int port,
-               const QString &username,
-               const QString &password,
+               const std::wstring &username,
+               const std::wstring &password,
                int width = 0,
                int height = 0,
                bool clipboardEnabled = true,
@@ -29,34 +26,31 @@ public:
     void stop();
 
     State state() const;
-    QImage frame() const;
-    QSize desktopSize() const;
-    QCursor cursor() const;
+    FrameBuffer frame() const;
+    SizeI desktopSize() const;
+    CursorInfo cursor() const;
+
+    void setStateChangedCallback(std::function<void(State)> callback);
+    void setFrameUpdatedCallback(std::function<void()> callback);
+    void setDesktopResizedCallback(std::function<void(const SizeI &)> callback);
+    void setCursorUpdatedCallback(std::function<void()> callback);
 
     void sendFocusIn();
-    void sendKeyMessage(quint32 message, quintptr wParam, qintptr lParam);
-    void sendMouseMove(const QPoint &pos, const QSize &viewSize);
-    void sendMouseButton(Qt::MouseButton button, bool down,
-                         const QPoint &pos, const QSize &viewSize);
-    void sendWheel(const QPoint &angleDelta, const QPoint &pos, const QSize &viewSize);
-    void requestResize(const QSize &size);
-    void updateFrameFromBackend(const QImage &frame, const QSize &desktopSize);
+    void sendKeyMessage(std::uint32_t message, std::uintptr_t wParam, std::intptr_t lParam);
+    void sendMouseMove(PointI pos, SizeI viewSize);
+    void sendMouseButton(MouseButton button, bool down, PointI pos, SizeI viewSize);
+    void sendWheel(PointI angleDelta, PointI pos, SizeI viewSize);
+    void requestResize(SizeI size);
+
+    void updateFrameFromBackend(const FrameBuffer &frame, const SizeI &desktopSize);
     void updateStateFromBackend(State state);
-    void updateCursorFromBackend(const QCursor &cursor, bool hidden);
+    void updateCursorFromBackend(const CursorInfo &cursor);
     void resetCursorFromBackend();
     void attachClipboardChannel(void *channelContext);
     void detachClipboardChannel();
 
-signals:
-    void stateChanged(FreeRdpProcess::State newState);
-    void frameUpdated();
-    void desktopResized(const QSize &size);
-    void cursorUpdated();
-
 private:
     struct Private;
-
-    void setState(State newState);
 
     std::unique_ptr<Private> m_d;
 };
