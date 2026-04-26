@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <string_view>
 #include <vector>
 
 #include <cjson/cJSON.h>
+#include <windows.h>
 
 #include "common/Win32String.h"
 
@@ -42,7 +44,7 @@ static Profile profileFromJson(const cJSON *object)
     profile.port = cJSON_IsNumber(port) ? port->valueint : 3389;
     profile.username = wideFromUtf8(cJSON_GetStringValue(username) ? cJSON_GetStringValue(username) : "");
     profile.password = wideFromUtf8(cJSON_GetStringValue(password) ? cJSON_GetStringValue(password) : "");
-    profile.clipboardEnabled = cJSON_IsTrue(clipboardEnabled);
+    profile.clipboardEnabled = !cJSON_IsFalse(clipboardEnabled);
     profile.ignoreCertificate = !cJSON_IsFalse(ignoreCertificate);
     return profile;
 }
@@ -73,6 +75,27 @@ static void writeFile(const std::wstring &filePath, const std::string &contents)
         std::fwrite(contents.data(), 1, contents.size(), file);
 
     std::fclose(file);
+}
+
+static bool containsInsensitive(const std::wstring &haystack, const std::wstring &needle)
+{
+    if (needle.empty())
+        return true;
+    if (needle.size() > haystack.size())
+        return false;
+
+    const std::wstring_view haystackView(haystack);
+    const std::wstring_view needleView(needle);
+    for (size_t offset = 0; offset + needleView.size() <= haystackView.size(); ++offset) {
+        const int result = CompareStringOrdinal(haystackView.data() + offset,
+                                                static_cast<int>(needleView.size()),
+                                                needleView.data(),
+                                                static_cast<int>(needleView.size()),
+                                                TRUE);
+        if (result == CSTR_EQUAL)
+            return true;
+    }
+    return false;
 }
 }
 
@@ -123,11 +146,10 @@ std::vector<Profile> ProfileRepository::search(const std::wstring &query) const
     if (query.empty())
         return m_profiles;
 
-    const std::wstring needle = lowerWide(query);
     std::vector<Profile> result;
     for (const Profile &profile : m_profiles) {
-        if (lowerWide(profile.name).find(needle) != std::wstring::npos
-            || lowerWide(profile.host).find(needle) != std::wstring::npos) {
+        if (containsInsensitive(profile.name, query)
+            || containsInsensitive(profile.host, query)) {
             result.push_back(profile);
         }
     }
