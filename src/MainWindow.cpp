@@ -7,9 +7,9 @@
 #include "ui/ProfileEditDialog.h"
 #include "resources/resource.h"
 
-#include <QDir>
-#include <QStandardPaths>
-#include <QUuid>
+#include <shlobj.h>
+
+#include "common/Win32String.h"
 
 IMPLEMENT_DYNAMIC(MainWindow, CFrameWnd)
 
@@ -61,9 +61,13 @@ int MainWindow::OnCreate(LPCREATESTRUCT createStruct)
     if (CFrameWnd::OnCreate(createStruct) == -1)
         return -1;
 
-    const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    QDir().mkpath(dataDir);
-    m_profileRepository = std::make_unique<ProfileRepository>(dataDir + "/profiles.json");
+    wchar_t pathBuffer[MAX_PATH] = {};
+    if (FAILED(SHGetFolderPathW(nullptr, CSIDL_APPDATA | CSIDL_FLAG_CREATE, nullptr, SHGFP_TYPE_CURRENT, pathBuffer)))
+        return -1;
+
+    std::wstring dataDir = std::wstring(pathBuffer) + L"\\RdpBox";
+    CreateDirectoryW(dataDir.c_str(), nullptr);
+    m_profileRepository = std::make_unique<ProfileRepository>(dataDir + L"\\profiles.json");
 
     CRect clientRect;
     GetClientRect(&clientRect);
@@ -127,8 +131,8 @@ void MainWindow::OnNewConnection()
         return;
 
     Profile profile = dialog.profile();
-    if (profile.id.isEmpty())
-        profile.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    if (profile.id.empty())
+        profile.id = createGuidString();
 
     m_profileRepository->addProfile(profile);
     if (m_sessionManager)
@@ -169,7 +173,7 @@ void MainWindow::OnContextMenu(CWnd *window, CPoint point)
 
     const UINT command = menu.TrackPopupMenu(TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN,
                                              point.x, point.y, this);
-    const QString sessionId = m_sessionManager->sessionIdByTabIndex(index);
+    const auto sessionId = m_sessionManager->sessionIdByTabIndex(index);
     if (sessionId.isEmpty())
         return;
 
@@ -224,9 +228,9 @@ void MainWindow::openConnectionDialog(bool selectionRequired)
     dialog.setSelectionRequired(selectionRequired || !hasOpenTabs());
 
     if (dialog.DoModal() == IDOK) {
-        const QStringList profileIds = dialog.selectedProfileIds();
-        for (const QString &profileId : profileIds) {
-            const Profile profile = m_profileRepository->profile(profileId);
+        const std::vector<std::string> profileIds = dialog.selectedProfileIds();
+        for (const std::string &profileId : profileIds) {
+            const Profile profile = m_profileRepository->profileById(profileId);
             if (profile.isValid() && m_sessionManager)
                 m_sessionManager->openSession(profile);
         }

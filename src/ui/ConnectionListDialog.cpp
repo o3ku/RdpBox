@@ -8,9 +8,6 @@
 
 #include <algorithm>
 
-#include <QMessageBox>
-#include <QUuid>
-
 IMPLEMENT_DYNAMIC(ConnectionListDialog, CDialogEx)
 
 BEGIN_MESSAGE_MAP(ConnectionListDialog, CDialogEx)
@@ -81,9 +78,8 @@ void ConnectionListDialog::OnClose()
 void ConnectionListDialog::OnSearchChanged()
 {
     UpdateData(TRUE);
-    const QString query = QString::fromWCharArray(m_searchText.GetString());
     if (m_repo)
-        refreshList(m_repo->search(query));
+        refreshList(m_repo->search(m_searchText.GetString()));
 }
 
 void ConnectionListDialog::OnItemDoubleClicked(NMHDR *notify, LRESULT *result)
@@ -101,19 +97,19 @@ void ConnectionListDialog::OnNewClicked()
         return;
 
     Profile p = dialog.profile();
-    if (p.id.isEmpty())
-        p.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    if (p.id.empty())
+        p.id = createGuidString();
 
     if (m_repo) {
         m_repo->addProfile(p);
-        refreshList(m_repo->search(QString::fromWCharArray(m_searchText.GetString())));
+        refreshList(m_repo->search(m_searchText.GetString()));
     }
 }
 
 void ConnectionListDialog::OnEditClicked()
 {
     const Profile cur = currentProfile();
-    if (cur.id.isEmpty())
+    if (cur.id.empty())
         return;
 
     ProfileEditDialog dialog(this);
@@ -123,7 +119,7 @@ void ConnectionListDialog::OnEditClicked()
 
     if (m_repo) {
         m_repo->updateProfile(dialog.profile());
-        refreshList(m_repo->search(QString::fromWCharArray(m_searchText.GetString())));
+        refreshList(m_repo->search(m_searchText.GetString()));
     }
 }
 
@@ -146,15 +142,15 @@ void ConnectionListDialog::OnDeleteClicked()
     if (!m_repo)
         return;
 
-    QStringList ids;
+    std::vector<std::string> ids;
     for (int idx : indices) {
-        if (idx >= 0 && idx < m_currentProfiles.size())
-            ids.append(m_currentProfiles[idx].id);
+        if (idx >= 0 && idx < static_cast<int>(m_currentProfiles.size()))
+            ids.push_back(m_currentProfiles[idx].id);
     }
-    for (const QString &id : ids)
+    for (const std::string &id : ids)
         m_repo->removeProfile(id);
 
-    refreshList(m_repo->search(QString::fromWCharArray(m_searchText.GetString())));
+    refreshList(m_repo->search(m_searchText.GetString()));
 }
 
 void ConnectionListDialog::OnConnectClicked()
@@ -166,7 +162,7 @@ void ConnectionListDialog::OnConnectClicked()
     if (!m_repo)
         return;
 
-    m_currentProfiles = m_repo->search(QString::fromWCharArray(m_searchText.GetString()));
+    m_currentProfiles = m_repo->search(m_searchText.GetString());
     CDialogEx::OnOK();
 }
 
@@ -176,22 +172,22 @@ void ConnectionListDialog::OnDuplicateClicked()
     if (indices.empty() || !m_repo)
         return;
 
-    m_currentProfiles = m_repo->search(QString::fromWCharArray(m_searchText.GetString()));
+    m_currentProfiles = m_repo->search(m_searchText.GetString());
     for (int idx : indices) {
-        if (idx < 0 || idx >= m_currentProfiles.size())
+        if (idx < 0 || idx >= static_cast<int>(m_currentProfiles.size()))
             continue;
 
         Profile dup = m_currentProfiles[idx];
-        dup.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-        if (!dup.name.isEmpty())
-            dup.name += "(n)";
+        dup.id = createGuidString();
+        if (!dup.name.empty())
+            dup.name += L"(n)";
         else
-            dup.name = "(unnamed)";
+            dup.name = L"(unnamed)";
 
         m_repo->addProfile(dup);
     }
 
-    refreshList(m_repo->search(QString::fromWCharArray(m_searchText.GetString())));
+    refreshList(m_repo->search(m_searchText.GetString()));
 }
 
 void ConnectionListDialog::OnItemChanged(NMHDR *notify, LRESULT *result)
@@ -201,13 +197,13 @@ void ConnectionListDialog::OnItemChanged(NMHDR *notify, LRESULT *result)
     updateButtonStates();
 }
 
-QStringList ConnectionListDialog::selectedProfileIds() const
+std::vector<std::string> ConnectionListDialog::selectedProfileIds() const
 {
-    QStringList ids;
+    std::vector<std::string> ids;
     const auto indices = selectedIndices();
     for (int idx : indices) {
-        if (idx >= 0 && idx < m_currentProfiles.size())
-            ids.append(m_currentProfiles[idx].id);
+        if (idx >= 0 && idx < static_cast<int>(m_currentProfiles.size()))
+            ids.push_back(m_currentProfiles[idx].id);
     }
     return ids;
 }
@@ -217,7 +213,7 @@ void ConnectionListDialog::setSelectionRequired(bool required)
     m_selectionRequired = required;
 }
 
-void ConnectionListDialog::refreshList(const QList<Profile> &profiles)
+void ConnectionListDialog::refreshList(const std::vector<Profile> &profiles)
 {
     CListCtrl *list = static_cast<CListCtrl*>(GetDlgItem(IDC_CONNECTION_LIST));
     if (!list)
@@ -227,10 +223,10 @@ void ConnectionListDialog::refreshList(const QList<Profile> &profiles)
     list->SetRedraw(FALSE);
     list->DeleteAllItems();
 
-    for (int idx = 0; idx < profiles.size(); ++idx) {
+    for (int idx = 0; idx < static_cast<int>(profiles.size()); ++idx) {
         const auto &p = profiles[idx];
-        const CString name(p.name.toStdWString().c_str());
-        const CString host(p.host.toStdWString().c_str());
+        const CString name(p.name.c_str());
+        const CString host(p.host.c_str());
         CString portStr;
         portStr.Format(L"%d", p.port);
 
@@ -278,7 +274,7 @@ Profile ConnectionListDialog::currentProfile() const
         return {};
 
     const int idx = list->GetNextSelectedItem(pos);
-    if (idx < 0 || idx >= m_currentProfiles.size())
+    if (idx < 0 || idx >= static_cast<int>(m_currentProfiles.size()))
         return {};
 
     return m_currentProfiles[idx];
