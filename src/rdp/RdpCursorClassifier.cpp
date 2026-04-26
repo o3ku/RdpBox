@@ -39,6 +39,12 @@ struct CursorMaskFeatures
     int maxRowIndex = 0;
 };
 
+double cursorMaskDistance(const std::vector<std::uint8_t> &left, const std::vector<std::uint8_t> &right);
+CursorMaskFeatures analyzeCursorMask(const std::vector<std::uint8_t> &mask);
+bool isCandidateCompatible(CursorKind kind, const CursorMaskFeatures &features);
+bool shouldUseLocalIBeamCursor(const CursorMaskFeatures &features, PointI hotspot);
+const std::vector<CursorCandidate> &systemCursorCandidates();
+
 bool isValidFrameBuffer(const FrameBuffer &buffer)
 {
     if (buffer.empty())
@@ -50,6 +56,35 @@ bool isValidFrameBuffer(const FrameBuffer &buffer)
     const std::size_t requiredBytes = static_cast<std::size_t>(buffer.stride)
         * static_cast<std::size_t>(buffer.height);
     return buffer.pixels.size() >= requiredBytes;
+}
+
+FrameBuffer opaqueCursorFrame(FrameBuffer buffer)
+{
+    if (!isValidFrameBuffer(buffer))
+        return {};
+
+    bool hasMeaningfulAlpha = false;
+    for (int y = 0; y < buffer.height && !hasMeaningfulAlpha; ++y) {
+        const std::uint8_t *row = buffer.pixels.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(buffer.stride);
+        for (int x = 0; x < buffer.width; ++x) {
+            const std::uint8_t alpha = row[static_cast<std::size_t>(x) * 4u + 3u];
+            if (alpha != 0) {
+                hasMeaningfulAlpha = true;
+                break;
+            }
+        }
+    }
+
+    if (hasMeaningfulAlpha)
+        return buffer;
+
+    for (int y = 0; y < buffer.height; ++y) {
+        std::uint8_t *row = buffer.pixels.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(buffer.stride);
+        for (int x = 0; x < buffer.width; ++x)
+            row[static_cast<std::size_t>(x) * 4u + 3u] = 0xFF;
+    }
+
+    return buffer;
 }
 
 FrameBuffer cursorFrameBufferFromHandle(HCURSOR cursorHandle, PointI *hotspot = nullptr)
@@ -161,18 +196,42 @@ std::vector<std::uint8_t> normalizedCursorMask(const FrameBuffer &source)
     return normalized;
 }
 
-double cursorMaskDistance(const std::vector<std::uint8_t> &left, const std::vector<std::uint8_t> &right)
+std::optional<CursorKind> classifyShapeFromPreparedFrame(const FrameBuffer &cursorFrame, PointI hotspot)
 {
-    if (left.empty() || right.empty() || left.size() != right.size())
-        return 1.0;
+    const std::vector<std::uint8_t> remoteMask = normalizedCursorMask(cursorFrame);
+    if (remoteMask.empty())
+        return std::nullopt;
 
-    int diff = 0;
-    for (std::size_t i = 0; i < left.size(); ++i) {
-        if ((left[i] > 0) != (right[i] > 0))
-            ++diff;
+    const CursorMaskFeatures remoteFeatures = analyzeCursorMask(remoteMask);
+    if (!remoteFeatures.valid)
+        return std::nullopt;
+
+    if (shouldUseLocalIBeamCursor(remoteFeatures, hotspot))
+        return CursorKind::IBeam;
+
+    const auto &candidates = systemCursorCandidates();
+    double bestScore = 1.0;
+    std::optional<CursorKind> bestShape;
+    double bestThreshold = 0.0;
+
+    for (const auto &candidate : candidates) {
+        if (candidate.mask.empty())
+            continue;
+        if (!isCandidateCompatible(candidate.kind, remoteFeatures))
+            continue;
+
+        const double score = cursorMaskDistance(remoteMask, candidate.mask);
+        if (score < bestScore) {
+            bestScore = score;
+            bestShape = candidate.kind;
+            bestThreshold = candidate.maxDistance;
+        }
     }
 
-    return static_cast<double>(diff) / static_cast<double>(left.size());
+    if (!bestShape.has_value() || bestScore > bestThreshold)
+        return std::nullopt;
+
+    return bestShape;
 }
 
 CursorMaskFeatures analyzeCursorMask(const std::vector<std::uint8_t> &mask)
@@ -251,6 +310,20 @@ CursorMaskFeatures analyzeCursorMask(const std::vector<std::uint8_t> &mask)
     features.antiDiagonalFill = static_cast<double>(antiDiagonalHits) / static_cast<double>(features.occupiedPixels);
 
     return features;
+}
+
+double cursorMaskDistance(const std::vector<std::uint8_t> &left, const std::vector<std::uint8_t> &right)
+{
+    if (left.empty() || right.empty() || left.size() != right.size())
+        return 1.0;
+
+    int diff = 0;
+    for (std::size_t i = 0; i < left.size(); ++i) {
+        if ((left[i] > 0) != (right[i] > 0))
+            ++diff;
+    }
+
+    return static_cast<double>(diff) / static_cast<double>(left.size());
 }
 
 bool isCandidateCompatible(CursorKind kind, const CursorMaskFeatures &features)
@@ -478,48 +551,18 @@ namespace RdpCursorClassifier
 {
 std::optional<CursorKind> classifyShape(const FrameBuffer &remoteImage, PointI hotspot)
 {
-    const std::vector<std::uint8_t> remoteMask = normalizedCursorMask(remoteImage);
-    if (remoteMask.empty())
-        return std::nullopt;
-
-    const CursorMaskFeatures remoteFeatures = analyzeCursorMask(remoteMask);
-    if (!remoteFeatures.valid)
-        return std::nullopt;
-
-    if (shouldUseLocalIBeamCursor(remoteFeatures, hotspot))
-        return CursorKind::IBeam;
-
-    const auto &candidates = systemCursorCandidates();
-    double bestScore = 1.0;
-    std::optional<CursorKind> bestShape;
-    double bestThreshold = 0.0;
-
-    for (const auto &candidate : candidates) {
-        if (candidate.mask.empty())
-            continue;
-        if (!isCandidateCompatible(candidate.kind, remoteFeatures))
-            continue;
-
-        const double score = cursorMaskDistance(remoteMask, candidate.mask);
-        if (score < bestScore) {
-            bestScore = score;
-            bestShape = candidate.kind;
-            bestThreshold = candidate.maxDistance;
-        }
-    }
-
-    if (!bestShape.has_value() || bestScore > bestThreshold)
-        return std::nullopt;
-
-    return bestShape;
+    const FrameBuffer cursorFrame = opaqueCursorFrame(remoteImage);
+    return classifyShapeFromPreparedFrame(cursorFrame, hotspot);
 }
 
 CursorInfo createCursor(const FrameBuffer &remoteImage, PointI hotspot)
 {
-    if (const auto kind = classifyShape(remoteImage, hotspot))
+    const FrameBuffer cursorFrame = opaqueCursorFrame(remoteImage);
+
+    if (const auto kind = classifyShapeFromPreparedFrame(cursorFrame, hotspot))
         return CursorInfo{*kind, nullptr, false};
 
-    const HCURSOR cursorHandle = createCursorHandleFromFrame(remoteImage, hotspot);
+    const HCURSOR cursorHandle = createCursorHandleFromFrame(cursorFrame, hotspot);
     return CursorInfo{CursorKind::Custom, cursorHandle, cursorHandle != nullptr};
 }
 
