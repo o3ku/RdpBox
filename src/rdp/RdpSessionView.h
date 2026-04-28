@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <string>
 
 #include "profiles/Profile.h"
 #include "rdp/FreeRdpProcess.h"
@@ -78,6 +79,9 @@ private:
     void setFocusToFreeRdp();
     void showOverlay(const CString &text);
     void clearOverlay();
+    void beginResolutionUpdate(SizeI size);
+    void beginFrameCapture(const wchar_t *reason);
+    void captureFrameIfRequested(const FrameBuffer &frame);
     void syncMouseModifiers(UINT flags);
     unsigned int currentModifiers() const;
     SizeI currentViewSize() const;
@@ -104,9 +108,18 @@ private:
     CString m_overlayText;
     CFont m_overlayFont;
     bool m_reconnecting = false;
+    bool m_resolutionUpdatePending = false;
+    bool m_waitingForFirstContentFrame = false;
+    bool m_frameGateActive = false;
+    int m_frameGateRemaining = 0;
+    SizeI m_pendingDesktopSize;
+    std::wstring m_captureDirectory;
+    int m_captureFramesRemaining = 0;
+    int m_captureFrameIndex = 0;
     uint64_t m_cachedFrameGeneration = 0;
     uint64_t m_renderedFrameGeneration = 0;
     FrameBuffer m_cachedFrame;
+    FrameBuffer m_pendingVisibleFrame;
     HDC m_renderDc = nullptr;
     HBITMAP m_renderBitmap = nullptr;
     HGDIOBJ m_renderOldBitmap = nullptr;

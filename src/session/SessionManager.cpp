@@ -116,8 +116,14 @@ void SessionManager::layoutSessions()
     CRect rect;
     m_sessionHost->GetClientRect(&rect);
     for (auto &session : m_sessions) {
-        if (session->view && session->view->GetSafeHwnd())
-            session->view->MoveWindow(rect);
+        if (session->view && session->view->GetSafeHwnd()) {
+            session->view->SetWindowPos(nullptr,
+                                        rect.left, rect.top,
+                                        rect.Width(), rect.Height(),
+                                        SWP_NOZORDER | SWP_NOACTIVATE);
+            session->view->RedrawWindow(nullptr, nullptr,
+                                        RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN | RDW_NOERASE);
+        }
     }
 }
 
