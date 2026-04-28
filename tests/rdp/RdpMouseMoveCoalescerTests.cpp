@@ -1,6 +1,7 @@
 #include <cassert>
 #include <optional>
 
+#include "common/NativeTypes.h"
 #include "rdp/RdpMouseMoveCoalescer.h"
 
 namespace
@@ -31,6 +32,10 @@ int main()
     expectPoint(coalescer.onMouseMove(PointI{50, 60}), 50, 60);
     assert(!coalescer.onMouseMove(PointI{50, 60}).has_value());
     assert(!coalescer.onTimer().has_value());
+
+    coalescer.reset();
+    expectPoint(coalescer.onMouseMove(PointI{1, 2}), 1, 2);
+    assert(!coalescer.flush().has_value());
 
     return 0;
 }

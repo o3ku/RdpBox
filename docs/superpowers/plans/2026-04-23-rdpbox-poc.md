@@ -1,5 +1,7 @@
 # RdpBox POC Implementation Plan
 
+> Historical note: this plan targets the original Qt-based POC and is no longer the authoritative implementation guide for the current MFC/Win32 codebase.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a minimal Qt application that launches wfreerdp.exe as a child process, embeds it via `/parent-window`, and validates keyboard/mouse input, resize, and disconnect handling.

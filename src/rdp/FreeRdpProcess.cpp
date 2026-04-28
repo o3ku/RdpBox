@@ -28,8 +28,6 @@
 #include <freerdp3/freerdp/locale/keyboard.h>
 #include <freerdp3/freerdp/locale/locale.h>
 
-#define NOMINMAX
-#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <winsock2.h>
 
@@ -467,16 +465,25 @@ DWORD nativefreerdp_verify_certificate_ex(freerdp *instance, const char *host, U
                                           const char *commonName, const char *subject,
                                           const char *issuer, const char *fingerprint, DWORD flags)
 {
-    static_cast<void>(host);
-    static_cast<void>(port);
-    static_cast<void>(commonName);
-    static_cast<void>(subject);
-    static_cast<void>(issuer);
-    static_cast<void>(fingerprint);
     static_cast<void>(flags);
 
     const NativeRdpContext *nativeContext = instance ? toNativeContext(instance->context) : nullptr;
-    return (nativeContext && nativeContext->ignoreCertificate) ? 2 : 0;
+    if (!nativeContext || !nativeContext->owner)
+        return 0;
+
+    if (nativeContext->ignoreCertificate)
+        return 2;
+
+    FreeRdpProcess::CertificateChallenge challenge;
+    challenge.host = wideFromUtf8(host ? host : "");
+    challenge.port = port;
+    challenge.commonName = wideFromUtf8(commonName ? commonName : "");
+    challenge.subject = wideFromUtf8(subject ? subject : "");
+    challenge.issuer = wideFromUtf8(issuer ? issuer : "");
+    challenge.fingerprint = wideFromUtf8(fingerprint ? fingerprint : "");
+    challenge.changed = false;
+
+    return nativeContext->owner->challengeCertificate(challenge) ? 2 : 0;
 }
 
 DWORD nativefreerdp_verify_changed_certificate_ex(freerdp *instance, const char *host, UINT16 port,
@@ -485,19 +492,28 @@ DWORD nativefreerdp_verify_changed_certificate_ex(freerdp *instance, const char 
                                                   const char *oldSubject, const char *oldIssuer,
                                                   const char *oldFingerprint, DWORD flags)
 {
-    static_cast<void>(host);
-    static_cast<void>(port);
-    static_cast<void>(commonName);
-    static_cast<void>(subject);
-    static_cast<void>(issuer);
-    static_cast<void>(newFingerprint);
     static_cast<void>(oldSubject);
     static_cast<void>(oldIssuer);
     static_cast<void>(oldFingerprint);
     static_cast<void>(flags);
 
     const NativeRdpContext *nativeContext = instance ? toNativeContext(instance->context) : nullptr;
-    return (nativeContext && nativeContext->ignoreCertificate) ? 2 : 0;
+    if (!nativeContext || !nativeContext->owner)
+        return 0;
+
+    if (nativeContext->ignoreCertificate)
+        return 2;
+
+    FreeRdpProcess::CertificateChallenge challenge;
+    challenge.host = wideFromUtf8(host ? host : "");
+    challenge.port = port;
+    challenge.commonName = wideFromUtf8(commonName ? commonName : "");
+    challenge.subject = wideFromUtf8(subject ? subject : "");
+    challenge.issuer = wideFromUtf8(issuer ? issuer : "");
+    challenge.fingerprint = wideFromUtf8(newFingerprint ? newFingerprint : "");
+    challenge.changed = true;
+
+    return nativeContext->owner->challengeCertificate(challenge) ? 2 : 0;
 }
 
 BOOL nativefreerdp_global_init()
@@ -565,12 +581,19 @@ struct FreeRdpProcess::Private
     std::function<void()> frameUpdated;
     std::function<void(const SizeI &)> desktopResized;
     std::function<void()> cursorUpdated;
+    std::function<void(const CertificateChallenge &)> certificateChallenge;
+
+    HANDLE certDecidedEvent = nullptr;
+    HANDLE certAbortEvent = nullptr;
+    std::atomic_bool certDecisionAccepted = false;
 };
 
 FreeRdpProcess::FreeRdpProcess()
     : m_d(std::make_unique<Private>())
 {
     m_d->cursor = defaultCursorInfo();
+    m_d->certDecidedEvent = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    m_d->certAbortEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
 }
 
 FreeRdpProcess::~FreeRdpProcess()
@@ -579,12 +602,21 @@ FreeRdpProcess::~FreeRdpProcess()
 
     std::scoped_lock lock(m_d->mutex);
     destroyCursorInfo(m_d->cursor);
+    if (m_d->certDecidedEvent) {
+        ::CloseHandle(m_d->certDecidedEvent);
+        m_d->certDecidedEvent = nullptr;
+    }
+    if (m_d->certAbortEvent) {
+        ::CloseHandle(m_d->certAbortEvent);
+        m_d->certAbortEvent = nullptr;
+    }
 }
 
 void FreeRdpProcess::start(const std::wstring &host,
                            int port,
                            const std::wstring &username,
                            const std::wstring &password,
+                           const std::wstring &domain,
                            int width,
                            int height,
                            bool clipboardEnabled,
@@ -619,12 +651,14 @@ void FreeRdpProcess::start(const std::wstring &host,
     const std::string hostUtf8 = utf8FromWide(host);
     const std::string usernameUtf8 = utf8FromWide(username);
     const std::string passwordUtf8 = utf8FromWide(password);
+    const std::string domainUtf8 = utf8FromWide(domain);
 
     const bool configured =
         freerdp_settings_set_string(settings, FreeRDP_ServerHostname, hostUtf8.c_str()) &&
         freerdp_settings_set_uint32(settings, FreeRDP_ServerPort, static_cast<UINT32>(port)) &&
         freerdp_settings_set_string(settings, FreeRDP_Username, usernameUtf8.c_str()) &&
         freerdp_settings_set_string(settings, FreeRDP_Password, passwordUtf8.c_str()) &&
+        freerdp_settings_set_string(settings, FreeRDP_Domain, domainUtf8.c_str()) &&
         freerdp_settings_set_uint32(settings, FreeRDP_DesktopWidth, desktopWidth) &&
         freerdp_settings_set_uint32(settings, FreeRDP_DesktopHeight, desktopHeight) &&
         freerdp_settings_set_uint32(settings, FreeRDP_ColorDepth, 32) &&
@@ -691,6 +725,9 @@ void FreeRdpProcess::stop()
 {
     m_d->stopRequested = true;
 
+    if (m_d->certAbortEvent)
+        ::SetEvent(m_d->certAbortEvent);
+
     if (m_d->context)
         freerdp_abort_connect_context(m_d->context);
 
@@ -702,6 +739,9 @@ void FreeRdpProcess::stop()
         freerdp_client_context_free(m_d->context);
         m_d->context = nullptr;
     }
+
+    if (m_d->certAbortEvent)
+        ::ResetEvent(m_d->certAbortEvent);
 
     CursorInfo oldCursor;
     {
@@ -774,6 +814,43 @@ void FreeRdpProcess::setCursorUpdatedCallback(std::function<void()> callback)
 {
     std::scoped_lock lock(m_d->mutex);
     m_d->cursorUpdated = std::move(callback);
+}
+
+void FreeRdpProcess::setCertificateChallengeCallback(std::function<void(const CertificateChallenge &)> callback)
+{
+    std::scoped_lock lock(m_d->mutex);
+    m_d->certificateChallenge = std::move(callback);
+}
+
+void FreeRdpProcess::resolveCertificateChallenge(bool accept)
+{
+    m_d->certDecisionAccepted = accept;
+    if (m_d->certDecidedEvent)
+        ::SetEvent(m_d->certDecidedEvent);
+}
+
+bool FreeRdpProcess::challengeCertificate(const CertificateChallenge &challenge)
+{
+    std::function<void(const CertificateChallenge &)> callback;
+    {
+        std::scoped_lock lock(m_d->mutex);
+        callback = m_d->certificateChallenge;
+    }
+
+    if (!callback || !m_d->certDecidedEvent || !m_d->certAbortEvent)
+        return false;
+
+    m_d->certDecisionAccepted = false;
+    ::ResetEvent(m_d->certDecidedEvent);
+
+    callback(challenge);
+
+    HANDLE handles[2] = { m_d->certDecidedEvent, m_d->certAbortEvent };
+    const DWORD waitResult = ::WaitForMultipleObjects(2, handles, FALSE, INFINITE);
+    if (waitResult != WAIT_OBJECT_0)
+        return false;
+
+    return m_d->certDecisionAccepted;
 }
 
 void FreeRdpProcess::sendFocusIn()

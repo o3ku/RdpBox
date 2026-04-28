@@ -1,5 +1,7 @@
 # RdpBox Full Qt Removal Design
 
+> Historical note: this document describes the Qt-removal transition plan. The repository is now MFC/Win32-first; keep this file only as a record of the migration work.
+
 ## Goal
 
 Produce an MFC-first RdpBox build that no longer depends on any Qt module at build time or runtime, while preserving the current single-window shell, profile CRUD flow, session tabs, FreeRDP connection lifecycle, reconnect behavior, clipboard bridge, resize handling, and remote rendering behavior.

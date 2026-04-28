@@ -1,17 +1,19 @@
-#include <afxcmn.h>
 #include <afxwin.h>
 
 #include "SessionManager.h"
 
 #include "common/Win32String.h"
+#include "profiles/ProfileRepository.h"
 #include "rdp/RdpSessionView.h"
+#include "ui/BrowserTabBar.h"
 
 #include <algorithm>
 #include <string>
 
-SessionManager::SessionManager(CTabCtrl *tabCtrl, CWnd *sessionHost)
-    : m_tabCtrl(tabCtrl)
+SessionManager::SessionManager(BrowserTabBar *tabBar, CWnd *sessionHost, ProfileRepository *repository)
+    : m_tabBar(tabBar)
     , m_sessionHost(sessionHost)
+    , m_repository(repository)
 {
 }
 
@@ -22,7 +24,7 @@ SessionManager::~SessionManager()
 
 std::string SessionManager::openSession(const Profile &profile)
 {
-    if (!m_tabCtrl || !m_sessionHost)
+    if (!m_tabBar || !m_sessionHost)
         return {};
 
     auto session = std::make_unique<Session>();
@@ -35,24 +37,29 @@ std::string SessionManager::openSession(const Profile &profile)
     if (!session->view->create(m_sessionHost, hostRect))
         return {};
 
-    session->view->setReconnectRequestedCallback([this, sessionId = session->id]() {
+    const std::string sessionId = session->id;
+    session->view->setReconnectRequestedCallback([this, sessionId]() {
         reconnectSession(sessionId);
+    });
+    session->view->setConnectedCallback([this, sessionId]() {
+        touchLastConnectedAt(sessionId);
+        if (m_sessionConnectedCallback) {
+            const int index = indexOfSession(sessionId);
+            if (index >= 0)
+                m_sessionConnectedCallback(sessionId, m_sessions[static_cast<size_t>(index)]->profile);
+        }
     });
     session->view->connectToHost(profile);
 
-    TCITEM item = {};
-    item.mask = TCIF_TEXT;
-    std::wstring title = profile.name.empty() ? L"(unnamed)" : profile.name;
-    item.pszText = title.data();
-    const int index = m_tabCtrl->InsertItem(static_cast<int>(m_sessions.size()), &item);
-
+    const std::wstring title = profile.name.empty() ? L"(unnamed)" : profile.name;
+    const int index = m_tabBar->insertTab(title);
     if (index < 0) {
         session->view->DestroyWindow();
         return {};
     }
 
     m_sessions.push_back(std::move(session));
-    m_tabCtrl->SetCurSel(index);
+    m_tabBar->setSelectedIndex(index);
     showSessionAtIndex(index);
     return m_sessions[static_cast<size_t>(index)]->id;
 }
@@ -60,18 +67,18 @@ std::string SessionManager::openSession(const Profile &profile)
 void SessionManager::closeSession(const std::string &sessionId)
 {
     const int index = indexOfSession(sessionId);
-    if (index < 0 || !m_tabCtrl)
+    if (index < 0 || !m_tabBar)
         return;
 
     m_sessions[static_cast<size_t>(index)]->view->DestroyWindow();
     m_sessions.erase(m_sessions.begin() + index);
-    m_tabCtrl->DeleteItem(index);
+    m_tabBar->removeTab(index);
 
     if (m_sessions.empty())
         return;
 
     const int nextIndex = std::min(index, static_cast<int>(m_sessions.size()) - 1);
-    m_tabCtrl->SetCurSel(nextIndex);
+    m_tabBar->setSelectedIndex(nextIndex);
     showSessionAtIndex(nextIndex);
 }
 
@@ -92,10 +99,8 @@ void SessionManager::closeAllSessions()
     }
     m_sessions.clear();
 
-    if (m_tabCtrl) {
-        while (m_tabCtrl->GetItemCount() > 0)
-            m_tabCtrl->DeleteItem(0);
-    }
+    if (m_tabBar)
+        m_tabBar->clearTabs();
 }
 
 void SessionManager::activateTab(int index)
@@ -164,3 +169,21 @@ void SessionManager::showSessionAtIndex(int index)
     }
 }
 
+void SessionManager::touchLastConnectedAt(const std::string &sessionId)
+{
+    if (!m_repository)
+        return;
+
+    const int index = indexOfSession(sessionId);
+    if (index < 0)
+        return;
+
+    Profile &profile = m_sessions[static_cast<size_t>(index)]->profile;
+    profile.lastConnectedAt = currentUtcIso8601();
+    m_repository->updateProfile(profile);
+}
+
+void SessionManager::setSessionConnectedCallback(SessionConnectedCallback callback)
+{
+    m_sessionConnectedCallback = std::move(callback);
+}

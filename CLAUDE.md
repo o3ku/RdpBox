@@ -14,7 +14,8 @@ cmake --preset msvc-debug
 cmake --build --preset msvc-debug
 
 # Release build
-cmake --preset msvc-release && cmake --build --preset msvc-release
+cmake --preset msvc-release
+cmake --build --preset msvc-release
 
 # Configure with tests
 cmake --preset msvc-debug-test
@@ -22,52 +23,62 @@ cmake --preset msvc-debug-test
 # Build tests
 cmake --build --preset msvc-debug-test
 
-# Run tests
+# Run all tests
 ctest --preset msvc-debug-test --output-on-failure
+
+# Run a single test by name
+ctest --preset msvc-debug-test -R RdpCursorClassifierTests --output-on-failure
 ```
 
-The vcpkg toolchain is at `D:/local/vcpkg-latest` with triplet `x64-windows-static-md`. Build outputs go to `build/<preset-name>/`.
+The vcpkg toolchain is resolved from the `VCPKG_ROOT` environment variable with triplet `x64-windows-static-md`. Build outputs go to `build/<preset-name>/`. The presets pin `CMAKE_CXX_COMPILER=cl`, so configure from a Visual Studio Developer command prompt (or any shell where `cl` is on PATH); using clang/lld will fail to link FreeRDP because vcpkg builds it with `/GL`.
 
 ## Architecture
 
-RdpBox is a Windows-only, multi-tab RDP session manager built with Qt (5/6 dual-support) and FreeRDP 3.x. It embeds the FreeRDP client as an in-process library (not a subprocess) for direct framebuffer rendering.
+RdpBox is a Windows-only, multi-tab RDP session manager built with MFC/Win32 and FreeRDP 3.x. It embeds the FreeRDP client in-process rather than launching `wfreerdp.exe` as a subprocess.
 
 ### Data Flow
 
-```
-MainWindow (QTabWidget tabs)
-  └─ SessionManager (owns sessions, maps sessionId ↔ RdpSessionWidget)
-       └─ RdpSessionWidget (QWidget, renders frames, handles input)
+```text
+MainWindow (CFrameWnd + tab host)
+  └─ SessionManager (owns sessions, maps sessionId ↔ CRdpSessionView)
+       └─ CRdpSessionView (renders frames, handles input/focus)
             └─ FreeRdpProcess (manages FreeRDP context on a worker thread)
-                 └─ RdpClipboardBridge → WindowsClipboardBackend (OLE clipboard redirection)
+                 └─ RdpClipboardBridge → WindowsClipboardBackend (clipboard redirection)
 ```
 
 ### Key Modules
 
-- **`src/rdp/`** — Core RDP integration:
-  - `FreeRdpProcess` runs the FreeRDP connection on a `std::thread`, communicates frame/cursor/state updates to the Qt thread via `QMetaObject::invokeMethod` with `QueuedConnection`. All shared state is protected by a `QMutex`.
-  - `RdpSessionWidget` renders FreeRDP frames via `QPainter::drawImage` in `paintEvent()`, forwards mouse/keyboard input, and manages a global `WH_KEYBOARD_LL` hook for capturing Win/Alt keys when the session has focus.
-  - Clipboard: `RdpClipboardBridge` delegates to `PlatformClipboardBackend` (interface). `WindowsClipboardBackend` is the Windows implementation — a large (~1700 line) C++ reimplementation of FreeRDP's `wf_cliprdr` that runs a dedicated OLE clipboard thread with a hidden message-only window. There is also a `WindowsClipboardBackendNative.c` which is the original C implementation from FreeRDP (not currently compiled).
-- **`src/session/`** — `SessionManager` maps UUID session IDs to `RdpSessionWidget` instances in the tab widget. Handles open/close/reconnect lifecycle.
-- **`src/profiles/`** — `Profile` struct and `ProfileRepository` for JSON-based profile persistence in `%AppData%/RdpBox/profiles.json`.
-- **`src/ui/`** — `ProfileEditDialog` (create/edit connection profile) and `ConnectionListDialog` (browse/search/select profile).
+- `src/rdp/` - Core RDP integration:
+  - `FreeRdpProcess` runs the FreeRDP connection on a `std::thread` and publishes frame/cursor/state updates back to the UI thread.
+  - `CRdpSessionView` renders the framebuffer, forwards mouse/keyboard input, and handles resize/focus/reconnect behavior.
+  - `RdpClipboardBridge` delegates to `PlatformClipboardBackend`; `WindowsClipboardBackend` owns the Windows clipboard implementation.
+  - Prefer adding new RDP behavior in focused helpers here rather than growing `FreeRdpProcess` or `CRdpSessionView` further.
+- `src/session/` - `SessionManager` maps UUID session IDs to `CRdpSessionView` instances and handles open/close/reconnect lifecycle.
+- `src/profiles/` - `Profile` and `ProfileRepository` handle JSON-based profile persistence in `%AppData%/RdpBox/profiles.json`.
+- `src/ui/` - `ProfileEditDialog` and `ConnectionListDialog`.
+- `src/common/` - Shared native types: `PointI`, `SizeI`, `FrameBuffer`, `CursorInfo` (see `NativeTypes.h`).
 
 ### FreeRDP Integration Details
 
-`FreeRdpProcess` registers custom callbacks (`RDP_CLIENT_ENTRY_POINTS`) with the FreeRDP 3 API:
-- Frame rendering: `gdi_init(PIXEL_FORMAT_BGRX32)` → custom `BeginPaint`/`EndPaint` copies the framebuffer to a `QImage` and delivers it to the Qt thread.
-- Cursor mapping: Remote cursors are compared against local system cursor masks using a distance metric; matching cursors are replaced with native Qt cursors for better rendering quality.
-- Dynamic resolution: Uses the `DispClientContext` channel to send `SendMonitorLayout` on resize (debounced 300ms). Resize triggers a full reconnect.
-- Keyboard: Scan codes are translated from Win32 `WM_KEY*` messages to RDP scancodes, with special handling for NumLock and Right Shift extended codes.
+`FreeRdpProcess` registers custom callbacks with the FreeRDP 3 API:
+- Frame rendering uses `gdi_init(PIXEL_FORMAT_BGRX32)` with custom `BeginPaint`/`EndPaint` handling.
+- Cursor mapping compares remote cursors against local cursor masks and prefers native cursors when possible.
+- Dynamic resolution uses `DispClientContext` and `SendMonitorLayout` on resize; resize may trigger a reconnect.
+- Keyboard handling translates Win32 `WM_KEY*` messages to RDP scancodes, including the special cases already handled in the implementation.
 
 ### Test Setup
 
-Tests use Qt Test framework. The test executable (`RdpBoxTests`) directly compiles specific source files from `src/` (currently `RdpSessionWidget.cpp` and `FreeRdpProcess.cpp`) rather than linking the full app. Tests use a `TestableRdpSessionWidget` subclass that overrides virtual methods.
+Tests use standalone native executables under `tests/`. The current targets are:
+- `RdpResizeBurstTrackerTests`
+- `RdpMouseMoveCoalescerTests`
+- `RdpModifierSyncTrackerTests`
+- `RdpCursorClassifierTests`
+- `ProfileRepositoryTests`
 
 ## Coding Style
 
-- C++20, 4-space indentation, braces on next line for functions
+- C++20, 4-space indentation, braces on the next line for functions
 - PascalCase classes, lowerCamelCase methods, `m_` prefix for members
-- Qt signal/slot patterns, `Q_OBJECT` macro in all QObject subclasses
+- MFC message maps and Win32 APIs
 - Conventional Commits (`feat:`, `fix:`)
 - Windows headers must be guarded with `#define WIN32_LEAN_AND_MEAN` and `#define NOMINMAX` before inclusion

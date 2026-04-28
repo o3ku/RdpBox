@@ -1,5 +1,7 @@
 # RdpBox MFC Shell Implementation Plan
 
+> Historical note: this plan documents the MFC migration work. The current repository already contains that migration, so use it only for historical context.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the Qt widget shell with a native MFC UI while keeping the existing FreeRDP session logic.

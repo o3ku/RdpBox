@@ -2,6 +2,8 @@
 
 #include <afxwin.h>
 
+#include <cstdint>
+
 class CRdpBoxApp : public CWinApp
 {
     DECLARE_MESSAGE_MAP()
@@ -12,4 +14,5 @@ public:
 
 private:
     bool m_comInitialized = false;
+    std::uintptr_t m_gdiplusToken = 0;
 };

@@ -10,9 +10,6 @@ include(GNUInstallDirs)
 
 option(BUILD_TEST "Build test targets." OFF)
 
-set(RDPBOX_HAS_GRPC OFF)
-set(RDPBOX_HAS_LINGUISTTOOLS OFF)
-
 if(BUILD_TEST)
     include(CTest)
 endif()

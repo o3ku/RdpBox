@@ -1,6 +1,7 @@
 #include "RdpSessionView.h"
 
 #include "rdp/RdpCursorClassifier.h"
+#include "ui/ParentResizeForwarder.h"
 
 #include <algorithm>
 #include <cstring>
@@ -10,6 +11,8 @@
 namespace
 {
 constexpr UINT_PTR kResizeTimerId = 1;
+constexpr UINT_PTR kMouseMoveTimerId = 2;
+constexpr UINT kMouseMoveCoalesceMs = 16;
 
 CRdpSessionView *g_systemKeyTarget = nullptr;
 HHOOK g_keyboardHook = nullptr;
@@ -95,6 +98,7 @@ BEGIN_MESSAGE_MAP(CRdpSessionView, CWnd)
     ON_MESSAGE(CRdpSessionView::WM_APP_RDP_STATE, &CRdpSessionView::OnRdpStateChanged)
     ON_MESSAGE(CRdpSessionView::WM_APP_RDP_FRAME, &CRdpSessionView::OnRdpFrameUpdated)
     ON_MESSAGE(CRdpSessionView::WM_APP_RDP_CURSOR, &CRdpSessionView::OnRdpCursorUpdated)
+    ON_MESSAGE(CRdpSessionView::WM_APP_RDP_CERT, &CRdpSessionView::OnRdpCertRequest)
 END_MESSAGE_MAP()
 
 CRdpSessionView::CRdpSessionView() = default;
@@ -156,6 +160,11 @@ void CRdpSessionView::setReconnectRequestedCallback(std::function<void()> callba
     m_reconnectRequested = std::move(callback);
 }
 
+void CRdpSessionView::setConnectedCallback(std::function<void()> callback)
+{
+    m_connectedCallback = std::move(callback);
+}
+
 void CRdpSessionView::setResizeSuppressed(bool suppressed)
 {
     m_resizeSuppressed = suppressed;
@@ -195,6 +204,15 @@ void CRdpSessionView::bindProcessCallbacks(std::uintptr_t generation)
     m_process->setCursorUpdatedCallback([this, generation]() {
         postProcessMessage(WM_APP_RDP_CURSOR, 0, generation);
     });
+
+    m_process->setCertificateChallengeCallback([this, generation](const FreeRdpProcess::CertificateChallenge &challenge) {
+        auto pending = std::make_shared<FreeRdpProcess::CertificateChallenge>(challenge);
+        {
+            std::scoped_lock lock(m_certMutex);
+            m_pendingCert = std::move(pending);
+        }
+        postProcessMessage(WM_APP_RDP_CERT, 0, generation);
+    });
 }
 
 void CRdpSessionView::clearProcessCallbacks()
@@ -206,6 +224,7 @@ void CRdpSessionView::clearProcessCallbacks()
     m_process->setFrameUpdatedCallback({});
     m_process->setDesktopResizedCallback({});
     m_process->setCursorUpdatedCallback({});
+    m_process->setCertificateChallengeCallback({});
 }
 
 bool CRdpSessionView::postProcessMessage(UINT message, WPARAM wParam, std::uintptr_t generation) const
@@ -274,11 +293,17 @@ void CRdpSessionView::startProcess()
     m_cachedFrame = {};
     m_resizeBurstTracker.reset();
     m_modifierTracker.reset();
+    m_mouseMoveCoalescer.reset();
+    if (m_mouseMoveTimerActive) {
+        KillTimer(kMouseMoveTimerId);
+        m_mouseMoveTimerActive = false;
+    }
     showOverlay(L"Connecting...");
 
     const SizeI viewSize = currentViewSize();
     m_process->start(m_profile.host, m_profile.port,
                      m_profile.username, m_profile.password,
+                     m_profile.domain,
                      viewSize.width, viewSize.height,
                      m_profile.clipboardEnabled, m_profile.ignoreCertificate);
 }
@@ -286,6 +311,10 @@ void CRdpSessionView::startProcess()
 void CRdpSessionView::stopProcess()
 {
     KillTimer(kResizeTimerId);
+    if (m_mouseMoveTimerActive) {
+        KillTimer(kMouseMoveTimerId);
+        m_mouseMoveTimerActive = false;
+    }
     ++m_processGeneration;
 
     if (m_process) {
@@ -301,6 +330,7 @@ void CRdpSessionView::stopProcess()
     releaseRenderSurface();
     m_resizeBurstTracker.reset();
     m_modifierTracker.reset();
+    m_mouseMoveCoalescer.reset();
     showOverlay(L"Disconnected - Click to Reconnect");
     releaseCursorHandle();
 }
@@ -318,6 +348,8 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
         if (m_process)
             m_process->requestResize(currentViewSize());
         Invalidate(FALSE);
+        if (m_connectedCallback)
+            m_connectedCallback();
         break;
     case FreeRdpProcess::State::Finished:
         m_connected = false;
@@ -403,6 +435,26 @@ SizeI CRdpSessionView::currentViewSize() const
     CRect rect;
     GetClientRect(&rect);
     return SizeI{std::max(1, rect.Width()), std::max(1, rect.Height())};
+}
+
+void CRdpSessionView::flushPendingMouseMove()
+{
+    if (!m_process) {
+        if (m_mouseMoveTimerActive) {
+            KillTimer(kMouseMoveTimerId);
+            m_mouseMoveTimerActive = false;
+        }
+        return;
+    }
+
+    const auto pending = m_mouseMoveCoalescer.flush();
+    if (pending)
+        m_process->sendMouseMove(*pending, currentViewSize());
+
+    if (m_mouseMoveTimerActive) {
+        KillTimer(kMouseMoveTimerId);
+        m_mouseMoveTimerActive = false;
+    }
 }
 
 void CRdpSessionView::releaseCursorHandle()
@@ -609,6 +661,24 @@ void CRdpSessionView::OnSize(UINT type, int cx, int cy)
 
 void CRdpSessionView::OnTimer(UINT_PTR timerId)
 {
+    if (timerId == kMouseMoveTimerId) {
+        if (!m_process) {
+            KillTimer(kMouseMoveTimerId);
+            m_mouseMoveTimerActive = false;
+            return;
+        }
+
+        const auto pending = m_mouseMoveCoalescer.onTimer();
+        if (pending) {
+            m_process->sendMouseMove(*pending, currentViewSize());
+            return;
+        }
+
+        KillTimer(kMouseMoveTimerId);
+        m_mouseMoveTimerActive = false;
+        return;
+    }
+
     if (timerId != kResizeTimerId) {
         CWnd::OnTimer(timerId);
         return;
@@ -639,6 +709,7 @@ void CRdpSessionView::OnSetFocus(CWnd *oldWnd)
 void CRdpSessionView::OnKillFocus(CWnd *newWnd)
 {
     CWnd::OnKillFocus(newWnd);
+    flushPendingMouseMove();
     if (g_systemKeyTarget == this)
         g_systemKeyTarget = nullptr;
     releaseKeyboardHookIfUnused();
@@ -646,19 +717,42 @@ void CRdpSessionView::OnKillFocus(CWnd *newWnd)
 
 void CRdpSessionView::OnMouseMove(UINT flags, CPoint point)
 {
+    CPoint screenPoint(point);
+    ClientToScreen(&screenPoint);
+    const int parentHit = ParentResizeForwarder::hitTestParentFrame(this, screenPoint);
+    if (parentHit) {
+        ParentResizeForwarder::applyResizeCursor(parentHit);
+        return;
+    }
+
     syncMouseModifiers(flags);
-    if (m_process)
-        m_process->sendMouseMove(PointI{point.x, point.y}, currentViewSize());
+    if (!m_process)
+        return;
+
+    const auto immediate = m_mouseMoveCoalescer.onMouseMove(PointI{point.x, point.y});
+    if (immediate)
+        m_process->sendMouseMove(*immediate, currentViewSize());
+
+    if (!m_mouseMoveTimerActive) {
+        SetTimer(kMouseMoveTimerId, kMouseMoveCoalesceMs, nullptr);
+        m_mouseMoveTimerActive = true;
+    }
 }
 
 void CRdpSessionView::OnLButtonDown(UINT flags, CPoint point)
 {
+    CPoint screenPoint(point);
+    ClientToScreen(&screenPoint);
+    if (ParentResizeForwarder::forwardLButtonDown(this, screenPoint))
+        return;
+
     if (m_process && m_process->state() == FreeRdpProcess::State::Finished) {
         if (m_reconnectRequested)
             m_reconnectRequested();
         return;
     }
 
+    flushPendingMouseMove();
     setFocusToFreeRdp();
     syncMouseModifiers(flags);
     if (m_process)
@@ -667,6 +761,7 @@ void CRdpSessionView::OnLButtonDown(UINT flags, CPoint point)
 
 void CRdpSessionView::OnLButtonUp(UINT flags, CPoint point)
 {
+    flushPendingMouseMove();
     syncMouseModifiers(flags);
     if (m_process)
         m_process->sendMouseButton(MouseButton::Left, false, PointI{point.x, point.y}, currentViewSize());
@@ -674,6 +769,7 @@ void CRdpSessionView::OnLButtonUp(UINT flags, CPoint point)
 
 void CRdpSessionView::OnRButtonDown(UINT flags, CPoint point)
 {
+    flushPendingMouseMove();
     setFocusToFreeRdp();
     syncMouseModifiers(flags);
     if (m_process)
@@ -682,6 +778,7 @@ void CRdpSessionView::OnRButtonDown(UINT flags, CPoint point)
 
 void CRdpSessionView::OnRButtonUp(UINT flags, CPoint point)
 {
+    flushPendingMouseMove();
     syncMouseModifiers(flags);
     if (m_process)
         m_process->sendMouseButton(MouseButton::Right, false, PointI{point.x, point.y}, currentViewSize());
@@ -689,6 +786,7 @@ void CRdpSessionView::OnRButtonUp(UINT flags, CPoint point)
 
 void CRdpSessionView::OnMButtonDown(UINT flags, CPoint point)
 {
+    flushPendingMouseMove();
     setFocusToFreeRdp();
     syncMouseModifiers(flags);
     if (m_process)
@@ -697,6 +795,7 @@ void CRdpSessionView::OnMButtonDown(UINT flags, CPoint point)
 
 void CRdpSessionView::OnMButtonUp(UINT flags, CPoint point)
 {
+    flushPendingMouseMove();
     syncMouseModifiers(flags);
     if (m_process)
         m_process->sendMouseButton(MouseButton::Middle, false, PointI{point.x, point.y}, currentViewSize());
@@ -704,6 +803,7 @@ void CRdpSessionView::OnMButtonUp(UINT flags, CPoint point)
 
 BOOL CRdpSessionView::OnMouseWheel(UINT flags, short zDelta, CPoint point)
 {
+    flushPendingMouseMove();
     syncMouseModifiers(flags);
     if (m_process) {
         CPoint clientPoint(point);
@@ -748,6 +848,37 @@ LRESULT CRdpSessionView::OnRdpCursorUpdated(WPARAM, LPARAM generation)
         return 0;
 
     updateCursorFromProcess();
+    return 0;
+}
+
+LRESULT CRdpSessionView::OnRdpCertRequest(WPARAM, LPARAM generation)
+{
+    if (!isCurrentGeneration(static_cast<std::uintptr_t>(generation)) || !m_process)
+        return 0;
+
+    std::shared_ptr<FreeRdpProcess::CertificateChallenge> challenge;
+    {
+        std::scoped_lock lock(m_certMutex);
+        challenge = std::move(m_pendingCert);
+    }
+
+    bool accept = false;
+    if (challenge) {
+        CString message;
+        message.Format(L"%s\n\nHost: %s:%d\nCommon Name: %s\nSubject: %s\nIssuer: %s\nFingerprint: %s\n\nAccept this certificate?",
+                       challenge->changed
+                           ? L"The remote host's certificate has CHANGED since the previous connection."
+                           : L"The remote host's certificate could not be verified.",
+                       challenge->host.c_str(), challenge->port,
+                       challenge->commonName.c_str(),
+                       challenge->subject.c_str(),
+                       challenge->issuer.c_str(),
+                       challenge->fingerprint.c_str());
+        const UINT icon = challenge->changed ? MB_ICONWARNING : MB_ICONQUESTION;
+        accept = MessageBox(message, L"Verify Certificate", MB_YESNO | icon | MB_DEFBUTTON2) == IDYES;
+    }
+
+    m_process->resolveCertificateChallenge(accept);
     return 0;
 }
 

@@ -1,5 +1,7 @@
 # RdpBox POC: FreeRDP Subprocess Embedding
 
+> Historical note: this document describes the early Qt-based POC. The current repository implementation has since moved to MFC/Win32 and this file is kept only for design history.
+
 ## Goal
 
 Validate that wfreerdp.exe can be launched as a child process and embedded into a Qt Widgets application, with stable keyboard/mouse input, resize handling, and disconnect recovery.

@@ -5,10 +5,12 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 
 #include "profiles/Profile.h"
 #include "rdp/FreeRdpProcess.h"
 #include "rdp/RdpModifierSyncTracker.h"
+#include "rdp/RdpMouseMoveCoalescer.h"
 #include "rdp/RdpResizeBurstTracker.h"
 
 class CRdpSessionView : public CWnd
@@ -19,6 +21,7 @@ public:
     static constexpr UINT WM_APP_RDP_STATE = WM_APP + 101;
     static constexpr UINT WM_APP_RDP_FRAME = WM_APP + 102;
     static constexpr UINT WM_APP_RDP_CURSOR = WM_APP + 103;
+    static constexpr UINT WM_APP_RDP_CERT = WM_APP + 104;
 
     CRdpSessionView();
     ~CRdpSessionView() override;
@@ -28,6 +31,7 @@ public:
     void reconnect();
     void disconnect();
     void setReconnectRequestedCallback(std::function<void()> callback);
+    void setConnectedCallback(std::function<void()> callback);
 
     void setResizeSuppressed(bool suppressed);
     void flushPendingResize();
@@ -54,6 +58,7 @@ protected:
     afx_msg LRESULT OnRdpStateChanged(WPARAM state, LPARAM generation);
     afx_msg LRESULT OnRdpFrameUpdated(WPARAM, LPARAM generation);
     afx_msg LRESULT OnRdpCursorUpdated(WPARAM, LPARAM generation);
+    afx_msg LRESULT OnRdpCertRequest(WPARAM, LPARAM generation);
 
     DECLARE_MESSAGE_MAP()
 
@@ -81,6 +86,7 @@ private:
     void releaseRenderSurface();
     void copyFrameToRenderSurface(const FrameBuffer &frame);
     void drawRenderSurface(HDC targetDc, const CRect &targetRect) const;
+    void flushPendingMouseMove();
 
     std::unique_ptr<FreeRdpProcess> m_process;
     std::uintptr_t m_processGeneration = 0;
@@ -88,8 +94,11 @@ private:
     SizeI m_pendingResize;
     bool m_hasPendingResize = false;
     std::function<void()> m_reconnectRequested;
+    std::function<void()> m_connectedCallback;
     RdpModifierSyncTracker m_modifierTracker;
     RdpResizeBurstTracker m_resizeBurstTracker;
+    RdpMouseMoveCoalescer m_mouseMoveCoalescer;
+    bool m_mouseMoveTimerActive = false;
     Profile m_profile;
     CString m_overlayText;
     uint64_t m_cachedFrameGeneration = 0;
@@ -105,4 +114,7 @@ private:
     bool m_ownsCursorHandle = false;
     bool m_connected = false;
     bool m_created = false;
+
+    mutable std::mutex m_certMutex;
+    std::shared_ptr<FreeRdpProcess::CertificateChallenge> m_pendingCert;
 };
