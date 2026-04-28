@@ -16,8 +16,6 @@ constexpr int kTabMaxWidth = 220;
 constexpr int kTabPadding = 12;
 constexpr int kCloseButtonSize = 16;
 constexpr int kCloseButtonMargin = 6;
-constexpr int kAccentBarHeight = 2;
-
 HFONT createTabFont(int pixelHeight, int weight)
 {
     LOGFONTW lf = {};
@@ -282,8 +280,8 @@ void BrowserTabBar::OnPaint()
         COLORREF background;
         COLORREF textColor;
         if (selected) {
-            background = Win10Theme::kCaptionTabActive;
-            textColor = Win10Theme::kCaptionText;
+            background = Win10Theme::kBrandAccentNearBlack;
+            textColor = Win10Theme::kBrandAccentText;
         } else if (hovered) {
             background = Win10Theme::kCaptionTabHover;
             textColor = Win10Theme::kCaptionText;
@@ -300,12 +298,6 @@ void BrowserTabBar::OnPaint()
             separator.top += 6;
             separator.bottom -= 6;
             memDc.FillSolidRect(separator, Win10Theme::kCaptionSeparator);
-        }
-
-        if (selected) {
-            CRect accent(item.rect);
-            accent.top = accent.bottom - kAccentBarHeight;
-            memDc.FillSolidRect(accent, Win10Theme::kAccent);
         }
 
         CRect textRect(item.rect);
@@ -332,7 +324,9 @@ void BrowserTabBar::OnPaint()
             memDc.FillRect(item.closeRect, &hoverBrush);
         }
 
-        const COLORREF crossColor = closeHovered ? Win10Theme::kCloseHoverText : Win10Theme::kCaptionTextSubtle;
+        const COLORREF crossColor = closeHovered
+            ? Win10Theme::kCloseHoverText
+            : (selected ? Win10Theme::kBrandAccentText : Win10Theme::kCaptionTextSubtle);
         CPen pen(PS_SOLID, 1, crossColor);
         CPen *oldPen = memDc.SelectObject(&pen);
         const int inset = 5;
