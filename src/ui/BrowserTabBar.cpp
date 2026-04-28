@@ -17,6 +17,20 @@ constexpr int kTabPadding = 12;
 constexpr int kCloseButtonSize = 16;
 constexpr int kCloseButtonMargin = 6;
 constexpr int kAccentBarHeight = 2;
+
+HFONT createTabFont(int pixelHeight, int weight)
+{
+    LOGFONTW lf = {};
+    lf.lfHeight = -pixelHeight;
+    lf.lfWeight = weight;
+    lf.lfCharSet = DEFAULT_CHARSET;
+    lf.lfOutPrecision = OUT_TT_PRECIS;
+    lf.lfClipPrecision = CLIP_DEFAULT_PRECIS;
+    lf.lfQuality = CLEARTYPE_QUALITY;
+    lf.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
+    wcscpy_s(lf.lfFaceName, L"Segoe UI");
+    return ::CreateFontIndirectW(&lf);
+}
 }
 
 IMPLEMENT_DYNAMIC(BrowserTabBar, CWnd)
@@ -42,9 +56,26 @@ bool BrowserTabBar::create(CWnd *parent, const CRect &rect, UINT id)
                                                   ::LoadCursor(nullptr, IDC_ARROW),
                                                   reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1),
                                                   nullptr);
-    return CreateEx(0, className, L"BrowserTabBar",
-                    WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
-                    rect, parent, id) != FALSE;
+    const bool created = CreateEx(0, className, L"BrowserTabBar",
+                                  WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
+                                  rect, parent, id) != FALSE;
+    if (created)
+        ensureFonts();
+    return created;
+}
+
+void BrowserTabBar::ensureFonts()
+{
+    if (!m_tabFont.GetSafeHandle()) {
+        HFONT raw = createTabFont(14, FW_NORMAL);
+        if (raw)
+            m_tabFont.Attach(raw);
+    }
+    if (!m_tabFontBold.GetSafeHandle()) {
+        HFONT raw = createTabFont(14, FW_BOLD);
+        if (raw)
+            m_tabFontBold.Attach(raw);
+    }
 }
 
 int BrowserTabBar::insertTab(const std::wstring &title)
@@ -236,12 +267,11 @@ void BrowserTabBar::OnPaint()
 
     memDc.FillSolidRect(clientRect, Win10Theme::kCaptionBg);
 
-    HFONT font = nullptr;
-    if (CFont *inherited = GetFont())
-        font = reinterpret_cast<HFONT>(inherited->GetSafeHandle());
-    if (!font)
-        font = reinterpret_cast<HFONT>(::GetStockObject(DEFAULT_GUI_FONT));
-    HGDIOBJ oldFont = ::SelectObject(memDc.GetSafeHdc(), font);
+    ensureFonts();
+    HGDIOBJ oldFont = ::SelectObject(memDc.GetSafeHdc(),
+                                     m_tabFont.GetSafeHandle()
+                                         ? m_tabFont.GetSafeHandle()
+                                         : ::GetStockObject(DEFAULT_GUI_FONT));
 
     for (size_t i = 0; i < m_tabs.size(); ++i) {
         const TabItem &item = m_tabs[i];
@@ -280,6 +310,13 @@ void BrowserTabBar::OnPaint()
         CRect textRect(item.rect);
         textRect.left += kTabPadding;
         textRect.right = item.closeRect.left - 4;
+
+        HFONT tabFont = selected && m_tabFontBold.GetSafeHandle()
+            ? reinterpret_cast<HFONT>(m_tabFontBold.GetSafeHandle())
+            : (m_tabFont.GetSafeHandle()
+                ? reinterpret_cast<HFONT>(m_tabFont.GetSafeHandle())
+                : reinterpret_cast<HFONT>(::GetStockObject(DEFAULT_GUI_FONT)));
+        ::SelectObject(memDc.GetSafeHdc(), tabFont);
 
         const int oldBkMode = memDc.SetBkMode(TRANSPARENT);
         const COLORREF oldTextColor = memDc.SetTextColor(textColor);

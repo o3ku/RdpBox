@@ -72,7 +72,7 @@ private:
     bool isInTopLevelResizeBorder() const;
     void disableLocalIme() const;
     void startProcess();
-    void stopProcess();
+    void stopProcess(bool showDisconnectedOverlay = true);
     void onStateChanged(FreeRdpProcess::State state);
     void updateCursorFromProcess();
     void setFocusToFreeRdp();
@@ -86,6 +86,7 @@ private:
     void releaseRenderSurface();
     void copyFrameToRenderSurface(const FrameBuffer &frame);
     void drawRenderSurface(HDC targetDc, const CRect &targetRect) const;
+    void drawOverlay(CDC &dc, const CRect &rect);
     void flushPendingMouseMove();
 
     std::unique_ptr<FreeRdpProcess> m_process;
@@ -101,6 +102,8 @@ private:
     bool m_mouseMoveTimerActive = false;
     Profile m_profile;
     CString m_overlayText;
+    CFont m_overlayFont;
+    bool m_reconnecting = false;
     uint64_t m_cachedFrameGeneration = 0;
     uint64_t m_renderedFrameGeneration = 0;
     FrameBuffer m_cachedFrame;
