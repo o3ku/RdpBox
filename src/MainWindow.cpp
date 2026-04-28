@@ -232,15 +232,20 @@ void MainWindow::OnContextMenu(CWnd *window, CPoint point)
     if (index < 0 || !m_sessionManager)
         return;
 
+    const auto sessionId = m_sessionManager->sessionIdByTabIndex(index);
+    const bool hasTab = index >= 0;
+
     CMenu menu;
     menu.CreatePopupMenu();
-    menu.AppendMenu(MF_STRING, ID_TAB_RECONNECT, L"Reconnect");
-    menu.AppendMenu(MF_STRING, ID_TAB_CLOSE, L"Close");
+    menu.AppendMenu(MF_STRING | (hasTab ? MF_ENABLED : MF_GRAYED), ID_TAB_RECONNECT, L"Reconnect");
+    menu.AppendMenu(MF_STRING | (hasTab ? MF_ENABLED : MF_GRAYED), ID_TAB_CLOSE, L"Close");
 
-    const UINT command = menu.TrackPopupMenu(TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN,
-                                             point.x, point.y, this);
-    const auto sessionId = m_sessionManager->sessionIdByTabIndex(index);
-    if (sessionId.empty())
+    const UINT command = ::TrackPopupMenuEx(menu.GetSafeHmenu(),
+                                            TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN,
+                                            point.x, point.y,
+                                            GetSafeHwnd(),
+                                            nullptr);
+    if (!hasTab || sessionId.empty())
         return;
 
     if (command == ID_TAB_RECONNECT) {

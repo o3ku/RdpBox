@@ -2,11 +2,14 @@
 
 #include "rdp/RdpCursorClassifier.h"
 #include "ui/ParentResizeForwarder.h"
+#include "ui/Win10Theme.h"
 
 #include <algorithm>
 #include <cstring>
 
 #include <imm.h>
+
+#pragma comment(lib, "msimg32.lib")
 
 namespace
 {
@@ -125,6 +128,9 @@ bool CRdpSessionView::create(CWnd *parent, const CRect &rect)
                          WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
                          rect, parent, 0) != FALSE;
     if (m_created) {
+        HFONT rawOverlayFont = Win10Theme::createUiFont(11);
+        if (rawOverlayFont)
+            m_overlayFont.Attach(rawOverlayFont);
         disableLocalIme();
         SetFocus();
     }
@@ -135,7 +141,7 @@ bool CRdpSessionView::create(CWnd *parent, const CRect &rect)
 void CRdpSessionView::connectToHost(const Profile &profile)
 {
     m_profile = profile;
-    stopProcess();
+    stopProcess(false);
 
     m_process = std::make_unique<FreeRdpProcess>();
     bindProcessCallbacks(++m_processGeneration);
@@ -147,6 +153,7 @@ void CRdpSessionView::reconnect()
     if (!m_profile.isValid())
         return;
 
+    m_reconnecting = true;
     connectToHost(m_profile);
 }
 
@@ -298,7 +305,8 @@ void CRdpSessionView::startProcess()
         KillTimer(kMouseMoveTimerId);
         m_mouseMoveTimerActive = false;
     }
-    showOverlay(L"Connecting...");
+    showOverlay(m_reconnecting ? L"Reconnecting..." : L"Connecting...");
+    m_reconnecting = false;
 
     const SizeI viewSize = currentViewSize();
     m_process->start(m_profile.host, m_profile.port,
@@ -308,7 +316,7 @@ void CRdpSessionView::startProcess()
                      m_profile.clipboardEnabled, m_profile.ignoreCertificate);
 }
 
-void CRdpSessionView::stopProcess()
+void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
 {
     KillTimer(kResizeTimerId);
     if (m_mouseMoveTimerActive) {
@@ -331,7 +339,8 @@ void CRdpSessionView::stopProcess()
     m_resizeBurstTracker.reset();
     m_modifierTracker.reset();
     m_mouseMoveCoalescer.reset();
-    showOverlay(L"Disconnected - Click to Reconnect");
+    if (showDisconnectedOverlay)
+        showOverlay(L"Disconnected - Click to Reconnect");
     releaseCursorHandle();
 }
 
@@ -628,14 +637,59 @@ void CRdpSessionView::OnPaint()
         dc.FillSolidRect(rect, RGB(17, 17, 17));
     }
 
-    if (!m_overlayText.IsEmpty()) {
-        CRect overlayRect = rect;
-        overlayRect.DeflateRect(20, 20);
-        dc.FillSolidRect(overlayRect, RGB(30, 30, 30));
-        dc.SetBkMode(TRANSPARENT);
-        dc.SetTextColor(RGB(204, 204, 204));
-        dc.DrawText(m_overlayText, &overlayRect, DT_CENTER | DT_VCENTER | DT_WORDBREAK);
+    if (!m_overlayText.IsEmpty())
+        drawOverlay(dc, rect);
+}
+
+void CRdpSessionView::drawOverlay(CDC &dc, const CRect &rect)
+{
+    HDC overlayDc = ::CreateCompatibleDC(dc.GetSafeHdc());
+    HBITMAP overlayBitmap = ::CreateCompatibleBitmap(dc.GetSafeHdc(), rect.Width(), rect.Height());
+    HGDIOBJ oldBitmap = nullptr;
+    if (overlayDc && overlayBitmap) {
+        oldBitmap = ::SelectObject(overlayDc, overlayBitmap);
+
+        RECT overlayRect = { 0, 0, rect.Width(), rect.Height() };
+        HBRUSH overlayBrush = ::CreateSolidBrush(RGB(12, 12, 12));
+        ::FillRect(overlayDc, &overlayRect, overlayBrush);
+        ::DeleteObject(overlayBrush);
+
+        BLENDFUNCTION blend = {};
+        blend.BlendOp = AC_SRC_OVER;
+        blend.SourceConstantAlpha = 176;
+        ::AlphaBlend(dc.GetSafeHdc(), 0, 0, rect.Width(), rect.Height(),
+                     overlayDc, 0, 0, rect.Width(), rect.Height(), blend);
+        ::SelectObject(overlayDc, oldBitmap);
     }
+
+    if (overlayBitmap)
+        ::DeleteObject(overlayBitmap);
+    if (overlayDc)
+        ::DeleteDC(overlayDc);
+
+    CRect textRect = rect;
+    textRect.DeflateRect(48, 48);
+    dc.SetBkMode(TRANSPARENT);
+    dc.SetTextColor(RGB(230, 230, 230));
+    CFont *oldFont = nullptr;
+    if (m_overlayFont.GetSafeHandle())
+        oldFont = dc.SelectObject(&m_overlayFont);
+
+    CRect measuredRect = textRect;
+    dc.DrawText(m_overlayText, &measuredRect, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX | DT_CALCRECT);
+
+    CRect centeredRect = textRect;
+    const int textWidth = std::min(textRect.Width(), measuredRect.Width());
+    const int textHeight = std::min(textRect.Height(), measuredRect.Height());
+    centeredRect.left = textRect.left + (textRect.Width() - textWidth) / 2;
+    centeredRect.top = textRect.top + (textRect.Height() - textHeight) / 2;
+    centeredRect.right = centeredRect.left + textWidth;
+    centeredRect.bottom = centeredRect.top + textHeight;
+
+    dc.DrawText(m_overlayText, &centeredRect, DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOPREFIX);
+
+    if (oldFont)
+        dc.SelectObject(oldFont);
 }
 
 void CRdpSessionView::OnSize(UINT type, int cx, int cy)

@@ -55,6 +55,7 @@ private:
         CRect closeRect;
     };
 
+    void ensureFonts();
     void recomputeLayout();
     int hitTestTab(CPoint clientPoint) const;
     int hitTestClose(CPoint clientPoint) const;
@@ -66,6 +67,8 @@ private:
     int m_hoverTabIndex = -1;
     int m_hoverCloseIndex = -1;
     bool m_trackingMouse = false;
+    CFont m_tabFont;
+    CFont m_tabFontBold;
 
     SelectionChangedCallback m_selectionChanged;
     CloseRequestedCallback m_closeRequested;
