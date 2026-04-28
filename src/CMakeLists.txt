@@ -65,6 +65,8 @@ set(RDPBOX_SOURCES
     ui/ParentResizeForwarder.h
     ui/ParentResizeForwarder.cpp
     ui/Win10Theme.h
+    ui/WindowFrameMetrics.h
+    ui/WindowFrameMetrics.cpp
     resources/resource.h
     resources/mfc_ui.rc
     resources/app_icon.rc
@@ -113,4 +115,3 @@ if(BUILD_TEST)
     include(CTest)
     add_subdirectory(../tests tests)
 endif()
-
