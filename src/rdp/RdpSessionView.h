@@ -49,10 +49,13 @@ protected:
     afx_msg void OnKillFocus(CWnd *newWnd);
     afx_msg void OnMouseMove(UINT flags, CPoint point);
     afx_msg void OnLButtonDown(UINT flags, CPoint point);
+    afx_msg void OnLButtonDblClk(UINT flags, CPoint point);
     afx_msg void OnLButtonUp(UINT flags, CPoint point);
     afx_msg void OnRButtonDown(UINT flags, CPoint point);
+    afx_msg void OnRButtonDblClk(UINT flags, CPoint point);
     afx_msg void OnRButtonUp(UINT flags, CPoint point);
     afx_msg void OnMButtonDown(UINT flags, CPoint point);
+    afx_msg void OnMButtonDblClk(UINT flags, CPoint point);
     afx_msg void OnMButtonUp(UINT flags, CPoint point);
     afx_msg BOOL OnMouseWheel(UINT flags, short zDelta, CPoint point);
     afx_msg UINT OnGetDlgCode();

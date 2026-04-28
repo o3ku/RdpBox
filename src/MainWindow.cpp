@@ -712,7 +712,7 @@ void MainWindow::OnPaint()
         drawCaptionButton(dc, captionButtonRectFor(HTCLOSE), HTCLOSE);
 
         if (metrics.drawAccentBorder) {
-            CPen borderPen(PS_SOLID, 1, Win10Theme::kAccent);
+            CPen borderPen(PS_SOLID, 1, Win10Theme::kBrandAccent);
             CPen *oldPen = dc.SelectObject(&borderPen);
             dc.MoveTo(0, 0);
             dc.LineTo(clientRect.right - 1, 0);

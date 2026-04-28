@@ -24,7 +24,7 @@ namespace
 constexpr UINT_PTR kResizeTimerId = 1;
 constexpr UINT_PTR kMouseMoveTimerId = 2;
 constexpr UINT kMouseMoveCoalesceMs = 16;
-constexpr int kOverlayFrameGateCount = 3;
+constexpr int kInitialFrameDiscardCount = 5;
 
 CRdpSessionView *g_systemKeyTarget = nullptr;
 HHOOK g_keyboardHook = nullptr;
@@ -121,6 +121,16 @@ bool isSystemKey(DWORD vkCode)
     return vkCode == VK_LWIN || vkCode == VK_RWIN;
 }
 
+bool isControlDown()
+{
+    return (::GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+}
+
+bool isCtrlEscapeSequence(DWORD vkCode)
+{
+    return vkCode == VK_ESCAPE && isControlDown();
+}
+
 bool shouldCaptureLowLevelKey(const KBDLLHOOKSTRUCT *info)
 {
     if (!info)
@@ -128,6 +138,7 @@ bool shouldCaptureLowLevelKey(const KBDLLHOOKSTRUCT *info)
 
     return isSystemKey(info->vkCode)
         || isAltKey(info->vkCode)
+        || isCtrlEscapeSequence(info->vkCode)
         || (info->vkCode == VK_TAB && (info->flags & LLKHF_ALTDOWN));
 }
 
@@ -183,10 +194,13 @@ BEGIN_MESSAGE_MAP(CRdpSessionView, CWnd)
     ON_WM_KILLFOCUS()
     ON_WM_MOUSEMOVE()
     ON_WM_LBUTTONDOWN()
+    ON_WM_LBUTTONDBLCLK()
     ON_WM_LBUTTONUP()
     ON_WM_RBUTTONDOWN()
+    ON_WM_RBUTTONDBLCLK()
     ON_WM_RBUTTONUP()
     ON_WM_MBUTTONDOWN()
+    ON_WM_MBUTTONDBLCLK()
     ON_WM_MBUTTONUP()
     ON_WM_MOUSEWHEEL()
     ON_MESSAGE(CRdpSessionView::WM_APP_RDP_STATE, &CRdpSessionView::OnRdpStateChanged)
@@ -395,7 +409,7 @@ void CRdpSessionView::startProcess()
     m_resolutionUpdatePending = false;
     m_waitingForFirstContentFrame = true;
     m_frameGateActive = true;
-    m_frameGateRemaining = kOverlayFrameGateCount;
+    m_frameGateRemaining = kInitialFrameDiscardCount;
     m_pendingDesktopSize = {};
     m_captureDirectory.clear();
     m_captureFramesRemaining = 0;
@@ -534,7 +548,7 @@ void CRdpSessionView::beginResolutionUpdate(SizeI size)
     m_resolutionUpdatePending = true;
     m_pendingDesktopSize = SizeI{(size.width + 3) & ~3, size.height};
     m_frameGateActive = true;
-    m_frameGateRemaining = kOverlayFrameGateCount;
+    m_frameGateRemaining = kInitialFrameDiscardCount;
     m_pendingVisibleFrame = {};
     beginFrameCapture(L"resize");
     showOverlay(L"Reconnecting...");
@@ -1018,6 +1032,20 @@ void CRdpSessionView::OnLButtonUp(UINT flags, CPoint point)
         m_process->sendMouseButton(MouseButton::Left, false, PointI{point.x, point.y}, currentViewSize());
 }
 
+void CRdpSessionView::OnLButtonDblClk(UINT flags, CPoint point)
+{
+    CPoint screenPoint(point);
+    ClientToScreen(&screenPoint);
+    if (ParentResizeForwarder::forwardLButtonDown(this, screenPoint))
+        return;
+
+    flushPendingMouseMove();
+    setFocusToFreeRdp();
+    syncMouseModifiers(flags);
+    if (m_process)
+        m_process->sendMouseButton(MouseButton::Left, true, PointI{point.x, point.y}, currentViewSize());
+}
+
 void CRdpSessionView::OnRButtonDown(UINT flags, CPoint point)
 {
     flushPendingMouseMove();
@@ -1035,6 +1063,11 @@ void CRdpSessionView::OnRButtonUp(UINT flags, CPoint point)
         m_process->sendMouseButton(MouseButton::Right, false, PointI{point.x, point.y}, currentViewSize());
 }
 
+void CRdpSessionView::OnRButtonDblClk(UINT flags, CPoint point)
+{
+    OnRButtonDown(flags, point);
+}
+
 void CRdpSessionView::OnMButtonDown(UINT flags, CPoint point)
 {
     flushPendingMouseMove();
@@ -1050,6 +1083,11 @@ void CRdpSessionView::OnMButtonUp(UINT flags, CPoint point)
     syncMouseModifiers(flags);
     if (m_process)
         m_process->sendMouseButton(MouseButton::Middle, false, PointI{point.x, point.y}, currentViewSize());
+}
+
+void CRdpSessionView::OnMButtonDblClk(UINT flags, CPoint point)
+{
+    OnMButtonDown(flags, point);
 }
 
 BOOL CRdpSessionView::OnMouseWheel(UINT flags, short zDelta, CPoint point)

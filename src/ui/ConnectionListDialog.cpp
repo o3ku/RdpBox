@@ -68,6 +68,7 @@ BOOL ConnectionListDialog::OnInitDialog()
 
     CListCtrl *list = static_cast<CListCtrl*>(GetDlgItem(IDC_CONNECTION_LIST));
     if (list) {
+        list->ModifyStyle(LVS_SINGLESEL, 0);
         list->SetExtendedStyle(list->GetExtendedStyle()
             | LVS_EX_FULLROWSELECT
             | LVS_EX_DOUBLEBUFFER
@@ -268,8 +269,12 @@ void ConnectionListDialog::refreshList(const std::vector<Profile> &profiles)
         list->SetItemData(idx, static_cast<DWORD_PTR>(idx));
     }
 
-    if (list->GetItemCount() > 0 && list->GetSelectedCount() == 0)
-        list->SetItemState(0, LVIS_SELECTED, LVIS_SELECTED);
+    if (list->GetItemCount() > 0 && list->GetSelectedCount() == 0) {
+        list->SetItemState(0,
+                           LVIS_SELECTED | LVIS_FOCUSED,
+                           LVIS_SELECTED | LVIS_FOCUSED);
+        list->SetSelectionMark(0);
+    }
 
     list->SetRedraw(TRUE);
     updateButtonStates();
