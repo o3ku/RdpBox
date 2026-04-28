@@ -52,9 +52,10 @@ BrowserTabBar::~BrowserTabBar() = default;
 
 bool BrowserTabBar::create(CWnd *parent, const CRect &rect, UINT id)
 {
+    static HBRUSH s_brush = ::CreateSolidBrush(Win10Theme::kCaptionBg);
     const CString className = AfxRegisterWndClass(CS_DBLCLKS,
                                                   ::LoadCursor(nullptr, IDC_ARROW),
-                                                  reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1),
+                                                  s_brush,
                                                   nullptr);
     const bool created = CreateEx(0, className, L"BrowserTabBar",
                                   WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,

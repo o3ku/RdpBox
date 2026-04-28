@@ -38,6 +38,8 @@ set(RDPBOX_SOURCES
     rdp/RdpMouseMoveCoalescer.cpp
     rdp/RdpResizeBurstTracker.h
     rdp/RdpResizeBurstTracker.cpp
+    rdp/FrameBufferAnalysis.h
+    rdp/FrameBufferAnalysis.cpp
     rdp/RdpClipboardBridge.h
     rdp/RdpClipboardBridge.cpp
     rdp/PlatformClipboardBackend.h

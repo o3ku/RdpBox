@@ -57,6 +57,17 @@ target_link_libraries(RdpCursorClassifierTests PRIVATE
 
 add_test(NAME RdpCursorClassifierTests COMMAND RdpCursorClassifierTests)
 
+add_executable(FrameBufferAnalysisTests
+    rdp/FrameBufferAnalysisTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/rdp/FrameBufferAnalysis.cpp
+)
+
+target_include_directories(FrameBufferAnalysisTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME FrameBufferAnalysisTests COMMAND FrameBufferAnalysisTests)
+
 add_executable(ProfileRepositoryTests
     profiles/ProfileRepositoryTests.cpp
     ${CMAKE_SOURCE_DIR}/src/profiles/ProfileRepository.cpp

@@ -18,7 +18,7 @@ SessionHostWnd::~SessionHostWnd() = default;
 
 bool SessionHostWnd::create(CWnd *parent, const CRect &rect, UINT id)
 {
-    static HBRUSH s_brush = ::CreateSolidBrush(Win10Theme::kSurfaceMuted);
+    static HBRUSH s_brush = ::CreateSolidBrush(RGB(17, 17, 17));
     const CString className = AfxRegisterWndClass(CS_DBLCLKS,
                                                   ::LoadCursor(nullptr, IDC_ARROW),
                                                   s_brush,
@@ -35,7 +35,7 @@ BOOL SessionHostWnd::OnEraseBkgnd(CDC *dc)
 
     CRect rect;
     GetClientRect(&rect);
-    dc->FillSolidRect(rect, Win10Theme::kSurfaceMuted);
+    dc->FillSolidRect(rect, RGB(17, 17, 17));
     return TRUE;
 }
 
@@ -44,7 +44,7 @@ void SessionHostWnd::OnPaint()
     CPaintDC dc(this);
     CRect rect;
     GetClientRect(&rect);
-    dc.FillSolidRect(rect, Win10Theme::kSurfaceMuted);
+    dc.FillSolidRect(rect, RGB(17, 17, 17));
 }
 
 void SessionHostWnd::OnMouseMove(UINT flags, CPoint point)

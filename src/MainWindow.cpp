@@ -76,9 +76,10 @@ MainWindow::~MainWindow() = default;
 
 bool MainWindow::createShell()
 {
+    static HBRUSH s_shellBrush = ::CreateSolidBrush(Win10Theme::kCaptionBg);
     const CString className = AfxRegisterWndClass(CS_DBLCLKS,
                                                   ::LoadCursor(nullptr, IDC_ARROW),
-                                                  reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1),
+                                                  s_shellBrush,
                                                   AfxGetApp()->LoadIcon(IDI_APP_ICON));
 
     if (!CreateEx(0, className, L"RdpBox",
@@ -771,15 +772,25 @@ void MainWindow::layoutChildren()
     const int tabLeft = kLogoLeftPadding + kLogoSize + kLogoRightPadding;
     const int tabRight = std::max(tabLeft, static_cast<int>(clientRect.right) - kSystemButtonReserve);
     if (m_tabBar.GetSafeHwnd())
-        m_tabBar.MoveWindow(tabLeft, b, std::max(0, tabRight - tabLeft), kCaptionHeight - b);
+        m_tabBar.SetWindowPos(nullptr,
+                              tabLeft, b,
+                              std::max(0, tabRight - tabLeft), kCaptionHeight - b,
+                              SWP_NOZORDER | SWP_NOACTIVATE);
 
     if (m_sessionHost.GetSafeHwnd())
-        m_sessionHost.MoveWindow(b, kCaptionHeight,
-                                 std::max(0, clientRect.Width() - 2 * b),
-                                 std::max(0, clientRect.Height() - kCaptionHeight - b));
+        m_sessionHost.SetWindowPos(nullptr,
+                                   b, kCaptionHeight,
+                                   std::max(0, clientRect.Width() - 2 * b),
+                                   std::max(0, clientRect.Height() - kCaptionHeight - b),
+                                   SWP_NOZORDER | SWP_NOACTIVATE);
 
     if (m_sessionManager)
         m_sessionManager->layoutSessions();
+
+    if (m_sessionHost.GetSafeHwnd()) {
+        m_sessionHost.RedrawWindow(nullptr, nullptr,
+                                   RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN | RDW_NOERASE);
+    }
 }
 
 BOOL MainWindow::PreTranslateMessage(MSG *msg)

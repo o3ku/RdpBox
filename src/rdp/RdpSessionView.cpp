@@ -1,5 +1,6 @@
 #include "RdpSessionView.h"
 
+#include "common/Win32String.h"
 #include "rdp/RdpCursorClassifier.h"
 #include "ui/ParentResizeForwarder.h"
 #include "ui/Win10Theme.h"
@@ -7,7 +8,14 @@
 #include <algorithm>
 #include <cstring>
 
+namespace Gdiplus
+{
+using std::min;
+using std::max;
+}
+#include <gdiplus.h>
 #include <imm.h>
+#include <shlobj.h>
 
 #pragma comment(lib, "msimg32.lib")
 
@@ -16,9 +24,78 @@ namespace
 constexpr UINT_PTR kResizeTimerId = 1;
 constexpr UINT_PTR kMouseMoveTimerId = 2;
 constexpr UINT kMouseMoveCoalesceMs = 16;
+constexpr int kOverlayFrameGateCount = 3;
 
 CRdpSessionView *g_systemKeyTarget = nullptr;
 HHOOK g_keyboardHook = nullptr;
+
+int getJpegEncoderClsid(CLSID *clsid)
+{
+    if (!clsid)
+        return -1;
+
+    UINT num = 0;
+    UINT size = 0;
+    if (Gdiplus::GetImageEncodersSize(&num, &size) != Gdiplus::Ok || size == 0)
+        return -1;
+
+    auto buffer = std::make_unique<BYTE[]>(size);
+    auto *encoders = reinterpret_cast<Gdiplus::ImageCodecInfo *>(buffer.get());
+    if (Gdiplus::GetImageEncoders(num, size, encoders) != Gdiplus::Ok)
+        return -1;
+
+    for (UINT i = 0; i < num; ++i) {
+        if (encoders[i].MimeType && wcscmp(encoders[i].MimeType, L"image/jpeg") == 0) {
+            *clsid = encoders[i].Clsid;
+            return static_cast<int>(i);
+        }
+    }
+
+    return -1;
+}
+
+std::wstring captureTimestamp()
+{
+    SYSTEMTIME st = {};
+    ::GetLocalTime(&st);
+    wchar_t buffer[64] = {};
+    swprintf_s(buffer, L"%04u%02u%02u-%02u%02u%02u-%03u",
+               st.wYear, st.wMonth, st.wDay,
+               st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+    return buffer;
+}
+
+std::wstring frameCaptureRootPath()
+{
+    wchar_t pathBuffer[MAX_PATH] = {};
+    if (FAILED(SHGetFolderPathW(nullptr, CSIDL_APPDATA | CSIDL_FLAG_CREATE, nullptr, SHGFP_TYPE_CURRENT, pathBuffer)))
+        return {};
+
+    return std::wstring(pathBuffer) + L"\\RdpBox\\frame-captures";
+}
+
+bool saveFrameAsJpeg(const FrameBuffer &frame, const std::wstring &path)
+{
+    if (frame.empty())
+        return false;
+
+    CLSID jpegClsid = {};
+    if (getJpegEncoderClsid(&jpegClsid) < 0)
+        return false;
+
+    Gdiplus::Bitmap bitmap(frame.width, frame.height, frame.stride, PixelFormat32bppARGB,
+                           const_cast<BYTE *>(frame.pixels.data()));
+
+    Gdiplus::EncoderParameters params = {};
+    params.Count = 1;
+    params.Parameter[0].Guid = Gdiplus::EncoderQuality;
+    params.Parameter[0].Type = Gdiplus::EncoderParameterValueTypeLong;
+    params.Parameter[0].NumberOfValues = 1;
+    ULONG quality = 90;
+    params.Parameter[0].Value = &quality;
+
+    return bitmap.Save(path.c_str(), &jpegClsid, &params) == Gdiplus::Ok;
+}
 
 bool isAltKey(DWORD vkCode)
 {
@@ -119,9 +196,10 @@ CRdpSessionView::~CRdpSessionView()
 
 bool CRdpSessionView::create(CWnd *parent, const CRect &rect)
 {
+    static HBRUSH s_backgroundBrush = ::CreateSolidBrush(RGB(17, 17, 17));
     const CString className = AfxRegisterWndClass(CS_DBLCLKS,
                                                   ::LoadCursor(nullptr, IDC_ARROW),
-                                                  reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1),
+                                                  s_backgroundBrush,
                                                   nullptr);
 
     m_created = CreateEx(0, className, L"RdpSessionView",
@@ -188,6 +266,7 @@ void CRdpSessionView::flushPendingResize()
 
     m_hasPendingResize = false;
     m_resizeBurstTracker.reset();
+    beginResolutionUpdate(m_pendingResize);
     m_process->requestResize(m_pendingResize);
 }
 
@@ -298,6 +377,15 @@ void CRdpSessionView::startProcess()
     m_cachedFrameGeneration = 0;
     m_renderedFrameGeneration = 0;
     m_cachedFrame = {};
+    m_pendingVisibleFrame = {};
+    m_resolutionUpdatePending = false;
+    m_waitingForFirstContentFrame = true;
+    m_frameGateActive = true;
+    m_frameGateRemaining = kOverlayFrameGateCount;
+    m_pendingDesktopSize = {};
+    m_captureDirectory.clear();
+    m_captureFramesRemaining = 0;
+    m_captureFrameIndex = 0;
     m_resizeBurstTracker.reset();
     m_modifierTracker.reset();
     m_mouseMoveCoalescer.reset();
@@ -332,9 +420,15 @@ void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
     }
 
     m_connected = false;
+    m_resolutionUpdatePending = false;
+    m_waitingForFirstContentFrame = false;
+    m_frameGateActive = false;
+    m_frameGateRemaining = 0;
+    m_pendingDesktopSize = {};
     m_cachedFrameGeneration = 0;
     m_renderedFrameGeneration = 0;
     m_cachedFrame = {};
+    m_pendingVisibleFrame = {};
     releaseRenderSurface();
     m_resizeBurstTracker.reset();
     m_modifierTracker.reset();
@@ -349,7 +443,9 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
     switch (state) {
     case FreeRdpProcess::State::Running:
         m_connected = true;
-        clearOverlay();
+        beginFrameCapture(L"connect");
+        if (!m_resolutionUpdatePending && !m_waitingForFirstContentFrame && !m_frameGateActive)
+            clearOverlay();
         m_modifierTracker.reset();
         m_resizeBurstTracker.reset();
         updateCursorFromProcess();
@@ -362,6 +458,11 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
         break;
     case FreeRdpProcess::State::Finished:
         m_connected = false;
+        m_resolutionUpdatePending = false;
+        m_waitingForFirstContentFrame = false;
+        m_frameGateActive = false;
+        m_frameGateRemaining = 0;
+        m_pendingDesktopSize = {};
         KillTimer(kResizeTimerId);
         showOverlay(L"Disconnected - Click to Reconnect");
         releaseCursorHandle();
@@ -412,6 +513,51 @@ void CRdpSessionView::clearOverlay()
     m_overlayText.Empty();
     if (GetSafeHwnd())
         Invalidate(FALSE);
+}
+
+void CRdpSessionView::beginResolutionUpdate(SizeI size)
+{
+    m_resolutionUpdatePending = true;
+    m_pendingDesktopSize = SizeI{(size.width + 3) & ~3, size.height};
+    m_frameGateActive = true;
+    m_frameGateRemaining = kOverlayFrameGateCount;
+    m_pendingVisibleFrame = {};
+    beginFrameCapture(L"resize");
+    showOverlay(L"Reconnecting...");
+}
+
+void CRdpSessionView::beginFrameCapture(const wchar_t *reason)
+{
+    const std::wstring root = frameCaptureRootPath();
+    if (root.empty())
+        return;
+
+    const std::wstring sessionName = m_profile.name.empty() ? L"unnamed" : m_profile.name;
+    std::wstring safeName = sessionName;
+    for (auto &ch : safeName) {
+        if (ch == L'\\' || ch == L'/' || ch == L':' || ch == L'*' || ch == L'?' || ch == L'"' || ch == L'<' || ch == L'>' || ch == L'|')
+            ch = L'_';
+    }
+
+    const std::wstring directory = root + L"\\" + captureTimestamp() + L"_" + safeName + L"_" + reason;
+    SHCreateDirectoryExW(nullptr, directory.c_str(), nullptr);
+    m_captureDirectory = directory;
+    m_captureFramesRemaining = 20;
+    m_captureFrameIndex = 0;
+}
+
+void CRdpSessionView::captureFrameIfRequested(const FrameBuffer &frame)
+{
+    if (m_captureFramesRemaining <= 0 || m_captureDirectory.empty() || frame.empty())
+        return;
+
+    wchar_t fileName[64] = {};
+    swprintf_s(fileName, L"frame-%02d.jpg", m_captureFrameIndex + 1);
+    const std::wstring path = m_captureDirectory + L"\\" + fileName;
+    if (saveFrameAsJpeg(frame, path)) {
+        ++m_captureFrameIndex;
+        --m_captureFramesRemaining;
+    }
 }
 
 void CRdpSessionView::syncMouseModifiers(UINT flags)
@@ -597,7 +743,30 @@ void CRdpSessionView::OnPaint()
     if (m_process) {
         auto newFrame = m_process->frameIfNewer(m_cachedFrameGeneration);
         if (newFrame) {
-            m_cachedFrame = std::move(*newFrame);
+            captureFrameIfRequested(*newFrame);
+
+            if (m_frameGateActive) {
+                m_pendingVisibleFrame = std::move(*newFrame);
+                if (m_frameGateRemaining > 0)
+                    --m_frameGateRemaining;
+
+                if (m_frameGateRemaining == 0 && !m_pendingVisibleFrame.empty()) {
+                    m_cachedFrame = std::move(m_pendingVisibleFrame);
+                    m_pendingVisibleFrame = {};
+                    m_frameGateActive = false;
+                    m_waitingForFirstContentFrame = false;
+                    m_resolutionUpdatePending = false;
+                    m_pendingDesktopSize = {};
+                    clearOverlay();
+                }
+            } else {
+                m_cachedFrame = std::move(*newFrame);
+                if (m_waitingForFirstContentFrame) {
+                    m_waitingForFirstContentFrame = false;
+                    if (!m_resolutionUpdatePending)
+                        clearOverlay();
+                }
+            }
         }
 
         const FrameBuffer &frame = m_cachedFrame;
@@ -696,21 +865,27 @@ void CRdpSessionView::OnSize(UINT type, int cx, int cy)
 {
     CWnd::OnSize(type, cx, cy);
 
-    if (!m_connected || !m_process)
+    if (!m_connected || !m_process) {
+        RedrawWindow(nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
         return;
+    }
 
     const SizeI size{std::max(1, cx), std::max(1, cy)};
 
     if (m_resizeSuppressed) {
         m_pendingResize = size;
         m_hasPendingResize = true;
+        beginResolutionUpdate(size);
         return;
     }
 
     if (m_resizeBurstTracker.onResize(size)) {
+        beginResolutionUpdate(size);
         m_process->requestResize(size);
         SetTimer(kResizeTimerId, 50, nullptr);
     }
+
+    RedrawWindow(nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
 }
 
 void CRdpSessionView::OnTimer(UINT_PTR timerId)
@@ -746,6 +921,7 @@ void CRdpSessionView::OnTimer(UINT_PTR timerId)
 
     const SizeI size = currentViewSize();
     if (m_resizeBurstTracker.onTimeout(size)) {
+        beginResolutionUpdate(size);
         m_process->requestResize(size);
         return;
     }
