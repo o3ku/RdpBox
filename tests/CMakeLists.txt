@@ -72,3 +72,14 @@ target_link_libraries(ProfileRepositoryTests PRIVATE
 )
 
 add_test(NAME ProfileRepositoryTests COMMAND ProfileRepositoryTests)
+
+add_executable(WindowFrameMetricsTests
+    ui/WindowFrameMetricsTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/WindowFrameMetrics.cpp
+)
+
+target_include_directories(WindowFrameMetricsTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME WindowFrameMetricsTests COMMAND WindowFrameMetricsTests)

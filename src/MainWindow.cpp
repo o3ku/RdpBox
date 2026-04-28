@@ -7,6 +7,7 @@
 #include "ui/ConnectionListDialog.h"
 #include "ui/ProfileEditDialog.h"
 #include "ui/Win10Theme.h"
+#include "ui/WindowFrameMetrics.h"
 #include "resources/resource.h"
 
 #include <cjson/cJSON.h>
@@ -54,14 +55,18 @@ constexpr int kLogoRightPadding = 8;
 constexpr int kCaptionButtonWidth = 46;
 constexpr int kSystemButtonReserve = kCaptionButtonWidth * 3;
 constexpr int kResizeBorderTop = 6;
+constexpr DWORD kDwmwaBorderColor = 34;
+constexpr COLORREF kDwmColorNone = 0xFFFFFFFE;
 
-void applyDwmExtension(HWND hwnd)
+void applyDwmExtension(HWND hwnd, const WindowFrameMetrics &metrics)
 {
     if (!hwnd)
         return;
 
-    MARGINS margins = { 0, 0, 1, 0 };
+    MARGINS margins = { 0, 0, metrics.dwmTopInset, 0 };
     ::DwmExtendFrameIntoClientArea(hwnd, &margins);
+
+    ::DwmSetWindowAttribute(hwnd, kDwmwaBorderColor, &kDwmColorNone, sizeof(kDwmColorNone));
 }
 }
 
@@ -97,7 +102,7 @@ int MainWindow::OnCreate(LPCREATESTRUCT createStruct)
         return -1;
 
     ModifyStyle(WS_BORDER | WS_DLGFRAME, 0, 0);
-    applyDwmExtension(GetSafeHwnd());
+    applyDwmExtension(GetSafeHwnd(), calculateWindowFrameMetrics(false, m_isFullScreen));
 
     wchar_t pathBuffer[MAX_PATH] = {};
     if (FAILED(SHGetFolderPathW(nullptr, CSIDL_APPDATA | CSIDL_FLAG_CREATE, nullptr, SHGFP_TYPE_CURRENT, pathBuffer)))
@@ -151,6 +156,7 @@ void MainWindow::OnSize(UINT type, int cx, int cy)
         return;
 
     layoutChildren();
+    applyDwmExtension(GetSafeHwnd(), calculateWindowFrameMetrics(isMaximized(), m_isFullScreen));
 
     if (GetSafeHwnd()) {
         CRect captionRect(0, 0, cx, kCaptionHeight);
@@ -166,7 +172,8 @@ BOOL MainWindow::OnEraseBkgnd(CDC *dc)
     CRect clientRect;
     GetClientRect(&clientRect);
 
-    dc->FillSolidRect(clientRect, Win10Theme::kSurfaceMuted);
+    const WindowFrameMetrics metrics = calculateWindowFrameMetrics(isMaximized(), m_isFullScreen);
+    dc->FillSolidRect(clientRect, metrics.backgroundColor);
     return TRUE;
 }
 
@@ -256,7 +263,6 @@ LRESULT MainWindow::OnNcCalcSize(WPARAM wParam, LPARAM lParam)
         const int frameX = ::GetSystemMetrics(SM_CXFRAME) + ::GetSystemMetrics(SM_CXPADDEDBORDER);
         const int frameY = ::GetSystemMetrics(SM_CYFRAME) + ::GetSystemMetrics(SM_CXPADDEDBORDER);
         params->rgrc[0].left += frameX;
-        params->rgrc[0].top += frameY;
         params->rgrc[0].right -= frameX;
         params->rgrc[0].bottom -= frameY;
     }
@@ -316,12 +322,41 @@ LRESULT MainWindow::OnNcHitTest(WPARAM, LPARAM lParam)
 
 LRESULT MainWindow::OnDwmCompositionChanged(WPARAM, LPARAM)
 {
-    applyDwmExtension(GetSafeHwnd());
+    applyDwmExtension(GetSafeHwnd(), calculateWindowFrameMetrics(isMaximized(), m_isFullScreen));
     return 0;
 }
 
-LRESULT MainWindow::OnNcPaint(WPARAM, LPARAM)
+LRESULT MainWindow::OnNcPaint(WPARAM wParam, LPARAM)
 {
+    if (!isMaximized() || m_isFullScreen)
+        return Default();
+
+    HDC hdc = ::GetWindowDC(GetSafeHwnd());
+    if (!hdc)
+        return 0;
+
+    HBRUSH brush = ::CreateSolidBrush(Win10Theme::kCaptionBg);
+
+    if (reinterpret_cast<HRGN>(wParam) != reinterpret_cast<HRGN>(1)) {
+        ::FillRgn(hdc, reinterpret_cast<HRGN>(wParam), brush);
+    } else {
+        CRect winRect, clientRect;
+        GetWindowRect(&winRect);
+        GetClientRect(&clientRect);
+        ::MapWindowPoints(HWND_DESKTOP, GetSafeHwnd(),
+                          reinterpret_cast<LPPOINT>(&clientRect), 2);
+        HRGN winRgn = ::CreateRectRgn(0, 0, winRect.Width(), winRect.Height());
+        HRGN clientRgn = ::CreateRectRgnIndirect(&clientRect);
+        HRGN frameRgn = ::CreateRectRgn(0, 0, 0, 0);
+        ::CombineRgn(frameRgn, winRgn, clientRgn, RGN_DIFF);
+        ::FillRgn(hdc, frameRgn, brush);
+        ::DeleteObject(frameRgn);
+        ::DeleteObject(clientRgn);
+        ::DeleteObject(winRgn);
+    }
+
+    ::DeleteObject(brush);
+    ::ReleaseDC(GetSafeHwnd(), hdc);
     return 0;
 }
 
@@ -640,16 +675,18 @@ void MainWindow::OnPaint()
     CRect clientRect;
     GetClientRect(&clientRect);
 
+    CRect captionRect(0, 0, clientRect.right, kCaptionHeight);
+
     HDC bufferedDc = nullptr;
-    HPAINTBUFFER buffer = ::BeginBufferedPaint(hdc, &clientRect, BPBF_TOPDOWNDIB,
+    HPAINTBUFFER buffer = ::BeginBufferedPaint(hdc, &captionRect, BPBF_TOPDOWNDIB,
                                                nullptr, &bufferedDc);
 
     HDC targetDc = bufferedDc ? bufferedDc : hdc;
     {
         CDC dc;
         dc.Attach(targetDc);
+        const WindowFrameMetrics metrics = calculateWindowFrameMetrics(isMaximized(), m_isFullScreen);
 
-        CRect captionRect(0, 0, clientRect.right, kCaptionHeight);
         dc.FillSolidRect(captionRect, Win10Theme::kCaptionBg);
 
         if (m_logoHovered) {
@@ -668,11 +705,23 @@ void MainWindow::OnPaint()
         drawCaptionButton(dc, captionButtonRectFor(HTMAXBUTTON), HTMAXBUTTON);
         drawCaptionButton(dc, captionButtonRectFor(HTCLOSE), HTCLOSE);
 
+        if (metrics.drawAccentBorder) {
+            CPen borderPen(PS_SOLID, 1, Win10Theme::kAccent);
+            CPen *oldPen = dc.SelectObject(&borderPen);
+            dc.MoveTo(0, 0);
+            dc.LineTo(clientRect.right - 1, 0);
+            dc.MoveTo(0, 0);
+            dc.LineTo(0, kCaptionHeight);
+            dc.MoveTo(clientRect.right - 1, 0);
+            dc.LineTo(clientRect.right - 1, kCaptionHeight);
+            dc.SelectObject(oldPen);
+        }
+
         dc.Detach();
     }
 
     if (buffer) {
-        ::BufferedPaintSetAlpha(buffer, &clientRect, 255);
+        ::BufferedPaintSetAlpha(buffer, &captionRect, 255);
         ::EndBufferedPaint(buffer, TRUE);
     }
 
@@ -711,15 +760,18 @@ void MainWindow::layoutChildren()
         return;
     }
 
+    const WindowFrameMetrics metrics = calculateWindowFrameMetrics(isMaximized(), false);
+    const int b = metrics.clientEdgeInset;
+
     const int tabLeft = kLogoLeftPadding + kLogoSize + kLogoRightPadding;
     const int tabRight = std::max(tabLeft, static_cast<int>(clientRect.right) - kSystemButtonReserve);
     if (m_tabBar.GetSafeHwnd())
-        m_tabBar.MoveWindow(tabLeft, 0, std::max(0, tabRight - tabLeft), kCaptionHeight);
+        m_tabBar.MoveWindow(tabLeft, b, std::max(0, tabRight - tabLeft), kCaptionHeight - b);
 
     if (m_sessionHost.GetSafeHwnd())
-        m_sessionHost.MoveWindow(0, kCaptionHeight,
-                                 clientRect.Width(),
-                                 std::max(0, clientRect.Height() - kCaptionHeight));
+        m_sessionHost.MoveWindow(b, kCaptionHeight,
+                                 std::max(0, clientRect.Width() - 2 * b),
+                                 std::max(0, clientRect.Height() - kCaptionHeight - b));
 
     if (m_sessionManager)
         m_sessionManager->layoutSessions();
@@ -799,6 +851,7 @@ void MainWindow::setFullScreen(bool enabled)
     }
 
     layoutChildren();
+    applyDwmExtension(GetSafeHwnd(), calculateWindowFrameMetrics(isMaximized(), m_isFullScreen));
 }
 
 void MainWindow::openConnectionDialog(bool selectionRequired)
