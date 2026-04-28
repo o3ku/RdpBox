@@ -74,6 +74,20 @@ std::wstring frameCaptureRootPath()
     return std::wstring(pathBuffer) + L"\\RdpBox\\frame-captures";
 }
 
+bool isFrameCaptureEnabled()
+{
+    wchar_t value[8] = {};
+    const DWORD length = ::GetEnvironmentVariableW(L"RDPBOX_CAPTURE_FRAMES", value, static_cast<DWORD>(std::size(value)));
+    if (length == 0 || length >= std::size(value))
+        return false;
+
+    return value[0] == L'1'
+        || value[0] == L't'
+        || value[0] == L'T'
+        || value[0] == L'y'
+        || value[0] == L'Y';
+}
+
 bool saveFrameAsJpeg(const FrameBuffer &frame, const std::wstring &path)
 {
     if (frame.empty())
@@ -528,6 +542,13 @@ void CRdpSessionView::beginResolutionUpdate(SizeI size)
 
 void CRdpSessionView::beginFrameCapture(const wchar_t *reason)
 {
+    m_captureDirectory.clear();
+    m_captureFramesRemaining = 0;
+    m_captureFrameIndex = 0;
+
+    if (!isFrameCaptureEnabled())
+        return;
+
     const std::wstring root = frameCaptureRootPath();
     if (root.empty())
         return;
