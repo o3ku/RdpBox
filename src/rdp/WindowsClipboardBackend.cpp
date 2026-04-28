@@ -2,8 +2,6 @@
 
 #define CINTERFACE
 #define COBJMACROS
-#define NOMINMAX
-#define WIN32_LEAN_AND_MEAN
 
 #include <freerdp/client/cliprdr.h>
 #include <freerdp/channels/cliprdr.h>

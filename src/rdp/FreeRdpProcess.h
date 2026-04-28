@@ -13,6 +13,17 @@ class FreeRdpProcess
 public:
     enum class State { Idle, Starting, Running, Finished };
 
+    struct CertificateChallenge
+    {
+        std::wstring host;
+        int port = 0;
+        std::wstring commonName;
+        std::wstring subject;
+        std::wstring issuer;
+        std::wstring fingerprint;
+        bool changed = false;
+    };
+
     FreeRdpProcess();
     ~FreeRdpProcess();
 
@@ -20,6 +31,7 @@ public:
                int port,
                const std::wstring &username,
                const std::wstring &password,
+               const std::wstring &domain = {},
                int width = 0,
                int height = 0,
                bool clipboardEnabled = true,
@@ -40,6 +52,8 @@ public:
     void setFrameUpdatedCallback(std::function<void()> callback);
     void setDesktopResizedCallback(std::function<void(const SizeI &)> callback);
     void setCursorUpdatedCallback(std::function<void()> callback);
+    void setCertificateChallengeCallback(std::function<void(const CertificateChallenge &)> callback);
+    void resolveCertificateChallenge(bool accept);
 
     void sendFocusIn();
     void sendKeyMessage(std::uint32_t message, std::uintptr_t wParam, std::intptr_t lParam);
@@ -53,6 +67,7 @@ public:
     void resetCursorFromBackend();
     void attachClipboardChannel(void *channelContext);
     void detachClipboardChannel();
+    bool challengeCertificate(const CertificateChallenge &challenge);
 
 private:
     struct Private;

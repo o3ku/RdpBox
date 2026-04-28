@@ -4,6 +4,15 @@
 
 #include <objbase.h>
 
+#include <algorithm>
+namespace Gdiplus
+{
+using std::min;
+using std::max;
+}
+#include <gdiplus.h>
+#pragma comment(lib, "gdiplus.lib")
+
 BEGIN_MESSAGE_MAP(CRdpBoxApp, CWinApp)
 END_MESSAGE_MAP()
 
@@ -22,7 +31,18 @@ BOOL CRdpBoxApp::InitInstance()
 
     m_comInitialized = true;
 
+    Gdiplus::GdiplusStartupInput gdiInput;
+    ULONG_PTR token = 0;
+    if (Gdiplus::GdiplusStartup(&token, &gdiInput, nullptr) != Gdiplus::Ok) {
+        CoUninitialize();
+        m_comInitialized = false;
+        return FALSE;
+    }
+    m_gdiplusToken = static_cast<std::uintptr_t>(token);
+
     if (!CWinApp::InitInstance()) {
+        Gdiplus::GdiplusShutdown(static_cast<ULONG_PTR>(m_gdiplusToken));
+        m_gdiplusToken = 0;
         CoUninitialize();
         m_comInitialized = false;
         return FALSE;
@@ -31,6 +51,8 @@ BOOL CRdpBoxApp::InitInstance()
     auto *frame = new MainWindow();
     if (!frame->createShell()) {
         delete frame;
+        Gdiplus::GdiplusShutdown(static_cast<ULONG_PTR>(m_gdiplusToken));
+        m_gdiplusToken = 0;
         CoUninitialize();
         m_comInitialized = false;
         return FALSE;
@@ -45,6 +67,11 @@ BOOL CRdpBoxApp::InitInstance()
 
 int CRdpBoxApp::ExitInstance()
 {
+    if (m_gdiplusToken) {
+        Gdiplus::GdiplusShutdown(static_cast<ULONG_PTR>(m_gdiplusToken));
+        m_gdiplusToken = 0;
+    }
+
     if (m_comInitialized)
         CoUninitialize();
 

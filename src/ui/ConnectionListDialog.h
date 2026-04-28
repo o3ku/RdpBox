@@ -5,6 +5,7 @@
 #include <afxwin.h>
 
 #include "profiles/Profile.h"
+#include "ui/FlatButton.h"
 
 #include <string>
 #include <vector>
@@ -51,5 +52,11 @@ private:
     std::vector<std::string> m_selectedProfileIds;
     CString m_searchText;
     bool m_selectionRequired = false;
+
+    FlatButton m_btnNew;
+    FlatButton m_btnEdit;
+    FlatButton m_btnDuplicate;
+    FlatButton m_btnDelete;
+    FlatButton m_btnConnect;
 };
 

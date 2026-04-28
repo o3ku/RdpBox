@@ -1,11 +1,13 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdio>
 #include <cwctype>
 #include <string>
 
 #include <objbase.h>
 #include <stringapiset.h>
+#include <windows.h>
 
 inline std::string utf8FromWide(const std::wstring &text)
 {
@@ -63,4 +65,16 @@ inline std::string createGuidString()
     if (!value.empty() && value.back() == L'}')
         value.pop_back();
     return utf8FromWide(value);
+}
+
+inline std::string currentUtcIso8601()
+{
+    SYSTEMTIME st = {};
+    GetSystemTime(&st);
+    char buffer[32] = {};
+    std::snprintf(buffer, sizeof(buffer),
+                  "%04u-%02u-%02uT%02u:%02u:%02uZ",
+                  st.wYear, st.wMonth, st.wDay,
+                  st.wHour, st.wMinute, st.wSecond);
+    return buffer;
 }

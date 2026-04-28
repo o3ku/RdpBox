@@ -1,38 +1,50 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`src/` contains the application code for this Qt desktop client. Keep UI widgets in `src/ui/`, RDP process and embedding logic in `src/rdp/`, profile persistence in `src/profiles/`, and tab/session orchestration in `src/session/`. Top-level entry points live in `src/main.cpp`, `src/MainWindow.*`, and `src/CMakeLists.txt`.
+`src/` contains the Windows desktop client. Keep app shell code in `src/RdpBoxApp.*`, `src/MainWindow.*`, and `src/WinMain.cpp`. Use `src/ui/` for dialogs and list UIs, `src/session/` for tab/session orchestration, `src/profiles/` for profile models and persistence, `src/rdp/` for FreeRDP integration and input/rendering helpers, and `src/common/` for shared native types/utilities. Runtime assets and Windows resources live under `src/resources/`.
 
-`tools/` holds runtime helper binaries such as `wfreerdp.exe`. `docs/superpowers/` stores design notes and plans; treat it as reference, not runtime code. `build/` contains generated CMake/Ninja output and should not be edited by hand.
+`tests/` contains standalone native test executables wired through CMake when `BUILD_TEST=ON`. `tools/` is for helper binaries or packaging assets, `docs/superpowers/` is design/reference material, and `build/` is generated output that should not be edited by hand or committed.
 
 ## Architecture Notes
-This version is a minimal multi-tab RDP session manager built on FreeRDP and was referenced from `..\1remote` during implementation. Keep the design small and tab-centric: one profile opens one session widget, and session lifecycle logic belongs in `SessionManager` and `RdpSessionWidget`.
+RdpBox is a Windows-only multi-tab RDP session manager built with native Win32/MFC-style UI plumbing and FreeRDP 3.x. It embeds FreeRDP in-process rather than launching `wfreerdp.exe` as a subprocess.
+
+Keep ownership boundaries clear:
+- `SessionManager` owns session lifecycle and tab mapping.
+- `RdpSessionView` owns per-session rendering, focus/input forwarding, and reconnect UX.
+- `FreeRdpProcess` owns the worker-thread FreeRDP connection and publishes frame/state/cursor updates back to the UI thread.
+- `RdpClipboardBridge` and `WindowsClipboardBackend` own clipboard redirection.
+
+Prefer adding new RDP behavior in focused helpers under `src/rdp/` rather than growing `RdpSessionView` or `FreeRdpProcess` further.
 
 ## Build, Test, and Development Commands
-This project uses CMake presets and vcpkg on Windows.
+This project uses CMake presets on Windows with MSVC and Ninja.
 
 - `cmake --preset msvc-debug`: configure a Debug build in `build/msvc-debug`.
 - `cmake --build --preset msvc-debug`: build the app executable.
-- `cmake --preset msvc-release && cmake --build --preset msvc-release`: prepare a release build.
-- `cmake --preset msvc-debug-test`: configure with `BUILD_TEST=ON` for future test targets.
-- `ctest --preset msvc-debug-test --output-on-failure`: run tests after a test preset has been configured and built.
+- `cmake --preset msvc-release`
+- `cmake --build --preset msvc-release`: configure and build the release variant.
+- `cmake --preset msvc-debug-test`: configure with `BUILD_TEST=ON`.
+- `cmake --build --preset msvc-debug-test`: build the test executables.
+- `ctest --preset msvc-debug-test --output-on-failure`: run all registered tests.
+
+If you add a new test, register it in `tests/CMakeLists.txt` with `add_test(...)`.
 
 ## Coding Style & Naming Conventions
-Use C++20 and follow the existing Qt-oriented style: 4-space indentation, braces on the next line for functions, and concise early returns. Class names use PascalCase (`FreeRdpDownloader`), methods use lowerCamelCase (`openSession`), and member fields use the `m_` prefix (`m_profileRepo`).
+Use C++20, 4-space indentation, and braces on the next line for functions. Class names use PascalCase, methods use lowerCamelCase, and member fields use the `m_` prefix. Match nearby include ordering and keep Windows headers guarded with `WIN32_LEAN_AND_MEAN` and `NOMINMAX` before inclusion.
 
-Prefer small classes with clear ownership boundaries between UI, session management, and RDP process control. Match nearby include ordering and signal/slot patterns before introducing new conventions.
-
-Centralize visual styling in `src/resources/style.css`, add it to `src/resources/resources.qrc`, and load/apply it only from `src/main.cpp`. Do not write widget-local styles in other code files with APIs such as `setStyleSheet()`, ad-hoc font styling, or palette-based visual tweaks unless there is no feasible QSS-based option.
+Prefer small helpers with explicit ownership over large cross-cutting classes. Follow the existing Win32 threading and event-delivery patterns instead of inventing a new abstraction layer.
 
 ## Testing Guidelines
-There is a CMake test hook, but no committed `tests/` directory yet. Add new tests under `tests/` and wire them through the top-level `BUILD_TEST` option and `add_test(...)`. Name tests after the behavior they verify, for example `ProfileRepositoryTests` or `SessionManager_Reconnect`.
+Tests already exist under `tests/profiles/` and `tests/rdp/`. Keep new tests near the module they cover and name them after the behavior under test, for example `ProfileRepositoryTests` or `RdpCursorClassifierTests`.
 
-Until automated coverage exists, include manual verification steps in every change, especially for connection flow, tab lifecycle, resize behavior, and profile CRUD.
+Current test targets are lightweight native executables rather than a single aggregated test binary. For UI-heavy or integration-heavy changes that are hard to automate, include manual verification steps in your change notes, especially for connection flow, tab lifecycle, clipboard sync, input capture, and resize/reconnect behavior.
 
 ## Commit & Pull Request Guidelines
-Recent history follows Conventional Commits such as `feat:` and `fix:`. Keep subjects short, imperative, and scoped to one change.
+Use Conventional Commits such as `feat:` and `fix:` with short imperative subjects. Keep each commit scoped to one logical change.
 
-Pull requests should explain the user-visible impact, list Windows build/test commands run, and call out any changes to profile storage, downloader behavior, or RDP lifecycle. Include screenshots for dialog or tab UI changes.
+Pull requests should summarize user-visible impact, list the Windows build/test commands you ran, and call out any changes to profile storage, clipboard behavior, input handling, or RDP lifecycle. Include screenshots for dialog or session UI changes.
 
 ## Security & Configuration Tips
-Profiles are stored in AppData as `profiles.json`, and passwords are currently persisted in plain text for the MVP. Do not commit real credentials, exported profile data, or local build artifacts.
+Profiles are stored in `%AppData%/RdpBox/profiles.json`, and current MVP behavior may persist credentials locally. Do not commit real credentials, exported profile data, or generated build artifacts.
+
+Treat clipboard, keyboard hook, and session credential changes as security-sensitive areas. Minimize logging of secrets and avoid introducing new plaintext persistence without explicit approval.

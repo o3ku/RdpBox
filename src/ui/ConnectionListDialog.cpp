@@ -8,6 +8,10 @@
 
 #include <algorithm>
 
+#include <uxtheme.h>
+
+#pragma comment(lib, "uxtheme.lib")
+
 IMPLEMENT_DYNAMIC(ConnectionListDialog, CDialogEx)
 
 BEGIN_MESSAGE_MAP(ConnectionListDialog, CDialogEx)
@@ -33,19 +37,49 @@ void ConnectionListDialog::DoDataExchange(CDataExchange *dx)
 {
     CDialogEx::DoDataExchange(dx);
     DDX_Text(dx, IDC_CONNECTION_SEARCH, m_searchText);
+    DDX_Control(dx, IDC_CONNECTION_NEW, m_btnNew);
+    DDX_Control(dx, IDC_CONNECTION_EDIT, m_btnEdit);
+    DDX_Control(dx, IDC_CONNECTION_DUPLICATE, m_btnDuplicate);
+    DDX_Control(dx, IDC_CONNECTION_DELETE, m_btnDelete);
+    DDX_Control(dx, IDC_CONNECTION_CONNECT, m_btnConnect);
+}
+
+namespace
+{
+void makeFlatOwnerDraw(FlatButton &button)
+{
+    if (button.GetSafeHwnd())
+        button.ModifyStyle(BS_DEFPUSHBUTTON, BS_OWNERDRAW);
+}
 }
 
 BOOL ConnectionListDialog::OnInitDialog()
 {
     CDialogEx::OnInitDialog();
 
+    EnableThemeDialogTexture(GetSafeHwnd(), ETDT_ENABLETAB);
+
+    makeFlatOwnerDraw(m_btnNew);
+    makeFlatOwnerDraw(m_btnEdit);
+    makeFlatOwnerDraw(m_btnDuplicate);
+    makeFlatOwnerDraw(m_btnDelete);
+    makeFlatOwnerDraw(m_btnConnect);
+    m_btnConnect.setDefault(true);
+
     CListCtrl *list = static_cast<CListCtrl*>(GetDlgItem(IDC_CONNECTION_LIST));
     if (list) {
-        list->SetExtendedStyle(list->GetExtendedStyle() | LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+        list->SetExtendedStyle(list->GetExtendedStyle()
+            | LVS_EX_FULLROWSELECT
+            | LVS_EX_DOUBLEBUFFER
+            | LVS_EX_HEADERINALLVIEWS);
+        ::SetWindowTheme(list->GetSafeHwnd(), L"Explorer", nullptr);
         list->InsertColumn(0, L"Name", LVCFMT_LEFT, 150);
         list->InsertColumn(1, L"Host", LVCFMT_LEFT, 180);
         list->InsertColumn(2, L"Port", LVCFMT_LEFT, 60);
     }
+
+    if (CEdit *search = static_cast<CEdit *>(GetDlgItem(IDC_CONNECTION_SEARCH)))
+        search->SetCueBanner(L"Search profiles...", TRUE);
 
     if (m_repo)
         refreshList(m_repo->profiles());
@@ -96,12 +130,8 @@ void ConnectionListDialog::OnNewClicked()
     if (dialog.DoModal() != IDOK)
         return;
 
-    Profile p = dialog.profile();
-    if (p.id.empty())
-        p.id = createGuidString();
-
     if (m_repo) {
-        m_repo->addProfile(p);
+        m_repo->addProfile(dialog.profile());
         refreshList(m_repo->search(m_searchText.GetString()));
     }
 }

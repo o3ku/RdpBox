@@ -1,3 +1,8 @@
 #include "resource.h"
 
 IDI_APP_ICON ICON "logo.ico"
+
+IDP_ADD PNG "add.png"
+IDP_CONNECTIONS PNG "connections.png"
+IDP_CLOSE PNG "close.png"
+IDP_SETTINGS PNG "settings.png"

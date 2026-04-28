@@ -9,7 +9,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 include(GNUInstallDirs)
 
 option(BUILD_TEST "Build test targets." OFF)
-option(RDPBOX_ENABLE_GRPC "Enable gRPC statistics polling when protobuf and gRPC are available." ON)
 
 set(CMAKE_MFC_FLAG 2)
 
@@ -35,6 +34,8 @@ set(RDPBOX_SOURCES
     rdp/RdpCursorClassifier.cpp
     rdp/RdpModifierSyncTracker.h
     rdp/RdpModifierSyncTracker.cpp
+    rdp/RdpMouseMoveCoalescer.h
+    rdp/RdpMouseMoveCoalescer.cpp
     rdp/RdpResizeBurstTracker.h
     rdp/RdpResizeBurstTracker.cpp
     rdp/RdpClipboardBridge.h
@@ -51,6 +52,19 @@ set(RDPBOX_SOURCES
     ui/ProfileEditDialog.cpp
     ui/ConnectionListDialog.h
     ui/ConnectionListDialog.cpp
+    ui/ClosableTabCtrl.h
+    ui/ClosableTabCtrl.cpp
+    ui/BrowserTabBar.h
+    ui/BrowserTabBar.cpp
+    ui/FlatButton.h
+    ui/FlatButton.cpp
+    ui/SessionHostWnd.h
+    ui/SessionHostWnd.cpp
+    ui/ResourceImage.h
+    ui/ResourceImage.cpp
+    ui/ParentResizeForwarder.h
+    ui/ParentResizeForwarder.cpp
+    ui/Win10Theme.h
     resources/resource.h
     resources/mfc_ui.rc
     resources/app_icon.rc

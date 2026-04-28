@@ -4,6 +4,7 @@
 #include <afxdialogex.h>
 
 #include "profiles/Profile.h"
+#include "ui/FlatButton.h"
 
 class ProfileEditDialog : public CDialogEx
 {
@@ -28,8 +29,13 @@ private:
     CString m_name;
     CString m_host;
     int m_port = 3389;
+    CString m_domain;
     CString m_username;
     CString m_password;
     BOOL m_clipboardEnabled = TRUE;
     BOOL m_ignoreCertificate = TRUE;
+    BOOL m_fullScreenOnConnect = FALSE;
+
+    FlatButton m_btnOK;
+    FlatButton m_btnCancel;
 };

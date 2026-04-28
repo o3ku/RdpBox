@@ -1,3 +1,13 @@
+add_compile_definitions(
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+    UNICODE
+    _UNICODE
+    _CRT_SECURE_NO_WARNINGS
+    WINVER=0x0A00
+    _WIN32_WINNT=0x0A00
+)
+
 add_executable(RdpResizeBurstTrackerTests
     rdp/RdpResizeBurstTrackerTests.cpp
     ${CMAKE_SOURCE_DIR}/src/rdp/RdpResizeBurstTracker.cpp
@@ -11,6 +21,7 @@ add_test(NAME RdpResizeBurstTrackerTests COMMAND RdpResizeBurstTrackerTests)
 
 add_executable(RdpMouseMoveCoalescerTests
     rdp/RdpMouseMoveCoalescerTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/rdp/RdpMouseMoveCoalescer.cpp
 )
 
 target_include_directories(RdpMouseMoveCoalescerTests PRIVATE

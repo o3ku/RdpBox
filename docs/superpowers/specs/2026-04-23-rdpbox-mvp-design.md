@@ -1,5 +1,7 @@
 # RdpBox MVP Design
 
+> Historical note: this document predates the MFC/Win32 migration. Keep it as an archive of the original Qt-era MVP plan, not as the current architecture reference.
+
 ## Goal
 
 Transform the POC (single hardcoded connection) into a usable multi-tab RDP connection manager with profile CRUD, tab-based sessions, reconnect, and search.

@@ -12,8 +12,11 @@ struct Profile
     int port = 3389;
     std::wstring username;
     std::wstring password;
+    std::wstring domain;
     bool clipboardEnabled = true;
     bool ignoreCertificate = true;
+    bool fullScreenOnConnect = false;
+    std::string lastConnectedAt;
 
     static Profile create()
     {

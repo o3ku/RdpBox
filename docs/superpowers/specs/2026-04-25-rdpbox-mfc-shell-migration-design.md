@@ -1,5 +1,7 @@
 # RdpBox MFC Shell Migration Design
 
+> Historical note: this document captures the shell migration away from Qt. The migration is already reflected in the current codebase, so treat this file as implementation history.
+
 ## Goal
 
 Replace the Qt UI shell with a native MFC interface while keeping the FreeRDP connection and clipboard logic.

@@ -21,8 +21,11 @@ static cJSON *profileToJson(const Profile &profile)
     cJSON_AddNumberToObject(object, "port", profile.port);
     cJSON_AddStringToObject(object, "username", utf8FromWide(profile.username).c_str());
     cJSON_AddStringToObject(object, "password", utf8FromWide(profile.password).c_str());
+    cJSON_AddStringToObject(object, "domain", utf8FromWide(profile.domain).c_str());
     cJSON_AddBoolToObject(object, "clipboardEnabled", profile.clipboardEnabled);
     cJSON_AddBoolToObject(object, "ignoreCertificate", profile.ignoreCertificate);
+    cJSON_AddBoolToObject(object, "fullScreenOnConnect", profile.fullScreenOnConnect);
+    cJSON_AddStringToObject(object, "lastConnectedAt", profile.lastConnectedAt.c_str());
     return object;
 }
 
@@ -35,8 +38,11 @@ static Profile profileFromJson(const cJSON *object)
     const cJSON *port = cJSON_GetObjectItemCaseSensitive(object, "port");
     const cJSON *username = cJSON_GetObjectItemCaseSensitive(object, "username");
     const cJSON *password = cJSON_GetObjectItemCaseSensitive(object, "password");
+    const cJSON *domain = cJSON_GetObjectItemCaseSensitive(object, "domain");
     const cJSON *clipboardEnabled = cJSON_GetObjectItemCaseSensitive(object, "clipboardEnabled");
     const cJSON *ignoreCertificate = cJSON_GetObjectItemCaseSensitive(object, "ignoreCertificate");
+    const cJSON *fullScreenOnConnect = cJSON_GetObjectItemCaseSensitive(object, "fullScreenOnConnect");
+    const cJSON *lastConnectedAt = cJSON_GetObjectItemCaseSensitive(object, "lastConnectedAt");
 
     profile.id = cJSON_GetStringValue(id) ? cJSON_GetStringValue(id) : "";
     profile.name = wideFromUtf8(cJSON_GetStringValue(name) ? cJSON_GetStringValue(name) : "");
@@ -44,8 +50,11 @@ static Profile profileFromJson(const cJSON *object)
     profile.port = cJSON_IsNumber(port) ? port->valueint : 3389;
     profile.username = wideFromUtf8(cJSON_GetStringValue(username) ? cJSON_GetStringValue(username) : "");
     profile.password = wideFromUtf8(cJSON_GetStringValue(password) ? cJSON_GetStringValue(password) : "");
+    profile.domain = wideFromUtf8(cJSON_GetStringValue(domain) ? cJSON_GetStringValue(domain) : "");
     profile.clipboardEnabled = !cJSON_IsFalse(clipboardEnabled);
     profile.ignoreCertificate = !cJSON_IsFalse(ignoreCertificate);
+    profile.fullScreenOnConnect = cJSON_IsTrue(fullScreenOnConnect);
+    profile.lastConnectedAt = cJSON_GetStringValue(lastConnectedAt) ? cJSON_GetStringValue(lastConnectedAt) : "";
     return profile;
 }
 
@@ -119,7 +128,11 @@ Profile ProfileRepository::profileById(const std::string &id) const
 
 void ProfileRepository::addProfile(const Profile &profile)
 {
-    m_profiles.push_back(profile);
+    Profile stored = profile;
+    if (stored.id.empty())
+        stored.id = createGuidString();
+
+    m_profiles.push_back(stored);
     save();
 }
 
