@@ -65,11 +65,15 @@ set(RDPBOX_SOURCES
     rdp/RdpResizeBurstTracker.cpp
     rdp/FrameBufferAnalysis.h
     rdp/FrameBufferAnalysis.cpp
+    rdp/FrameBufferMemory.h
     rdp/RdpClipboardBridge.h
     rdp/RdpClipboardBridge.cpp
     rdp/PlatformClipboardBackend.h
     rdp/RdpSessionView.h
     rdp/RdpSessionView.cpp
+    rdp/RdpSessionViewInput.cpp
+    rdp/RdpSessionViewMessages.cpp
+    rdp/RdpSessionViewRendering.cpp
     rdp/WindowsClipboardBackend.h
     rdp/WindowsClipboardBackend.cpp
     session/SessionManager.h

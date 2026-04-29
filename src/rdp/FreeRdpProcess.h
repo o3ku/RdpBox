@@ -3,7 +3,6 @@
 #include "common/NativeTypes.h"
 
 #include <cstdint>
-#include <optional>
 #include <functional>
 #include <memory>
 #include <string>
@@ -46,9 +45,9 @@ public:
     void stop();
 
     State state() const;
-    FrameBuffer frame() const;
     void writeFrameFromContext(void *rdpContext);
-    std::optional<FrameBuffer> frameIfNewer(uint64_t &lastSeenGeneration);
+    bool visitFrameIfNewer(uint64_t &lastSeenGeneration,
+                           const std::function<void(const FrameBuffer &, uint64_t)> &visitor);
     SizeI desktopSize() const;
     CursorInfo cursor() const;
 
