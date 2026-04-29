@@ -1,5 +1,7 @@
 #include "BrowserTabBar.h"
 
+#include <afxcmn.h>
+
 #include "ParentResizeForwarder.h"
 #include "Win10Theme.h"
 
@@ -42,6 +44,7 @@ BEGIN_MESSAGE_MAP(BrowserTabBar, CWnd)
     ON_WM_MOUSEMOVE()
     ON_WM_MOUSELEAVE()
     ON_WM_SIZE()
+    ON_NOTIFY_REFLECT(TTN_GETDISPINFO, &BrowserTabBar::OnGetDispInfo)
 END_MESSAGE_MAP()
 
 BrowserTabBar::BrowserTabBar() = default;
@@ -58,8 +61,13 @@ bool BrowserTabBar::create(CWnd *parent, const CRect &rect, UINT id)
     const bool created = CreateEx(0, className, L"BrowserTabBar",
                                   WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
                                   rect, parent, id) != FALSE;
-    if (created)
+    if (created) {
         ensureFonts();
+        m_tooltip.Create(this, TTS_NOPREFIX | TTS_ALWAYSTIP);
+        m_tooltip.SetMaxTipWidth(400);
+        m_tooltip.AddTool(this, L"");
+        m_tooltip.Activate(TRUE);
+    }
     return created;
 }
 
@@ -166,6 +174,18 @@ void BrowserTabBar::setSelectionChangedCallback(SelectionChangedCallback callbac
 void BrowserTabBar::setCloseRequestedCallback(CloseRequestedCallback callback)
 {
     m_closeRequested = std::move(callback);
+}
+
+void BrowserTabBar::setTooltipCallback(TooltipCallback callback)
+{
+    m_tooltipCallback = std::move(callback);
+}
+
+BOOL BrowserTabBar::PreTranslateMessage(MSG *msg)
+{
+    if (m_tooltip.GetSafeHwnd())
+        m_tooltip.RelayEvent(msg);
+    return CWnd::PreTranslateMessage(msg);
 }
 
 int BrowserTabBar::hitTestTabAtScreenPoint(CPoint screenPoint) const
@@ -443,6 +463,14 @@ void BrowserTabBar::OnMouseMove(UINT flags, CPoint point)
         invalidateTab(oldClose);
         invalidateTab(tabIndex);
         invalidateTab(closeIndex);
+
+        if (m_tooltip.GetSafeHwnd()) {
+            m_tooltip.Pop();
+            CString text;
+            if (m_hoverTabIndex >= 0 && m_tooltipCallback)
+                text = m_tooltipCallback(m_hoverTabIndex).c_str();
+            m_tooltip.UpdateTipText(text, this);
+        }
     }
 
     CWnd::OnMouseMove(flags, point);
@@ -466,4 +494,9 @@ void BrowserTabBar::OnSize(UINT type, int cx, int cy)
     CWnd::OnSize(type, cx, cy);
     recomputeLayout();
     Invalidate(FALSE);
+}
+
+void BrowserTabBar::OnGetDispInfo(NMHDR *nmhdr, LRESULT *result)
+{
+    *result = 0;
 }

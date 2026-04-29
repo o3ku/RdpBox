@@ -34,6 +34,8 @@ public:
     void setReconnectRequestedCallback(std::function<void()> callback);
     void setConnectedCallback(std::function<void()> callback);
 
+    FreeRdpProcess::ConnectionInfo connectionInfo() const;
+
     void setResizeSuppressed(bool suppressed);
     void flushPendingResize();
 

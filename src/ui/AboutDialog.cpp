@@ -2,8 +2,10 @@
 
 #include "resources/resource.h"
 
-#include <uxtheme.h>
+#include <algorithm>
+
 #include <shellapi.h>
+#include <uxtheme.h>
 
 #pragma comment(lib, "uxtheme.lib")
 
@@ -57,9 +59,7 @@ BOOL AboutDialog::OnInitDialog()
 
         LOGFONTW lf = {};
         if (HFONT hFont = reinterpret_cast<HFONT>(link->GetFont()->GetSafeHandle()))
-        {
             GetObjectW(hFont, sizeof(lf), &lf);
-        }
         lf.lfUnderline = TRUE;
         m_linkFont.CreateFontIndirectW(&lf);
         link->SetFont(&m_linkFont);

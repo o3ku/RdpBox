@@ -269,6 +269,13 @@ void CRdpSessionView::setConnectedCallback(std::function<void()> callback)
     m_connectedCallback = std::move(callback);
 }
 
+FreeRdpProcess::ConnectionInfo CRdpSessionView::connectionInfo() const
+{
+    if (!m_process)
+        return {};
+    return m_process->connectionInfo();
+}
+
 void CRdpSessionView::setResizeSuppressed(bool suppressed)
 {
     m_resizeSuppressed = suppressed;

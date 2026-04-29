@@ -13,6 +13,13 @@ class FreeRdpProcess
 public:
     enum class State { Idle, Starting, Running, Finished };
 
+    struct ConnectionInfo
+    {
+        std::string codecName;
+        std::uint32_t rtt = 0;
+        bool rttAvailable = false;
+    };
+
     struct CertificateChallenge
     {
         std::wstring host;
@@ -61,6 +68,8 @@ public:
     void sendMouseButton(MouseButton button, bool down, PointI pos, SizeI viewSize);
     void sendWheel(PointI angleDelta, PointI pos, SizeI viewSize);
     void requestResize(SizeI size);
+
+    ConnectionInfo connectionInfo() const;
 
     void updateStateFromBackend(State state);
     void updateCursorFromBackend(const CursorInfo &cursor);

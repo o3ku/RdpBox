@@ -156,6 +156,17 @@ bool SessionManager::hasOpenSessions() const
     return !m_sessions.empty();
 }
 
+FreeRdpProcess::ConnectionInfo SessionManager::connectionInfoForTab(int index) const
+{
+    if (index < 0 || index >= static_cast<int>(m_sessions.size()))
+        return {};
+
+    auto &session = m_sessions[static_cast<size_t>(index)];
+    if (session->view)
+        return session->view->connectionInfo();
+    return {};
+}
+
 int SessionManager::indexOfSession(const std::string &sessionId) const
 {
     for (size_t index = 0; index < m_sessions.size(); ++index) {

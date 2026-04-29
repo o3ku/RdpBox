@@ -1,6 +1,7 @@
 #pragma once
 
 #include "profiles/Profile.h"
+#include "rdp/FreeRdpProcess.h"
 
 #include <functional>
 #include <memory>
@@ -32,6 +33,8 @@ public:
 
     std::string sessionIdByTabIndex(int index) const;
     bool hasOpenSessions() const;
+
+    FreeRdpProcess::ConnectionInfo connectionInfoForTab(int index) const;
 
 private:
     struct Session
