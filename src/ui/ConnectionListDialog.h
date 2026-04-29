@@ -17,7 +17,9 @@ class ConnectionListDialog : public CDialogEx
     DECLARE_DYNAMIC(ConnectionListDialog)
 
 public:
-    ConnectionListDialog(ProfileRepository *repo, CWnd *parent = nullptr);
+    ConnectionListDialog(ProfileRepository *repo,
+                         const std::vector<std::string> &connectedProfileIds,
+                         CWnd *parent = nullptr);
     virtual ~ConnectionListDialog();
 
     std::vector<std::string> selectedProfileIds() const;
@@ -48,6 +50,7 @@ private:
     std::vector<int> selectedIndices() const;
 
     ProfileRepository *m_repo = nullptr;
+    std::vector<std::string> m_connectedProfileIds;
     std::vector<Profile> m_currentProfiles;
     std::vector<std::string> m_selectedProfileIds;
     CString m_searchText;

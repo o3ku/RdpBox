@@ -9,8 +9,6 @@
 #include <wincrypt.h>
 #include <windows.h>
 
-#pragma comment(lib, "bcrypt.lib")
-
 namespace
 {
 constexpr DWORD kPortableKdfIterations = 120000;

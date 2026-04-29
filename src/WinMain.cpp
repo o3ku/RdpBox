@@ -10,6 +10,18 @@ extern "C" int WINAPI WinMain(HINSTANCE hInstance,
                                LPSTR,
                                int nCmdShow)
 {
+    HANDLE mutex = ::CreateMutexW(nullptr, TRUE, L"RdpBox_SingleInstance");
+    if (mutex && ::GetLastError() == ERROR_ALREADY_EXISTS) {
+        ::CloseHandle(mutex);
+        HWND existing = ::FindWindowW(nullptr, L"RdpBox");
+        if (existing) {
+            ::SetForegroundWindow(existing);
+            if (::IsIconic(existing))
+                ::ShowWindow(existing, SW_RESTORE);
+        }
+        return 0;
+    }
+
     int argc = 0;
     LPWSTR *argv = ::CommandLineToArgvW(::GetCommandLineW(), &argc);
     if (argv) {

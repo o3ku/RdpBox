@@ -10,8 +10,6 @@
 
 #include <uxtheme.h>
 
-#pragma comment(lib, "uxtheme.lib")
-
 IMPLEMENT_DYNAMIC(ConnectionListDialog, CDialogEx)
 
 BEGIN_MESSAGE_MAP(ConnectionListDialog, CDialogEx)
@@ -25,9 +23,12 @@ BEGIN_MESSAGE_MAP(ConnectionListDialog, CDialogEx)
     ON_NOTIFY(LVN_ITEMCHANGED, IDC_CONNECTION_LIST, &ConnectionListDialog::OnItemChanged)
 END_MESSAGE_MAP()
 
-ConnectionListDialog::ConnectionListDialog(ProfileRepository *repo, CWnd *parent)
+ConnectionListDialog::ConnectionListDialog(ProfileRepository *repo,
+                                             const std::vector<std::string> &connectedProfileIds,
+                                             CWnd *parent)
     : CDialogEx(IDD_CONNECTION_DIALOG, parent)
     , m_repo(repo)
+    , m_connectedProfileIds(connectedProfileIds)
 {
 }
 
@@ -50,6 +51,11 @@ void makeFlatOwnerDraw(FlatButton &button)
 {
     if (button.GetSafeHwnd())
         button.ModifyStyle(BS_DEFPUSHBUTTON, BS_OWNERDRAW);
+}
+
+bool isConnected(const std::string &profileId, const std::vector<std::string> &connectedIds)
+{
+    return std::find(connectedIds.begin(), connectedIds.end(), profileId) != connectedIds.end();
 }
 }
 
@@ -77,6 +83,7 @@ BOOL ConnectionListDialog::OnInitDialog()
         list->InsertColumn(0, L"Name", LVCFMT_LEFT, 150);
         list->InsertColumn(1, L"Host", LVCFMT_LEFT, 180);
         list->InsertColumn(2, L"Port", LVCFMT_LEFT, 60);
+        list->InsertColumn(3, L"Status", LVCFMT_LEFT, 80);
     }
 
     if (CEdit *search = static_cast<CEdit *>(GetDlgItem(IDC_CONNECTION_SEARCH)))
@@ -96,17 +103,11 @@ void ConnectionListDialog::OnOK()
 
 void ConnectionListDialog::OnCancel()
 {
-    if (m_selectionRequired)
-        return;
-
     CDialogEx::OnCancel();
 }
 
 void ConnectionListDialog::OnClose()
 {
-    if (m_selectionRequired)
-        return;
-
     CDialogEx::OnCancel();
 }
 
@@ -195,8 +196,11 @@ void ConnectionListDialog::OnConnectClicked()
 
     m_selectedProfileIds.clear();
     for (int idx : indices) {
-        if (idx >= 0 && idx < static_cast<int>(m_currentProfiles.size()))
-            m_selectedProfileIds.push_back(m_currentProfiles[idx].id);
+        if (idx >= 0 && idx < static_cast<int>(m_currentProfiles.size())) {
+            const auto &profileId = m_currentProfiles[idx].id;
+            if (!isConnected(profileId, m_connectedProfileIds))
+                m_selectedProfileIds.push_back(profileId);
+        }
     }
 
     if (m_selectedProfileIds.empty())
@@ -266,6 +270,7 @@ void ConnectionListDialog::refreshList(const std::vector<Profile> &profiles)
         list->InsertItem(idx, name);
         list->SetItemText(idx, 1, host);
         list->SetItemText(idx, 2, portStr);
+        list->SetItemText(idx, 3, isConnected(p.id, m_connectedProfileIds) ? L"Connected" : L"");
         list->SetItemData(idx, static_cast<DWORD_PTR>(idx));
     }
 
@@ -285,6 +290,21 @@ void ConnectionListDialog::updateButtonStates()
     CListCtrl *list = static_cast<CListCtrl*>(GetDlgItem(IDC_CONNECTION_LIST));
     const int selectedCount = list ? list->GetSelectedCount() : 0;
 
+    bool allConnected = true;
+    if (list && selectedCount > 0) {
+        POSITION pos = list->GetFirstSelectedItemPosition();
+        while (pos) {
+            const int idx = list->GetNextSelectedItem(pos);
+            if (idx >= 0 && idx < static_cast<int>(m_currentProfiles.size())
+                && !isConnected(m_currentProfiles[idx].id, m_connectedProfileIds)) {
+                allConnected = false;
+                break;
+            }
+        }
+    } else {
+        allConnected = false;
+    }
+
     CWnd *editButton = GetDlgItem(IDC_CONNECTION_EDIT);
     CWnd *deleteButton = GetDlgItem(IDC_CONNECTION_DELETE);
     CWnd *connectButton = GetDlgItem(IDC_CONNECTION_CONNECT);
@@ -295,7 +315,7 @@ void ConnectionListDialog::updateButtonStates()
     if (deleteButton)
         deleteButton->EnableWindow(selectedCount > 0);
     if (connectButton)
-        connectButton->EnableWindow(selectedCount > 0);
+        connectButton->EnableWindow(selectedCount > 0 && !allConnected);
     if (duplicateButton)
         duplicateButton->EnableWindow(selectedCount > 0);
 }

@@ -17,14 +17,13 @@ using std::max;
 #include <gdiplus.h>
 #include <imm.h>
 
-#pragma comment(lib, "msimg32.lib")
-
 namespace
 {
 constexpr UINT_PTR kResizeTimerId = 1;
 constexpr UINT_PTR kMouseMoveTimerId = 2;
 constexpr UINT kMouseMoveCoalesceMs = 16;
-constexpr int kInitialFrameDiscardCount = 5;
+constexpr int kInitialFrameDiscardWithCodec = 3;
+constexpr int kInitialFrameDiscardNoCodec = 5;
 
 CRdpSessionView *g_systemKeyTarget = nullptr;
 HHOOK g_keyboardHook = nullptr;
@@ -276,6 +275,11 @@ FreeRdpProcess::ConnectionInfo CRdpSessionView::connectionInfo() const
     return m_process->connectionInfo();
 }
 
+bool CRdpSessionView::isConnected() const
+{
+    return m_connected;
+}
+
 void CRdpSessionView::setResizeSuppressed(bool suppressed)
 {
     m_resizeSuppressed = suppressed;
@@ -407,7 +411,7 @@ void CRdpSessionView::startProcess()
     m_resolutionUpdatePending = false;
     m_waitingForFirstContentFrame = true;
     m_frameGateActive = true;
-    m_frameGateRemaining = kInitialFrameDiscardCount;
+    m_frameGateRemaining = 0;
     m_pendingDesktopSize = {};
     m_captureDirectory.clear();
     m_captureFramesRemaining = 0;
@@ -471,6 +475,12 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
     switch (state) {
     case FreeRdpProcess::State::Running:
         m_connected = true;
+        if (m_process && m_frameGateActive) {
+            auto info = m_process->connectionInfo();
+            m_frameGateRemaining = info.codecName.empty()
+                ? kInitialFrameDiscardNoCodec
+                : kInitialFrameDiscardWithCodec;
+        }
         beginFrameCapture(L"connect");
         if (!m_resolutionUpdatePending && !m_waitingForFirstContentFrame && !m_frameGateActive)
             clearOverlay();
@@ -492,7 +502,17 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
         m_frameGateRemaining = 0;
         m_pendingDesktopSize = {};
         KillTimer(kResizeTimerId);
-        showOverlay(L"Disconnected - Click to Reconnect");
+        {
+            CString overlayText = L"Disconnected";
+            if (m_process) {
+                std::string error = m_process->lastDisconnectError();
+                if (!error.empty())
+                    overlayText = CString(error.c_str()) + L"\r\nClick to Reconnect";
+                else
+                    overlayText = L"Disconnected - Click to Reconnect";
+            }
+            showOverlay(overlayText);
+        }
         releaseCursorHandle();
         Invalidate(FALSE);
         break;
@@ -548,7 +568,7 @@ void CRdpSessionView::beginResolutionUpdate(SizeI size)
     m_resolutionUpdatePending = true;
     m_pendingDesktopSize = SizeI{(size.width + 3) & ~3, size.height};
     m_frameGateActive = true;
-    m_frameGateRemaining = kInitialFrameDiscardCount;
+    m_frameGateRemaining = kInitialFrameDiscardWithCodec;
     m_pendingVisibleFrame = {};
     beginFrameCapture(L"resize");
     showOverlay(L"Reconnecting...");

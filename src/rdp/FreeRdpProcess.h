@@ -70,6 +70,7 @@ public:
     void requestResize(SizeI size);
 
     ConnectionInfo connectionInfo() const;
+    std::string lastDisconnectError() const;
 
     void updateStateFromBackend(State state);
     void updateCursorFromBackend(const CursorInfo &cursor);

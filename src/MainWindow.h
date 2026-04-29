@@ -41,6 +41,7 @@ protected:
     afx_msg void OnContextMenu(CWnd *window, CPoint point);
     afx_msg BOOL OnEraseBkgnd(CDC *dc);
     afx_msg BOOL OnNcActivate(BOOL active);
+    afx_msg void OnTimer(UINT_PTR timerId);
     afx_msg LRESULT OnNcCalcSize(WPARAM wParam, LPARAM lParam);
     afx_msg LRESULT OnNcLButtonDown(WPARAM hitTest, LPARAM lParam);
     afx_msg LRESULT OnNcHitTest(WPARAM, LPARAM lParam);
@@ -63,6 +64,7 @@ private:
     void applyUiFont();
     void toggleFullScreen();
     void setFullScreen(bool enabled);
+    void refreshTabStatuses();
     int captionButtonHitTest(CPoint clientPoint) const;
     CRect captionButtonRectFor(int hitCode) const;
     void invalidateCaptionButtons();
@@ -71,7 +73,6 @@ private:
     bool logoHitTest(CPoint clientPoint) const;
     void showLogoMenu();
     bool isMaximized() const;
-    std::wstring windowStateFilePath() const;
     void saveWindowState() const;
     bool restoreWindowState();
 
@@ -83,6 +84,7 @@ private:
     std::unique_ptr<ProfileRepository> m_profileRepository;
     bool m_isClosing = false;
     bool m_isFullScreen = false;
+    static constexpr UINT_PTR kTabStatusTimerId = 1;
     DWORD m_savedStyle = 0;
     DWORD m_savedExStyle = 0;
     CRect m_savedRect;

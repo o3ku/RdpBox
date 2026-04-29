@@ -9,8 +9,6 @@
 
 #include <uxtheme.h>
 
-#pragma comment(lib, "uxtheme.lib")
-
 namespace
 {
 constexpr int kTabMinWidth = 120;
@@ -18,6 +16,8 @@ constexpr int kTabMaxWidth = 220;
 constexpr int kTabPadding = 12;
 constexpr int kCloseButtonSize = 16;
 constexpr int kCloseButtonMargin = 6;
+constexpr int kStatusDotWidth = 8;
+constexpr int kStatusDotHeight = 8;
 HFONT createTabFont(int pixelHeight, int weight)
 {
     LOGFONTW lf = {};
@@ -181,6 +181,14 @@ void BrowserTabBar::setTooltipCallback(TooltipCallback callback)
     m_tooltipCallback = std::move(callback);
 }
 
+void BrowserTabBar::setTabStatus(int index, TabStatusInfo status)
+{
+    if (index < 0 || index >= static_cast<int>(m_tabs.size()))
+        return;
+    m_tabs[index].status = status;
+    invalidateTab(index);
+}
+
 BOOL BrowserTabBar::PreTranslateMessage(MSG *msg)
 {
     if (m_tooltip.GetSafeHwnd())
@@ -322,8 +330,32 @@ void BrowserTabBar::OnPaint()
             memDc.FillSolidRect(separator, Win10Theme::kCaptionSeparator);
         }
 
+        int textLeft = item.rect.left + kTabPadding;
+        if (item.status.status != TabStatus::Inactive) {
+            COLORREF dotColor;
+            switch (item.status.status) {
+            case TabStatus::ConnectedGood:
+                dotColor = RGB(40, 200, 80);
+                break;
+            case TabStatus::ConnectedWarn:
+                dotColor = RGB(255, 170, 0);
+                break;
+            case TabStatus::ConnectedBad:
+                dotColor = RGB(240, 60, 60);
+                break;
+            default:
+                dotColor = RGB(128, 128, 128);
+                break;
+            }
+            const int dotX = item.rect.left + kTabPadding;
+            const int dotY = item.rect.top + (item.rect.Height() - kStatusDotHeight) / 2;
+            CRect dotRect(dotX, dotY, dotX + kStatusDotWidth, dotY + kStatusDotHeight);
+            memDc.FillSolidRect(dotRect, dotColor);
+            textLeft = dotRect.right + 6;
+        }
+
         CRect textRect(item.rect);
-        textRect.left += kTabPadding;
+        textRect.left = textLeft;
         textRect.right = item.closeRect.left - 4;
 
         HFONT tabFont = m_tabFontBold.GetSafeHandle()
