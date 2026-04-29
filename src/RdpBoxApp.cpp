@@ -5,6 +5,10 @@
 #include "MainWindow.h"
 
 #include <objbase.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
+
+#pragma comment(lib, "ws2_32.lib")
 
 #include <algorithm>
 namespace Gdiplus
@@ -41,9 +45,19 @@ BOOL CRdpBoxApp::InitInstance()
 
     m_comInitialized = true;
 
+    WSADATA wsaData = {};
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+        CoUninitialize();
+        m_comInitialized = false;
+        return FALSE;
+    }
+    m_wsaInitialized = true;
+
     Gdiplus::GdiplusStartupInput gdiInput;
     ULONG_PTR token = 0;
     if (Gdiplus::GdiplusStartup(&token, &gdiInput, nullptr) != Gdiplus::Ok) {
+        WSACleanup();
+        m_wsaInitialized = false;
         CoUninitialize();
         m_comInitialized = false;
         return FALSE;
@@ -53,6 +67,8 @@ BOOL CRdpBoxApp::InitInstance()
     if (!CWinApp::InitInstance()) {
         Gdiplus::GdiplusShutdown(static_cast<ULONG_PTR>(m_gdiplusToken));
         m_gdiplusToken = 0;
+        WSACleanup();
+        m_wsaInitialized = false;
         CoUninitialize();
         m_comInitialized = false;
         return FALSE;
@@ -61,6 +77,8 @@ BOOL CRdpBoxApp::InitInstance()
     if (!ensurePasswordProtectionReady()) {
         Gdiplus::GdiplusShutdown(static_cast<ULONG_PTR>(m_gdiplusToken));
         m_gdiplusToken = 0;
+        WSACleanup();
+        m_wsaInitialized = false;
         CoUninitialize();
         m_comInitialized = false;
         return FALSE;
@@ -71,6 +89,8 @@ BOOL CRdpBoxApp::InitInstance()
         delete frame;
         Gdiplus::GdiplusShutdown(static_cast<ULONG_PTR>(m_gdiplusToken));
         m_gdiplusToken = 0;
+        WSACleanup();
+        m_wsaInitialized = false;
         CoUninitialize();
         m_comInitialized = false;
         return FALSE;
@@ -88,6 +108,11 @@ int CRdpBoxApp::ExitInstance()
     if (m_gdiplusToken) {
         Gdiplus::GdiplusShutdown(static_cast<ULONG_PTR>(m_gdiplusToken));
         m_gdiplusToken = 0;
+    }
+
+    if (m_wsaInitialized) {
+        WSACleanup();
+        m_wsaInitialized = false;
     }
 
     if (m_comInitialized)

@@ -93,8 +93,7 @@ int main()
                       "\"clipboardEnabled\":true,\"ignoreCertificate\":true,\"fullScreenOnConnect\":false}]");
 
         ProfileRepository repository(legacyPath.wstring());
-        assert(repository.profiles().size() == 1);
-        assert(repository.profiles()[0].password == L"plain-secret");
+        assert(repository.profiles().empty());
 
         std::filesystem::remove(legacyPath);
     }

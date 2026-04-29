@@ -47,7 +47,7 @@ protected:
     afx_msg LRESULT OnNcHitTest(WPARAM, LPARAM lParam);
     afx_msg LRESULT OnNcPaint(WPARAM, LPARAM);
     afx_msg LRESULT OnExitSizeMove(WPARAM, LPARAM);
-    afx_msg LRESULT OnOpenConnectionsMessage(WPARAM selectionRequired, LPARAM);
+    afx_msg LRESULT OnOpenConnectionsMessage(WPARAM, LPARAM);
     afx_msg LRESULT OnDwmCompositionChanged(WPARAM, LPARAM);
     afx_msg void OnLButtonDown(UINT flags, CPoint point);
     afx_msg void OnLButtonDblClk(UINT flags, CPoint point);
@@ -58,8 +58,7 @@ protected:
 
 private:
     void layoutChildren();
-    void openConnectionDialog(bool selectionRequired);
-    bool hasOpenTabs() const;
+    void openConnectionDialog();
     int tabIndexAtScreenPoint(CPoint point) const;
     void applyUiFont();
     void toggleFullScreen();

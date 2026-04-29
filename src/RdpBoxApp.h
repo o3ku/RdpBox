@@ -16,5 +16,6 @@ private:
     bool ensurePasswordProtectionReady();
 
     bool m_comInitialized = false;
+    bool m_wsaInitialized = false;
     std::uintptr_t m_gdiplusToken = 0;
 };

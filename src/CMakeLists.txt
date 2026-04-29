@@ -14,6 +14,7 @@ set(CMAKE_MFC_FLAG 2)
 
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(cJSON CONFIG REQUIRED)
+
 find_package(FreeRDP CONFIG REQUIRED)
 find_package(FreeRDP-Client CONFIG REQUIRED)
 find_package(WinPR CONFIG REQUIRED)
@@ -71,7 +72,6 @@ set(RDPBOX_SOURCES
     rdp/RdpSessionView.cpp
     rdp/WindowsClipboardBackend.h
     rdp/WindowsClipboardBackend.cpp
-    rdp/WindowsClipboardBackendNative.c
     session/SessionManager.h
     session/SessionManager.cpp
     ui/AboutDialog.h
@@ -132,6 +132,7 @@ target_link_libraries(RdpBox PRIVATE
     winpr
     nlohmann_json::nlohmann_json
     cjson
+
     Bcrypt
     Crypt32
     Imm32

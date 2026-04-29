@@ -245,11 +245,6 @@ std::vector<std::string> ConnectionListDialog::selectedProfileIds() const
     return m_selectedProfileIds;
 }
 
-void ConnectionListDialog::setSelectionRequired(bool required)
-{
-    m_selectionRequired = required;
-}
-
 void ConnectionListDialog::refreshList(const std::vector<Profile> &profiles)
 {
     CListCtrl *list = static_cast<CListCtrl*>(GetDlgItem(IDC_CONNECTION_LIST));

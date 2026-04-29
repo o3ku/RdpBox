@@ -23,7 +23,6 @@ public:
     virtual ~ConnectionListDialog();
 
     std::vector<std::string> selectedProfileIds() const;
-    void setSelectionRequired(bool required);
 
 protected:
     virtual BOOL OnInitDialog();
@@ -54,7 +53,6 @@ private:
     std::vector<Profile> m_currentProfiles;
     std::vector<std::string> m_selectedProfileIds;
     CString m_searchText;
-    bool m_selectionRequired = false;
 
     FlatButton m_btnNew;
     FlatButton m_btnEdit;
@@ -62,4 +60,3 @@ private:
     FlatButton m_btnDelete;
     FlatButton m_btnConnect;
 };
-

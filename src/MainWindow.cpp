@@ -201,8 +201,6 @@ void MainWindow::OnClose()
     KillTimer(kTabStatusTimerId);
     saveWindowState();
     m_isClosing = true;
-    if (m_sessionManager)
-        m_sessionManager->closeAllSessions();
     DestroyWindow();
 }
 
@@ -219,7 +217,7 @@ void MainWindow::OnDestroy()
 
 void MainWindow::OnOpenConnections()
 {
-    openConnectionDialog(false);
+    openConnectionDialog();
 }
 
 void MainWindow::OnMainNew()
@@ -721,9 +719,9 @@ LRESULT MainWindow::OnExitSizeMove(WPARAM, LPARAM)
     return 0;
 }
 
-LRESULT MainWindow::OnOpenConnectionsMessage(WPARAM selectionRequired, LPARAM)
+LRESULT MainWindow::OnOpenConnectionsMessage(WPARAM, LPARAM)
 {
-    openConnectionDialog(selectionRequired != FALSE);
+    openConnectionDialog();
     return 0;
 }
 
@@ -787,7 +785,7 @@ BOOL MainWindow::PreTranslateMessage(MSG *msg)
                 return TRUE;
             }
             if (msg->wParam == 'O') {
-                openConnectionDialog(false);
+                openConnectionDialog();
                 return TRUE;
             }
         }
@@ -847,7 +845,7 @@ void MainWindow::setFullScreen(bool enabled)
     applyDwmExtension(GetSafeHwnd(), calculateWindowFrameMetrics(isMaximized(), m_isFullScreen));
 }
 
-void MainWindow::openConnectionDialog(bool selectionRequired)
+void MainWindow::openConnectionDialog()
 {
     if (!m_profileRepository)
         return;
@@ -857,7 +855,6 @@ void MainWindow::openConnectionDialog(bool selectionRequired)
         : std::vector<std::string>{};
 
     ConnectionListDialog dialog(m_profileRepository.get(), connectedIds, this);
-    dialog.setSelectionRequired(selectionRequired || !hasOpenTabs());
 
     if (dialog.DoModal() == IDOK) {
         const std::vector<std::string> profileIds = dialog.selectedProfileIds();
@@ -867,11 +864,6 @@ void MainWindow::openConnectionDialog(bool selectionRequired)
                 m_sessionManager->openSession(profile);
         }
     }
-}
-
-bool MainWindow::hasOpenTabs() const
-{
-    return m_sessionManager && m_sessionManager->hasOpenSessions();
 }
 
 void MainWindow::refreshTabStatuses()

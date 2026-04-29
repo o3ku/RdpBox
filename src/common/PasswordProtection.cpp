@@ -2,6 +2,7 @@
 
 #include "Win32String.h"
 
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -24,6 +25,7 @@ constexpr wchar_t kPortablePassword[] = L"o3ku/rdpbox";
 PasswordProtection::Mode g_mode = PasswordProtection::Mode::Dpapi;
 bool g_ready = true;
 std::vector<BYTE> g_portableKey;
+std::mutex g_mutex;
 
 bool ntSuccess(NTSTATUS status)
 {
@@ -253,6 +255,7 @@ namespace PasswordProtection
 {
 void setMode(Mode mode)
 {
+    std::scoped_lock lock(g_mutex);
     g_mode = mode;
     g_portableKey.clear();
     g_ready = true;
@@ -265,16 +268,19 @@ void setMode(Mode mode)
 
 Mode mode()
 {
+    std::scoped_lock lock(g_mutex);
     return g_mode;
 }
 
 bool isReady()
 {
+    std::scoped_lock lock(g_mutex);
     return g_ready;
 }
 
 std::string protect(const std::wstring &plaintext)
 {
+    std::scoped_lock lock(g_mutex);
     return g_mode == Mode::Portable
         ? protectPortable(plaintext)
         : protectDpapi(plaintext);
@@ -282,6 +288,7 @@ std::string protect(const std::wstring &plaintext)
 
 std::wstring unprotectCurrent(const std::string &encoded, bool *ok)
 {
+    std::scoped_lock lock(g_mutex);
     return g_mode == Mode::Portable
         ? unprotectPortable(encoded, ok)
         : unprotectDpapi(encoded, ok);
