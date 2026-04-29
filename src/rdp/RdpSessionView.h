@@ -126,7 +126,6 @@ private:
     uint64_t m_cachedFrameGeneration = 0;
     uint64_t m_renderedFrameGeneration = 0;
     FrameBuffer m_cachedFrame;
-    FrameBuffer m_pendingVisibleFrame;
     HDC m_renderDc = nullptr;
     HBITMAP m_renderBitmap = nullptr;
     HGDIOBJ m_renderOldBitmap = nullptr;
