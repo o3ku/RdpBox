@@ -268,9 +268,11 @@ void BrowserTabBar::OnPaint()
 
     ensureFonts();
     HGDIOBJ oldFont = ::SelectObject(memDc.GetSafeHdc(),
-                                     m_tabFont.GetSafeHandle()
-                                         ? m_tabFont.GetSafeHandle()
-                                         : ::GetStockObject(DEFAULT_GUI_FONT));
+                                     m_tabFontBold.GetSafeHandle()
+                                         ? m_tabFontBold.GetSafeHandle()
+                                         : (m_tabFont.GetSafeHandle()
+                                             ? m_tabFont.GetSafeHandle()
+                                             : ::GetStockObject(DEFAULT_GUI_FONT)));
 
     for (size_t i = 0; i < m_tabs.size(); ++i) {
         const TabItem &item = m_tabs[i];
@@ -304,7 +306,7 @@ void BrowserTabBar::OnPaint()
         textRect.left += kTabPadding;
         textRect.right = item.closeRect.left - 4;
 
-        HFONT tabFont = selected && m_tabFontBold.GetSafeHandle()
+        HFONT tabFont = m_tabFontBold.GetSafeHandle()
             ? reinterpret_cast<HFONT>(m_tabFontBold.GetSafeHandle())
             : (m_tabFont.GetSafeHandle()
                 ? reinterpret_cast<HFONT>(m_tabFont.GetSafeHandle())

@@ -63,7 +63,8 @@ To close a tab, click the **×** on the tab strip, middle-click the tab, or righ
 
 ## Security notes
 
-- Profile passwords are stored **as plain text** in `%AppData%/RdpBox/profiles.json`. Treat that file as sensitive. A future version may move secrets to DPAPI or the Windows Credential Manager.
+- In normal mode, profile passwords are stored in `profiles.json` using Windows DPAPI protection instead of plain text. They can normally only be decrypted by the same Windows user on the same machine.
+- In portable mode, saved credentials are encrypted with the built-in portable key path instead of plain text, so they can be moved with the portable directory without an interactive unlock step.
 - With **Ignore certificate errors** disabled, RdpBox prompts the first time it sees an unverified certificate and again whenever the fingerprint changes. Accepting an untrusted certificate is a one-shot decision; RdpBox does not currently persist accepted fingerprints.
 - The clipboard, low-level keyboard hook, and stored credentials are security-sensitive. Avoid logging them.
 

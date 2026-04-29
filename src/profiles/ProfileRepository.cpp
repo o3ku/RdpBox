@@ -8,6 +8,7 @@
 #include <cjson/cJSON.h>
 #include <windows.h>
 
+#include "common/PasswordProtection.h"
 #include "common/Win32String.h"
 
 namespace
@@ -20,7 +21,10 @@ static cJSON *profileToJson(const Profile &profile)
     cJSON_AddStringToObject(object, "host", utf8FromWide(profile.host).c_str());
     cJSON_AddNumberToObject(object, "port", profile.port);
     cJSON_AddStringToObject(object, "username", utf8FromWide(profile.username).c_str());
-    cJSON_AddStringToObject(object, "password", utf8FromWide(profile.password).c_str());
+    if (PasswordProtection::mode() == PasswordProtection::Mode::Portable)
+        cJSON_AddStringToObject(object, "passwordPortable", PasswordProtection::protectPortable(profile.password).c_str());
+    else
+        cJSON_AddStringToObject(object, "passwordProtected", PasswordProtection::protectDpapi(profile.password).c_str());
     cJSON_AddStringToObject(object, "domain", utf8FromWide(profile.domain).c_str());
     cJSON_AddBoolToObject(object, "clipboardEnabled", profile.clipboardEnabled);
     cJSON_AddBoolToObject(object, "ignoreCertificate", profile.ignoreCertificate);
@@ -29,7 +33,15 @@ static cJSON *profileToJson(const Profile &profile)
     return object;
 }
 
-static Profile profileFromJson(const cJSON *object)
+static cJSON *profileArrayToJson(const std::vector<Profile> &profiles)
+{
+    cJSON *array = cJSON_CreateArray();
+    for (const Profile &profile : profiles)
+        cJSON_AddItemToArray(array, profileToJson(profile));
+    return array;
+}
+
+static Profile profileFromJson(const cJSON *object, bool &needsMigration)
 {
     Profile profile;
     const cJSON *id = cJSON_GetObjectItemCaseSensitive(object, "id");
@@ -37,6 +49,8 @@ static Profile profileFromJson(const cJSON *object)
     const cJSON *host = cJSON_GetObjectItemCaseSensitive(object, "host");
     const cJSON *port = cJSON_GetObjectItemCaseSensitive(object, "port");
     const cJSON *username = cJSON_GetObjectItemCaseSensitive(object, "username");
+    const cJSON *passwordPortable = cJSON_GetObjectItemCaseSensitive(object, "passwordPortable");
+    const cJSON *passwordProtected = cJSON_GetObjectItemCaseSensitive(object, "passwordProtected");
     const cJSON *password = cJSON_GetObjectItemCaseSensitive(object, "password");
     const cJSON *domain = cJSON_GetObjectItemCaseSensitive(object, "domain");
     const cJSON *clipboardEnabled = cJSON_GetObjectItemCaseSensitive(object, "clipboardEnabled");
@@ -49,7 +63,25 @@ static Profile profileFromJson(const cJSON *object)
     profile.host = wideFromUtf8(cJSON_GetStringValue(host) ? cJSON_GetStringValue(host) : "");
     profile.port = cJSON_IsNumber(port) ? port->valueint : 3389;
     profile.username = wideFromUtf8(cJSON_GetStringValue(username) ? cJSON_GetStringValue(username) : "");
-    profile.password = wideFromUtf8(cJSON_GetStringValue(password) ? cJSON_GetStringValue(password) : "");
+    if (cJSON_GetStringValue(passwordPortable)) {
+        bool ok = false;
+        profile.password = PasswordProtection::unprotectPortable(cJSON_GetStringValue(passwordPortable), &ok);
+        if (!ok)
+            profile.password.clear();
+        if (PasswordProtection::mode() != PasswordProtection::Mode::Portable)
+            needsMigration = true;
+    } else if (cJSON_GetStringValue(passwordProtected)) {
+        bool ok = false;
+        profile.password = PasswordProtection::unprotectDpapi(cJSON_GetStringValue(passwordProtected), &ok);
+        if (!ok)
+            profile.password.clear();
+        if (PasswordProtection::mode() == PasswordProtection::Mode::Portable && ok)
+            needsMigration = true;
+    } else {
+        profile.password = wideFromUtf8(cJSON_GetStringValue(password) ? cJSON_GetStringValue(password) : "");
+        if (!profile.password.empty())
+            needsMigration = true;
+    }
     profile.domain = wideFromUtf8(cJSON_GetStringValue(domain) ? cJSON_GetStringValue(domain) : "");
     profile.clipboardEnabled = !cJSON_IsFalse(clipboardEnabled);
     profile.ignoreCertificate = !cJSON_IsFalse(ignoreCertificate);
@@ -180,25 +212,36 @@ void ProfileRepository::load()
         return;
 
     m_profiles.clear();
-    if (!cJSON_IsArray(root)) {
+    bool needsMigration = false;
+    cJSON *profilesArray = nullptr;
+    if (cJSON_IsArray(root)) {
+        profilesArray = root;
+        needsMigration = true;
+    } else if (cJSON_IsObject(root)) {
+        profilesArray = cJSON_GetObjectItemCaseSensitive(root, "profiles");
+    }
+
+    if (!profilesArray || !cJSON_IsArray(profilesArray)) {
         cJSON_Delete(root);
         return;
     }
 
     cJSON *item = nullptr;
-    cJSON_ArrayForEach(item, root) {
+    cJSON_ArrayForEach(item, profilesArray) {
         if (cJSON_IsObject(item))
-            m_profiles.push_back(profileFromJson(item));
+            m_profiles.push_back(profileFromJson(item, needsMigration));
     }
 
     cJSON_Delete(root);
+    if (needsMigration)
+        save();
 }
 
 void ProfileRepository::save() const
 {
-    cJSON *root = cJSON_CreateArray();
-    for (const Profile &profile : m_profiles)
-        cJSON_AddItemToArray(root, profileToJson(profile));
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "portableMode", PasswordProtection::mode() == PasswordProtection::Mode::Portable);
+    cJSON_AddItemToObject(root, "profiles", profileArrayToJson(m_profiles));
 
     char *json = cJSON_Print(root);
     if (!json) {

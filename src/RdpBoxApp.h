@@ -13,6 +13,8 @@ public:
     int ExitInstance() override;
 
 private:
+    bool ensurePasswordProtectionReady();
+
     bool m_comInitialized = false;
     std::uintptr_t m_gdiplusToken = 0;
 };

@@ -167,12 +167,19 @@ int SessionManager::indexOfSession(const std::string &sessionId) const
 
 void SessionManager::showSessionAtIndex(int index)
 {
+    CRdpSessionView *activeView = nullptr;
     for (size_t currentIndex = 0; currentIndex < m_sessions.size(); ++currentIndex) {
         if (!m_sessions[currentIndex]->view || !m_sessions[currentIndex]->view->GetSafeHwnd())
             continue;
 
-        m_sessions[currentIndex]->view->ShowWindow(static_cast<int>(currentIndex) == index ? SW_SHOW : SW_HIDE);
+        const bool active = static_cast<int>(currentIndex) == index;
+        m_sessions[currentIndex]->view->ShowWindow(active ? SW_SHOW : SW_HIDE);
+        if (active)
+            activeView = m_sessions[currentIndex]->view.get();
     }
+
+    if (activeView && activeView->GetSafeHwnd())
+        activeView->SetFocus();
 }
 
 void SessionManager::touchLastConnectedAt(const std::string &sessionId)

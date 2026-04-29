@@ -23,6 +23,10 @@ set(RDPBOX_SOURCES
     WinMain.cpp
     MainWindow.h
     MainWindow.cpp
+    common/AppPaths.h
+    common/AppPaths.cpp
+    common/PasswordProtection.h
+    common/PasswordProtection.cpp
     common/NativeTypes.h
     common/Win32String.h
     profiles/Profile.h
@@ -103,6 +107,8 @@ target_link_libraries(RdpBox PRIVATE
     freerdp-client
     winpr
     cjson
+    Bcrypt
+    Crypt32
     Imm32
     Ole32
     Shell32

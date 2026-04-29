@@ -1,5 +1,7 @@
 #include "RdpBoxApp.h"
 
+#include "common/AppPaths.h"
+#include "common/PasswordProtection.h"
 #include "MainWindow.h"
 
 #include <objbase.h>
@@ -17,6 +19,15 @@ BEGIN_MESSAGE_MAP(CRdpBoxApp, CWinApp)
 END_MESSAGE_MAP()
 
 CRdpBoxApp theApp;
+
+bool CRdpBoxApp::ensurePasswordProtectionReady()
+{
+    PasswordProtection::setMode(
+        AppPaths::isPortableMode()
+            ? PasswordProtection::Mode::Portable
+            : PasswordProtection::Mode::Dpapi);
+    return PasswordProtection::isReady();
+}
 
 BOOL CRdpBoxApp::InitInstance()
 {
@@ -41,6 +52,14 @@ BOOL CRdpBoxApp::InitInstance()
     m_gdiplusToken = static_cast<std::uintptr_t>(token);
 
     if (!CWinApp::InitInstance()) {
+        Gdiplus::GdiplusShutdown(static_cast<ULONG_PTR>(m_gdiplusToken));
+        m_gdiplusToken = 0;
+        CoUninitialize();
+        m_comInitialized = false;
+        return FALSE;
+    }
+
+    if (!ensurePasswordProtectionReady()) {
         Gdiplus::GdiplusShutdown(static_cast<ULONG_PTR>(m_gdiplusToken));
         m_gdiplusToken = 0;
         CoUninitialize();
