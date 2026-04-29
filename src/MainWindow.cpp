@@ -5,6 +5,7 @@
 #include "profiles/Profile.h"
 #include "profiles/ProfileRepository.h"
 #include "session/SessionManager.h"
+#include "ui/AboutDialog.h"
 #include "ui/ConnectionListDialog.h"
 #include "ui/ProfileEditDialog.h"
 #include "ui/Win10Theme.h"
@@ -37,6 +38,7 @@ BEGIN_MESSAGE_MAP(MainWindow, CFrameWnd)
     ON_WM_CONTEXTMENU()
     ON_COMMAND(ID_MAIN_NEW, &MainWindow::OnMainNew)
     ON_COMMAND(ID_MAIN_CONNECTIONS, &MainWindow::OnOpenConnections)
+    ON_COMMAND(ID_MAIN_ABOUT, &MainWindow::OnMainAbout)
     ON_MESSAGE(WM_NCCALCSIZE, &MainWindow::OnNcCalcSize)
     ON_MESSAGE(WM_NCLBUTTONDOWN, &MainWindow::OnNcLButtonDown)
     ON_MESSAGE(WM_NCHITTEST, &MainWindow::OnNcHitTest)
@@ -218,6 +220,12 @@ void MainWindow::OnMainNew()
         if (profile.isValid() && m_sessionManager)
             m_sessionManager->openSession(profile);
     }
+}
+
+void MainWindow::OnMainAbout()
+{
+    AboutDialog dialog(this);
+    dialog.DoModal();
 }
 
 void MainWindow::OnContextMenu(CWnd *window, CPoint point)
@@ -659,6 +667,11 @@ void MainWindow::showLogoMenu()
     menu.CreatePopupMenu();
     menu.AppendMenu(MF_STRING, ID_MAIN_NEW, L"New\tCtrl+N");
     menu.AppendMenu(MF_STRING, ID_MAIN_CONNECTIONS, L"Connections\tCtrl+O");
+    menu.AppendMenu(MF_SEPARATOR);
+
+    CString aboutText;
+    aboutText.Format(L"About %s", RDPBOX_VERSION);
+    menu.AppendMenu(MF_STRING, ID_MAIN_ABOUT, aboutText);
 
     menu.TrackPopupMenu(TPM_LEFTALIGN | TPM_TOPALIGN,
                         rect.left, rect.bottom, this);

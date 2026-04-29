@@ -17,6 +17,25 @@ find_package(FreeRDP CONFIG REQUIRED)
 find_package(FreeRDP-Client CONFIG REQUIRED)
 find_package(WinPR CONFIG REQUIRED)
 
+set(RDPBOX_DISPLAY_VERSION "${PROJECT_VERSION}")
+find_package(Git QUIET)
+if(GIT_FOUND)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" describe --tags --exact-match HEAD
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        RESULT_VARIABLE RDPBOX_GIT_TAG_RESULT
+        OUTPUT_VARIABLE RDPBOX_GIT_TAG
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(RDPBOX_GIT_TAG_RESULT EQUAL 0 AND NOT RDPBOX_GIT_TAG STREQUAL "")
+        set(RDPBOX_DISPLAY_VERSION "${RDPBOX_GIT_TAG}")
+    endif()
+
+endif()
+
+set(RDPBOX_GITHUB_URL_VALUE "https://github.com/o3ku/RdpBox")
+
 set(RDPBOX_SOURCES
     RdpBoxApp.h
     RdpBoxApp.cpp
@@ -54,6 +73,8 @@ set(RDPBOX_SOURCES
     rdp/WindowsClipboardBackendNative.c
     session/SessionManager.h
     session/SessionManager.cpp
+    ui/AboutDialog.h
+    ui/AboutDialog.cpp
     ui/ProfileEditDialog.h
     ui/ProfileEditDialog.cpp
     ui/ConnectionListDialog.h
@@ -85,6 +106,8 @@ target_compile_definitions(RdpBox PRIVATE
     UNICODE
     _UNICODE
     _CRT_SECURE_NO_WARNINGS
+    RDPBOX_VERSION=L"${RDPBOX_DISPLAY_VERSION}"
+    RDPBOX_GITHUB_URL=L"${RDPBOX_GITHUB_URL_VALUE}"
     WINVER=0x0A00
     _WIN32_WINNT=0x0A00
     NOMINMAX
