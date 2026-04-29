@@ -70,6 +70,8 @@ add_test(NAME FrameBufferAnalysisTests COMMAND FrameBufferAnalysisTests)
 
 add_executable(ProfileRepositoryTests
     profiles/ProfileRepositoryTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/AppPaths.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/PasswordProtection.cpp
     ${CMAKE_SOURCE_DIR}/src/profiles/ProfileRepository.cpp
 )
 
@@ -79,7 +81,10 @@ target_include_directories(ProfileRepositoryTests PRIVATE
 
 target_link_libraries(ProfileRepositoryTests PRIVATE
     cjson
+    Bcrypt
+    Crypt32
     Ole32
+    Shell32
 )
 
 add_test(NAME ProfileRepositoryTests COMMAND ProfileRepositoryTests)

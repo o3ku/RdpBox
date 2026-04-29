@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 
+#include "common/AppPaths.h"
 #include "common/Win32String.h"
 #include "profiles/Profile.h"
 #include "profiles/ProfileRepository.h"
@@ -12,7 +13,6 @@
 
 #include <cjson/cJSON.h>
 #include <dwmapi.h>
-#include <shlobj.h>
 #include <uxtheme.h>
 
 #include <cstdio>
@@ -105,13 +105,11 @@ int MainWindow::OnCreate(LPCREATESTRUCT createStruct)
     ModifyStyle(WS_BORDER | WS_DLGFRAME, 0, 0);
     applyDwmExtension(GetSafeHwnd(), calculateWindowFrameMetrics(false, m_isFullScreen));
 
-    wchar_t pathBuffer[MAX_PATH] = {};
-    if (FAILED(SHGetFolderPathW(nullptr, CSIDL_APPDATA | CSIDL_FLAG_CREATE, nullptr, SHGFP_TYPE_CURRENT, pathBuffer)))
+    const std::wstring profilesPath = AppPaths::profilesFilePath();
+    if (profilesPath.empty())
         return -1;
 
-    std::wstring dataDir = std::wstring(pathBuffer) + L"\\RdpBox";
-    CreateDirectoryW(dataDir.c_str(), nullptr);
-    m_profileRepository = std::make_unique<ProfileRepository>(dataDir + L"\\profiles.json");
+    m_profileRepository = std::make_unique<ProfileRepository>(profilesPath);
 
     if (!m_tabBar.create(this, CRect(0, 0, 100, 100), 1)) {
         return -1;
@@ -454,14 +452,7 @@ bool MainWindow::isMaximized() const
 
 std::wstring MainWindow::windowStateFilePath() const
 {
-    wchar_t pathBuffer[MAX_PATH] = {};
-    if (FAILED(SHGetFolderPathW(nullptr, CSIDL_APPDATA | CSIDL_FLAG_CREATE, nullptr,
-                                SHGFP_TYPE_CURRENT, pathBuffer)))
-        return {};
-
-    std::wstring dir = std::wstring(pathBuffer) + L"\\RdpBox";
-    CreateDirectoryW(dir.c_str(), nullptr);
-    return dir + L"\\window-state.json";
+    return AppPaths::windowStateFilePath();
 }
 
 void MainWindow::saveWindowState() const

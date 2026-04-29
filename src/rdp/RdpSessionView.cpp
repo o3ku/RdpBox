@@ -1,5 +1,6 @@
 #include "RdpSessionView.h"
 
+#include "common/AppPaths.h"
 #include "common/Win32String.h"
 #include "rdp/RdpCursorClassifier.h"
 #include "ui/ParentResizeForwarder.h"
@@ -15,7 +16,6 @@ using std::max;
 }
 #include <gdiplus.h>
 #include <imm.h>
-#include <shlobj.h>
 
 #pragma comment(lib, "msimg32.lib")
 
@@ -63,15 +63,6 @@ std::wstring captureTimestamp()
                st.wYear, st.wMonth, st.wDay,
                st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
     return buffer;
-}
-
-std::wstring frameCaptureRootPath()
-{
-    wchar_t pathBuffer[MAX_PATH] = {};
-    if (FAILED(SHGetFolderPathW(nullptr, CSIDL_APPDATA | CSIDL_FLAG_CREATE, nullptr, SHGFP_TYPE_CURRENT, pathBuffer)))
-        return {};
-
-    return std::wstring(pathBuffer) + L"\\RdpBox\\frame-captures";
 }
 
 bool isFrameCaptureEnabled()
@@ -563,7 +554,7 @@ void CRdpSessionView::beginFrameCapture(const wchar_t *reason)
     if (!isFrameCaptureEnabled())
         return;
 
-    const std::wstring root = frameCaptureRootPath();
+    const std::wstring root = AppPaths::frameCaptureRootPath();
     if (root.empty())
         return;
 
@@ -575,7 +566,7 @@ void CRdpSessionView::beginFrameCapture(const wchar_t *reason)
     }
 
     const std::wstring directory = root + L"\\" + captureTimestamp() + L"_" + safeName + L"_" + reason;
-    SHCreateDirectoryExW(nullptr, directory.c_str(), nullptr);
+    ::CreateDirectoryW(directory.c_str(), nullptr);
     m_captureDirectory = directory;
     m_captureFramesRemaining = 20;
     m_captureFrameIndex = 0;
@@ -774,6 +765,7 @@ void CRdpSessionView::OnPaint()
     CPaintDC dc(this);
     CRect rect;
     GetClientRect(&rect);
+    bool hideOverlayAfterFramePresent = false;
 
     if (m_process) {
         auto newFrame = m_process->frameIfNewer(m_cachedFrameGeneration);
@@ -792,14 +784,14 @@ void CRdpSessionView::OnPaint()
                     m_waitingForFirstContentFrame = false;
                     m_resolutionUpdatePending = false;
                     m_pendingDesktopSize = {};
-                    clearOverlay();
+                    hideOverlayAfterFramePresent = true;
                 }
             } else {
                 m_cachedFrame = std::move(*newFrame);
                 if (m_waitingForFirstContentFrame) {
                     m_waitingForFirstContentFrame = false;
                     if (!m_resolutionUpdatePending)
-                        clearOverlay();
+                        hideOverlayAfterFramePresent = true;
                 }
             }
         }
@@ -811,6 +803,8 @@ void CRdpSessionView::OnPaint()
                 m_renderedFrameGeneration = m_cachedFrameGeneration;
             }
             drawRenderSurface(dc.GetSafeHdc(), rect);
+            if (hideOverlayAfterFramePresent)
+                m_overlayText.Empty();
         } else if (!frame.empty()) {
             BITMAPINFO bmi = {};
             bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -834,6 +828,8 @@ void CRdpSessionView::OnPaint()
                 StretchDIBits(dc.GetSafeHdc(), 0, 0, rect.Width(), rect.Height(), 0, 0,
                               frame.width, frame.height, frame.pixels.data(), &bmi, DIB_RGB_COLORS, SRCCOPY);
             }
+            if (hideOverlayAfterFramePresent)
+                m_overlayText.Empty();
         } else {
             dc.FillSolidRect(rect, RGB(17, 17, 17));
         }
