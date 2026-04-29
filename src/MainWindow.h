@@ -13,6 +13,7 @@
 class ProfileRepository;
 class SessionManager;
 struct Profile;
+class AboutDialog;
 
 class MainWindow : public CFrameWnd
 {
@@ -36,6 +37,7 @@ protected:
     afx_msg void OnPaint();
     afx_msg void OnOpenConnections();
     afx_msg void OnMainNew();
+    afx_msg void OnMainAbout();
     afx_msg void OnContextMenu(CWnd *window, CPoint point);
     afx_msg BOOL OnEraseBkgnd(CDC *dc);
     afx_msg BOOL OnNcActivate(BOOL active);
