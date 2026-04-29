@@ -135,6 +135,20 @@ int MainWindow::OnCreate(LPCREATESTRUCT createStruct)
             PostMessage(WM_APP_OPEN_CONNECTIONS, TRUE, 0);
     });
 
+    m_tabBar.setTooltipCallback([this](int tabIndex) -> std::wstring {
+        if (!m_sessionManager)
+            return {};
+        auto info = m_sessionManager->connectionInfoForTab(tabIndex);
+        if (info.codecName.empty())
+            return {};
+        CString text;
+        if (info.rttAvailable)
+            text.Format(L"Codec: %S, Delay: %u ms", info.codecName.c_str(), info.rtt);
+        else
+            text.Format(L"Codec: %S", info.codecName.c_str());
+        return text.GetString();
+    });
+
     if (!m_sessionHost.create(this, CRect(0, 0, 100, 100), 2)) {
         return -1;
     }
@@ -675,9 +689,7 @@ void MainWindow::showLogoMenu()
     menu.AppendMenu(MF_STRING, ID_MAIN_CONNECTIONS, L"Connections\tCtrl+O");
     menu.AppendMenu(MF_SEPARATOR);
 
-    CString aboutText;
-    aboutText.Format(L"About %s", RDPBOX_VERSION);
-    menu.AppendMenu(MF_STRING, ID_MAIN_ABOUT, aboutText);
+    menu.AppendMenu(MF_STRING, ID_MAIN_ABOUT, L"About");
 
     menu.TrackPopupMenu(TPM_LEFTALIGN | TPM_TOPALIGN,
                         rect.left, rect.bottom, this);

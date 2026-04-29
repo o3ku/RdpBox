@@ -1,5 +1,6 @@
 #pragma once
 
+#include <afxcmn.h>
 #include <afxwin.h>
 
 #include <functional>
@@ -13,6 +14,7 @@ class BrowserTabBar : public CWnd
 public:
     using SelectionChangedCallback = std::function<void(int)>;
     using CloseRequestedCallback = std::function<void(int)>;
+    using TooltipCallback = std::function<std::wstring(int tabIndex)>;
 
     BrowserTabBar();
     ~BrowserTabBar() override;
@@ -33,9 +35,11 @@ public:
     void setSelectionChangedCallback(SelectionChangedCallback callback);
     void setCloseRequestedCallback(CloseRequestedCallback callback);
 
+    void setTooltipCallback(TooltipCallback callback);
+
     int hitTestTabAtScreenPoint(CPoint screenPoint) const;
 
-protected:
+    BOOL PreTranslateMessage(MSG *msg) override;
     afx_msg void OnPaint();
     afx_msg BOOL OnEraseBkgnd(CDC *dc);
     afx_msg void OnLButtonDown(UINT flags, CPoint point);
@@ -44,6 +48,8 @@ protected:
     afx_msg void OnMouseMove(UINT flags, CPoint point);
     afx_msg void OnMouseLeave();
     afx_msg void OnSize(UINT type, int cx, int cy);
+
+    afx_msg void OnGetDispInfo(NMHDR *nmhdr, LRESULT *result);
 
     DECLARE_MESSAGE_MAP()
 
@@ -67,6 +73,9 @@ private:
     int m_hoverTabIndex = -1;
     int m_hoverCloseIndex = -1;
     bool m_trackingMouse = false;
+    CToolTipCtrl m_tooltip;
+    TooltipCallback m_tooltipCallback;
+    CString m_tooltipText;
     CFont m_tabFont;
     CFont m_tabFontBold;
 

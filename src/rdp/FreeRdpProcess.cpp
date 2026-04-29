@@ -20,10 +20,12 @@
 #include <freerdp3/freerdp/client/cliprdr.h>
 #include <freerdp3/freerdp/client/disp.h>
 #include <freerdp3/freerdp/codec/color.h>
+#include <freerdp3/freerdp/codecs.h>
 #include <freerdp3/freerdp/constants.h>
 #include <freerdp3/freerdp/freerdp.h>
 #include <freerdp3/freerdp/gdi/gdi.h>
 #include <freerdp3/freerdp/graphics.h>
+#include <freerdp3/freerdp/autodetect.h>
 #include <freerdp3/freerdp/input.h>
 #include <freerdp3/freerdp/locale/keyboard.h>
 #include <freerdp3/freerdp/locale/locale.h>
@@ -41,6 +43,7 @@ struct NativeRdpContext
     FreeRdpProcess *owner = nullptr;
     DispClientContext *disp = nullptr;
     bool ignoreCertificate = true;
+    std::atomic<UINT32> rtt{0};
 };
 
 struct NativePointer : rdpPointer
@@ -402,6 +405,31 @@ BOOL nativefreerdp_pre_connect(freerdp *instance)
 
     PubSub_SubscribeChannelConnected(instance->context->pubSub, nativefreerdp_on_channel_connected);
     PubSub_SubscribeChannelDisconnected(instance->context->pubSub, nativefreerdp_on_channel_disconnected);
+
+    rdpAutoDetect *ad = ::autodetect_get(instance->context);
+    if (ad) {
+        ad->NetworkCharacteristicsResult = [](
+            rdpAutoDetect *autodetect, RDP_TRANSPORT_TYPE,
+            UINT16, const rdpNetworkCharacteristicsResult *result) -> BOOL {
+            if (result && result->averageRTT > 0) {
+                auto *ctx = toNativeContext(autodetect->context);
+                if (ctx)
+                    ctx->rtt.store(result->averageRTT, std::memory_order_relaxed);
+            }
+            return TRUE;
+        };
+        ad->BandwidthMeasureResults = [](
+            rdpAutoDetect *autodetect, RDP_TRANSPORT_TYPE,
+            UINT16, UINT16, UINT32 timeDelta, UINT32) -> BOOL {
+            if (timeDelta > 0) {
+                auto *ctx = toNativeContext(autodetect->context);
+                if (ctx)
+                    ctx->rtt.store(timeDelta, std::memory_order_relaxed);
+            }
+            return TRUE;
+        };
+    }
+
     return TRUE;
 }
 
@@ -667,6 +695,18 @@ void FreeRdpProcess::start(const std::wstring &host,
         freerdp_settings_set_bool(settings, FreeRDP_DynamicResolutionUpdate, TRUE) &&
         freerdp_settings_set_bool(settings, FreeRDP_SupportDisplayControl, TRUE) &&
         freerdp_settings_set_bool(settings, FreeRDP_RedirectClipboard, clipboardEnabled);
+
+    if (configured) {
+        freerdp_settings_set_bool(settings, FreeRDP_NSCodec, TRUE);
+        freerdp_settings_set_bool(settings, FreeRDP_RemoteFxCodec, TRUE);
+        freerdp_settings_set_bool(settings, FreeRDP_JpegCodec, TRUE);
+        freerdp_settings_set_uint32(settings, FreeRDP_JpegQuality, 75);
+        freerdp_settings_set_bool(settings, FreeRDP_GfxH264, TRUE);
+        freerdp_settings_set_bool(settings, FreeRDP_GfxAVC444, TRUE);
+        freerdp_settings_set_bool(settings, FreeRDP_GfxAVC444v2, TRUE);
+        freerdp_settings_set_bool(settings, FreeRDP_SupportGraphicsPipeline, TRUE);
+        freerdp_settings_set_bool(settings, FreeRDP_NetworkAutoDetect, TRUE);
+    }
 
     if (!configured || freerdp_client_start(m_d->context) != 0) {
         freerdp_client_context_free(m_d->context);
@@ -1145,4 +1185,59 @@ void FreeRdpProcess::detachClipboardChannel()
 {
     if (m_d->clipboard)
         m_d->clipboard->detach();
+}
+
+FreeRdpProcess::ConnectionInfo FreeRdpProcess::connectionInfo() const
+{
+    ConnectionInfo info;
+    std::scoped_lock lock(m_d->mutex);
+
+    if (!m_d->context)
+        return info;
+
+    rdpSettings *settings = m_d->context->settings;
+    if (settings) {
+        if (freerdp_settings_get_bool(settings, FreeRDP_SupportGraphicsPipeline)) {
+            if (freerdp_settings_get_bool(settings, FreeRDP_GfxAVC444) ||
+                freerdp_settings_get_bool(settings, FreeRDP_GfxAVC444v2))
+                info.codecName = "H.264 AVC 444";
+            else if (freerdp_settings_get_bool(settings, FreeRDP_GfxH264))
+                info.codecName = "H.264 AVC 420";
+            else
+                info.codecName = "GFX";
+        } else {
+            const UINT32 codecId = freerdp_settings_get_uint32(
+                settings, FreeRDP_BitmapCacheV3CodecId);
+            switch (codecId) {
+            case 1: info.codecName = "NSCodec"; break;
+            case 2: info.codecName = "RemoteFX"; break;
+            case 3: info.codecName = "ClearCodec"; break;
+            default: info.codecName = "Bitmap"; break;
+            }
+        }
+    }
+
+    NativeRdpContext *nativeCtx = toNativeContext(m_d->context);
+    if (nativeCtx) {
+        UINT32 rtt = nativeCtx->rtt.load(std::memory_order_relaxed);
+        if (rtt > 0) {
+            info.rtt = rtt;
+            info.rttAvailable = true;
+        }
+    }
+
+    if (!info.rttAvailable) {
+        rdpAutoDetect *ad = ::autodetect_get(m_d->context);
+        if (ad) {
+            if (ad->netCharAverageRTT > 0) {
+                info.rtt = ad->netCharAverageRTT;
+                info.rttAvailable = true;
+            } else if (ad->netCharBaseRTT > 0) {
+                info.rtt = ad->netCharBaseRTT;
+                info.rttAvailable = true;
+            }
+        }
+    }
+
+    return info;
 }
