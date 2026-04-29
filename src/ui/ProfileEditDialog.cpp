@@ -51,6 +51,9 @@ void ProfileEditDialog::OnOK()
     if (m_name.IsEmpty() || m_host.IsEmpty())
         return;
 
+    if (m_port < 1 || m_port > 65535)
+        m_port = 3389;
+
     CDialogEx::OnOK();
 }
 

@@ -31,7 +31,6 @@
 #include <freerdp3/freerdp/locale/locale.h>
 
 #include <windows.h>
-#include <winsock2.h>
 
 namespace
 {
@@ -92,26 +91,6 @@ CursorInfo duplicateCursorInfo(const CursorInfo &cursor)
         return CursorInfo{cursor.kind, nullptr, false};
 
     return CursorInfo{cursor.kind, copyHandle, true};
-}
-
-FrameBuffer copyPrimaryBuffer(const rdpContext *context)
-{
-    if (!context || !context->gdi || !context->gdi->primary_buffer)
-        return {};
-
-    const int width = context->gdi->width;
-    const int height = context->gdi->height;
-    const int stride = static_cast<int>(context->gdi->stride);
-    if (width <= 0 || height <= 0 || stride <= 0)
-        return {};
-
-    FrameBuffer frame;
-    frame.width = width;
-    frame.height = height;
-    frame.stride = stride;
-    frame.pixels.resize(static_cast<std::size_t>(stride) * static_cast<std::size_t>(height));
-    std::memcpy(frame.pixels.data(), context->gdi->primary_buffer, frame.pixels.size());
-    return frame;
 }
 
 PointI clampToDesktop(PointI point, SizeI desktop)
@@ -188,8 +167,7 @@ void nativefreerdp_copy_frame(rdpContext *context)
     if (!nativeContext || !nativeContext->owner)
         return;
 
-    if (nativeContext->owner)
-        nativeContext->owner->writeFrameFromContext(context);
+    nativeContext->owner->writeFrameFromContext(context);
 }
 
 BOOL nativefreerdp_end_paint(rdpContext *context)
@@ -546,13 +524,11 @@ DWORD nativefreerdp_verify_changed_certificate_ex(freerdp *instance, const char 
 
 BOOL nativefreerdp_global_init()
 {
-    WSADATA data = {};
-    return WSAStartup(MAKEWORD(2, 2), &data) == 0;
+    return TRUE;
 }
 
 void nativefreerdp_global_uninit()
 {
-    WSACleanup();
 }
 
 BOOL nativefreerdp_client_new(freerdp *instance, rdpContext *context)
@@ -681,10 +657,11 @@ void FreeRdpProcess::start(const std::wstring &host,
     const std::string usernameUtf8 = utf8FromWide(username);
     const std::string passwordUtf8 = utf8FromWide(password);
     const std::string domainUtf8 = utf8FromWide(domain);
+    const UINT32 serverPort = static_cast<UINT32>(std::clamp(port, 1, 65535));
 
     const bool configured =
         freerdp_settings_set_string(settings, FreeRDP_ServerHostname, hostUtf8.c_str()) &&
-        freerdp_settings_set_uint32(settings, FreeRDP_ServerPort, static_cast<UINT32>(port)) &&
+        freerdp_settings_set_uint32(settings, FreeRDP_ServerPort, serverPort) &&
         freerdp_settings_set_string(settings, FreeRDP_Username, usernameUtf8.c_str()) &&
         freerdp_settings_set_string(settings, FreeRDP_Password, passwordUtf8.c_str()) &&
         freerdp_settings_set_string(settings, FreeRDP_Domain, domainUtf8.c_str()) &&

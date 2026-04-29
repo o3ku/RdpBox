@@ -2,6 +2,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <atomic>
 #include <cstdio>
 
 #include <shlobj.h>
@@ -44,17 +45,38 @@ std::string readFile(const std::wstring &filePath)
     return contents;
 }
 
-bool writeFile(const std::wstring &filePath, const std::string &contents)
+bool writeFileAtomically(const std::wstring &filePath, const std::string &contents)
 {
+    const std::wstring tempPath = filePath
+        + L"." + std::to_wstring(::GetCurrentProcessId())
+        + L"." + std::to_wstring(::GetTickCount64())
+        + L".tmp";
+
     std::FILE *file = nullptr;
-    if (_wfopen_s(&file, filePath.c_str(), L"wb") != 0 || !file)
+    if (_wfopen_s(&file, tempPath.c_str(), L"wb") != 0 || !file)
         return false;
 
-    if (!contents.empty())
-        std::fwrite(contents.data(), 1, contents.size(), file);
+    const bool writeOk = contents.empty()
+        || std::fwrite(contents.data(), 1, contents.size(), file) == contents.size();
+    const bool closeOk = std::fclose(file) == 0;
 
-    std::fclose(file);
+    if (!writeOk || !closeOk) {
+        ::DeleteFileW(tempPath.c_str());
+        return false;
+    }
+
+    if (!::MoveFileExW(tempPath.c_str(), filePath.c_str(),
+                       MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        ::DeleteFileW(tempPath.c_str());
+        return false;
+    }
+
     return true;
+}
+
+bool writeFile(const std::wstring &filePath, const std::string &contents)
+{
+    return writeFileAtomically(filePath, contents);
 }
 
 std::wstring appDataDirectory()
@@ -71,6 +93,35 @@ void ensureDirectoryExists(const std::wstring &path)
     if (!path.empty())
         ::CreateDirectoryW(path.c_str(), nullptr);
 }
+}
+
+namespace AppPaths
+{
+std::string readFileContent(const std::wstring &filePath)
+{
+    std::FILE *file = nullptr;
+    if (_wfopen_s(&file, filePath.c_str(), L"rb") != 0 || !file)
+        return {};
+
+    std::string contents;
+    char buffer[4096];
+    while (const size_t read = std::fread(buffer, 1, sizeof(buffer), file))
+        contents.append(buffer, read);
+
+    std::fclose(file);
+    return contents;
+}
+
+bool writeFileContent(const std::wstring &filePath, const std::string &contents)
+{
+    return writeFileAtomically(filePath, contents);
+}
+}
+
+namespace
+{
+using AppPaths::readFileContent;
+using AppPaths::writeFileContent;
 
 std::wstring portableProfilesPath()
 {
@@ -105,19 +156,16 @@ bool writePortableModeToProfiles(bool portableMode)
     const std::string existing = readFile(path);
     if (!existing.empty()) {
         auto parsed = nlohmann::json::parse(existing, nullptr, false);
-        if (parsed.is_array()) {
-            root["portableMode"] = portableMode;
-            root["profiles"] = std::move(parsed);
-        } else if (parsed.is_object()) {
+        if (parsed.is_object()) {
             root = std::move(parsed);
-            root["portableMode"] = portableMode;
-            if (!root.contains("profiles"))
-                root["profiles"] = nlohmann::json::array();
         }
     } else {
-        root["portableMode"] = portableMode;
-        root["profiles"] = nlohmann::json::array();
+        root = nlohmann::json::object();
     }
+
+    root["portableMode"] = portableMode;
+    if (!root.contains("profiles") || !root["profiles"].is_array())
+        root["profiles"] = nlohmann::json::array();
 
     return writeFile(path, root.dump(4));
 }
@@ -125,17 +173,17 @@ bool writePortableModeToProfiles(bool portableMode)
 
 namespace AppPaths
 {
-bool g_forcePortable = false;
+std::atomic<bool> g_forcePortable{false};
 
 bool enablePortableMode()
 {
     g_forcePortable = writePortableModeToProfiles(true);
-    return g_forcePortable;
+    return g_forcePortable.load();
 }
 
 bool isPortableMode()
 {
-    return g_forcePortable || readPortableModeFromProfiles();
+    return g_forcePortable.load() || readPortableModeFromProfiles();
 }
 
 std::wstring appRootPath()
