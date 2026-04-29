@@ -88,6 +88,7 @@ private:
     void syncMouseModifiers(UINT flags);
     unsigned int currentModifiers() const;
     SizeI currentViewSize() const;
+    SizeI fullScreenSize() const;
     void releaseCursorHandle();
     bool ensureRenderSurface(const FrameBuffer &frame);
     void releaseRenderSurface();

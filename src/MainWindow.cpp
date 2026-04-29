@@ -244,6 +244,10 @@ void MainWindow::OnContextMenu(CWnd *window, CPoint point)
 
     CMenu menu;
     menu.CreatePopupMenu();
+    const bool isActive = index == m_tabBar.selectedIndex();
+    CString fullScreenText = m_isFullScreen ? L"Exit Full Screen" : L"Full Screen";
+    menu.AppendMenu(MF_STRING | (isActive ? MF_ENABLED : MF_GRAYED), ID_TAB_FULLSCREEN, fullScreenText);
+    menu.AppendMenu(MF_SEPARATOR);
     menu.AppendMenu(MF_STRING | (hasTab ? MF_ENABLED : MF_GRAYED), ID_TAB_RECONNECT, L"Reconnect");
     menu.AppendMenu(MF_STRING | (hasTab ? MF_ENABLED : MF_GRAYED), ID_TAB_CLOSE, L"Close");
 
@@ -255,7 +259,9 @@ void MainWindow::OnContextMenu(CWnd *window, CPoint point)
     if (!hasTab || sessionId.empty())
         return;
 
-    if (command == ID_TAB_RECONNECT) {
+    if (command == ID_TAB_FULLSCREEN) {
+        toggleFullScreen();
+    } else if (command == ID_TAB_RECONNECT) {
         m_sessionManager->reconnectSession(sessionId);
     } else if (command == ID_TAB_CLOSE) {
         m_sessionManager->closeSession(sessionId);
