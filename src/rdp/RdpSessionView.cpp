@@ -415,7 +415,9 @@ void CRdpSessionView::startProcess()
     showOverlay(m_reconnecting ? L"Reconnecting..." : L"Connecting...");
     m_reconnecting = false;
 
-    const SizeI viewSize = currentViewSize();
+    const SizeI viewSize = m_profile.fullScreenOnConnect
+        ? fullScreenSize()
+        : currentViewSize();
     m_process->start(m_profile.host, m_profile.port,
                      m_profile.username, m_profile.password,
                      m_profile.domain,
@@ -616,6 +618,21 @@ SizeI CRdpSessionView::currentViewSize() const
     CRect rect;
     GetClientRect(&rect);
     return SizeI{std::max(1, rect.Width()), std::max(1, rect.Height())};
+}
+
+SizeI CRdpSessionView::fullScreenSize() const
+{
+    HMONITOR monitor = GetSafeHwnd()
+        ? ::MonitorFromWindow(GetSafeHwnd(), MONITOR_DEFAULTTONEAREST)
+        : nullptr;
+    if (monitor) {
+        MONITORINFO info = {};
+        info.cbSize = sizeof(info);
+        if (::GetMonitorInfoW(monitor, &info))
+            return SizeI{info.rcMonitor.right - info.rcMonitor.left,
+                         info.rcMonitor.bottom - info.rcMonitor.top};
+    }
+    return currentViewSize();
 }
 
 void CRdpSessionView::flushPendingMouseMove()
