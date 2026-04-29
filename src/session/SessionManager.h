@@ -35,6 +35,9 @@ public:
     bool hasOpenSessions() const;
 
     FreeRdpProcess::ConnectionInfo connectionInfoForTab(int index) const;
+    bool isTabConnected(int index) const;
+    bool isProfileConnected(const std::string &profileId) const;
+    std::vector<std::string> connectedProfileIds() const;
 
 private:
     struct Session

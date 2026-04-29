@@ -16,6 +16,13 @@ public:
     using CloseRequestedCallback = std::function<void(int)>;
     using TooltipCallback = std::function<std::wstring(int tabIndex)>;
 
+    enum class TabStatus { Inactive, ConnectedGood, ConnectedWarn, ConnectedBad };
+
+    struct TabStatusInfo
+    {
+        TabStatus status = TabStatus::Inactive;
+    };
+
     BrowserTabBar();
     ~BrowserTabBar() override;
 
@@ -36,6 +43,8 @@ public:
     void setCloseRequestedCallback(CloseRequestedCallback callback);
 
     void setTooltipCallback(TooltipCallback callback);
+
+    void setTabStatus(int index, TabStatusInfo status);
 
     int hitTestTabAtScreenPoint(CPoint screenPoint) const;
 
@@ -59,6 +68,7 @@ private:
         std::wstring title;
         CRect rect;
         CRect closeRect;
+        TabStatusInfo status;
     };
 
     void ensureFonts();

@@ -4,8 +4,6 @@
 
 #include <uxtheme.h>
 
-#pragma comment(lib, "uxtheme.lib")
-
 IMPLEMENT_DYNAMIC(ProfileEditDialog, CDialogEx)
 
 BEGIN_MESSAGE_MAP(ProfileEditDialog, CDialogEx)

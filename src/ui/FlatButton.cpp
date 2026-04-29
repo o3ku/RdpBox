@@ -7,8 +7,6 @@
 
 #include <uxtheme.h>
 
-#pragma comment(lib, "uxtheme.lib")
-
 IMPLEMENT_DYNAMIC(FlatButton, CButton)
 
 BEGIN_MESSAGE_MAP(FlatButton, CButton)

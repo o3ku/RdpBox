@@ -13,7 +13,6 @@ using std::min;
 using std::max;
 }
 #include <gdiplus.h>
-#pragma comment(lib, "gdiplus.lib")
 
 BEGIN_MESSAGE_MAP(CRdpBoxApp, CWinApp)
 END_MESSAGE_MAP()

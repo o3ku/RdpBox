@@ -7,8 +7,6 @@
 #include <shellapi.h>
 #include <uxtheme.h>
 
-#pragma comment(lib, "uxtheme.lib")
-
 IMPLEMENT_DYNAMIC(AboutDialog, CDialogEx)
 
 BEGIN_MESSAGE_MAP(AboutDialog, CDialogEx)

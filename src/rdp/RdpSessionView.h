@@ -35,6 +35,7 @@ public:
     void setConnectedCallback(std::function<void()> callback);
 
     FreeRdpProcess::ConnectionInfo connectionInfo() const;
+    bool isConnected() const;
 
     void setResizeSuppressed(bool suppressed);
     void flushPendingResize();

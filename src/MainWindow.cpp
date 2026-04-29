@@ -12,14 +12,10 @@
 #include "ui/WindowFrameMetrics.h"
 #include "resources/resource.h"
 
-#include <cjson/cJSON.h>
 #include <dwmapi.h>
 #include <uxtheme.h>
 
 #include <cstdio>
-
-#pragma comment(lib, "dwmapi.lib")
-#pragma comment(lib, "uxtheme.lib")
 
 IMPLEMENT_DYNAMIC(MainWindow, CFrameWnd)
 
@@ -31,6 +27,7 @@ BEGIN_MESSAGE_MAP(MainWindow, CFrameWnd)
     ON_WM_ERASEBKGND()
     ON_WM_NCACTIVATE()
     ON_WM_PAINT()
+    ON_WM_TIMER()
     ON_WM_LBUTTONDOWN()
     ON_WM_LBUTTONDBLCLK()
     ON_WM_MOUSEMOVE()
@@ -131,8 +128,7 @@ int MainWindow::OnCreate(LPCREATESTRUCT createStruct)
         if (sessionId.empty())
             return;
         m_sessionManager->closeSession(sessionId);
-        if (!m_isClosing && !hasOpenTabs())
-            PostMessage(WM_APP_OPEN_CONNECTIONS, TRUE, 0);
+        refreshTabStatuses();
     });
 
     m_tabBar.setTooltipCallback([this](int tabIndex) -> std::wstring {
@@ -158,8 +154,10 @@ int MainWindow::OnCreate(LPCREATESTRUCT createStruct)
     m_sessionManager->setSessionConnectedCallback([this](const std::string &, const Profile &profile) {
         if (profile.fullScreenOnConnect && !m_isFullScreen)
             setFullScreen(true);
+        refreshTabStatuses();
     });
     layoutChildren();
+    SetTimer(kTabStatusTimerId, 2000, nullptr);
     return 0;
 }
 
@@ -200,6 +198,7 @@ BOOL MainWindow::OnNcActivate(BOOL active)
 
 void MainWindow::OnClose()
 {
+    KillTimer(kTabStatusTimerId);
     saveWindowState();
     m_isClosing = true;
     if (m_sessionManager)
@@ -279,8 +278,6 @@ void MainWindow::OnContextMenu(CWnd *window, CPoint point)
         m_sessionManager->reconnectSession(sessionId);
     } else if (command == ID_TAB_CLOSE) {
         m_sessionManager->closeSession(sessionId);
-        if (!m_isClosing && !hasOpenTabs())
-            PostMessage(WM_APP_OPEN_CONNECTIONS, TRUE, 0);
     }
 }
 
@@ -478,14 +475,9 @@ bool MainWindow::isMaximized() const
     return placement.showCmd == SW_SHOWMAXIMIZED;
 }
 
-std::wstring MainWindow::windowStateFilePath() const
-{
-    return AppPaths::windowStateFilePath();
-}
-
 void MainWindow::saveWindowState() const
 {
-    if (!GetSafeHwnd() || m_isFullScreen)
+    if (!GetSafeHwnd() || m_isFullScreen || !m_profileRepository)
         return;
 
     WINDOWPLACEMENT placement = {};
@@ -493,81 +485,44 @@ void MainWindow::saveWindowState() const
     if (!const_cast<MainWindow *>(this)->GetWindowPlacement(&placement))
         return;
 
-    cJSON *root = cJSON_CreateObject();
-    cJSON_AddNumberToObject(root, "left", placement.rcNormalPosition.left);
-    cJSON_AddNumberToObject(root, "top", placement.rcNormalPosition.top);
-    cJSON_AddNumberToObject(root, "right", placement.rcNormalPosition.right);
-    cJSON_AddNumberToObject(root, "bottom", placement.rcNormalPosition.bottom);
-    cJSON_AddNumberToObject(root, "showCmd", static_cast<int>(placement.showCmd));
-
-    char *json = cJSON_Print(root);
-    if (json) {
-        const std::wstring path = windowStateFilePath();
-        if (!path.empty()) {
-            std::FILE *file = nullptr;
-            if (_wfopen_s(&file, path.c_str(), L"wb") == 0 && file) {
-                std::fwrite(json, 1, std::strlen(json), file);
-                std::fclose(file);
-            }
-        }
-        cJSON_free(json);
-    }
-    cJSON_Delete(root);
+    WindowState state;
+    state.left = placement.rcNormalPosition.left;
+    state.top = placement.rcNormalPosition.top;
+    state.right = placement.rcNormalPosition.right;
+    state.bottom = placement.rcNormalPosition.bottom;
+    state.showCmd = static_cast<int>(placement.showCmd);
+    state.valid = true;
+    m_profileRepository->saveWindowState(state);
 }
 
 bool MainWindow::restoreWindowState()
 {
-    const std::wstring path = windowStateFilePath();
-    if (path.empty())
+    if (!m_profileRepository)
         return false;
 
-    std::FILE *file = nullptr;
-    if (_wfopen_s(&file, path.c_str(), L"rb") != 0 || !file)
+    const WindowState state = m_profileRepository->loadWindowState();
+    if (!state.valid)
         return false;
 
-    std::string contents;
-    char buffer[4096];
-    while (const size_t read = std::fread(buffer, 1, sizeof(buffer), file))
-        contents.append(buffer, read);
-    std::fclose(file);
-
-    if (contents.empty())
+    const int width = state.right - state.left;
+    const int height = state.bottom - state.top;
+    if (width < 400 || height < 300)
         return false;
 
-    cJSON *root = cJSON_Parse(contents.c_str());
-    if (!root)
+    WINDOWPLACEMENT placement = {};
+    placement.length = sizeof(placement);
+    placement.rcNormalPosition.left = state.left;
+    placement.rcNormalPosition.top = state.top;
+    placement.rcNormalPosition.right = state.right;
+    placement.rcNormalPosition.bottom = state.bottom;
+    placement.showCmd = state.showCmd;
+
+    HMONITOR monitor = ::MonitorFromRect(&placement.rcNormalPosition, MONITOR_DEFAULTTONULL);
+    if (!monitor)
         return false;
 
-    const cJSON *left = cJSON_GetObjectItemCaseSensitive(root, "left");
-    const cJSON *top = cJSON_GetObjectItemCaseSensitive(root, "top");
-    const cJSON *right = cJSON_GetObjectItemCaseSensitive(root, "right");
-    const cJSON *bottom = cJSON_GetObjectItemCaseSensitive(root, "bottom");
-    const cJSON *showCmd = cJSON_GetObjectItemCaseSensitive(root, "showCmd");
-
-    bool ok = false;
-    if (cJSON_IsNumber(left) && cJSON_IsNumber(top) &&
-        cJSON_IsNumber(right) && cJSON_IsNumber(bottom)) {
-        WINDOWPLACEMENT placement = {};
-        placement.length = sizeof(placement);
-        placement.rcNormalPosition.left = left->valueint;
-        placement.rcNormalPosition.top = top->valueint;
-        placement.rcNormalPosition.right = right->valueint;
-        placement.rcNormalPosition.bottom = bottom->valueint;
-        placement.showCmd = cJSON_IsNumber(showCmd) ? showCmd->valueint : SW_SHOWNORMAL;
-
-        const int width = placement.rcNormalPosition.right - placement.rcNormalPosition.left;
-        const int height = placement.rcNormalPosition.bottom - placement.rcNormalPosition.top;
-        if (width >= 400 && height >= 300) {
-            HMONITOR monitor = ::MonitorFromRect(&placement.rcNormalPosition, MONITOR_DEFAULTTONULL);
-            if (monitor) {
-                SetWindowPlacement(&placement);
-                ok = true;
-            }
-        }
-    }
-
-    cJSON_Delete(root);
-    return ok;
+    SetWindowPlacement(&placement);
+    return true;
 }
 
 CRect MainWindow::captionButtonRectFor(int hitCode) const
@@ -897,7 +852,11 @@ void MainWindow::openConnectionDialog(bool selectionRequired)
     if (!m_profileRepository)
         return;
 
-    ConnectionListDialog dialog(m_profileRepository.get(), this);
+    const auto connectedIds = m_sessionManager
+        ? m_sessionManager->connectedProfileIds()
+        : std::vector<std::string>{};
+
+    ConnectionListDialog dialog(m_profileRepository.get(), connectedIds, this);
     dialog.setSelectionRequired(selectionRequired || !hasOpenTabs());
 
     if (dialog.DoModal() == IDOK) {
@@ -907,14 +866,48 @@ void MainWindow::openConnectionDialog(bool selectionRequired)
             if (profile.isValid() && m_sessionManager)
                 m_sessionManager->openSession(profile);
         }
-    } else if (!m_isClosing && !hasOpenTabs()) {
-        PostMessage(WM_APP_OPEN_CONNECTIONS, TRUE, 0);
     }
 }
 
 bool MainWindow::hasOpenTabs() const
 {
     return m_sessionManager && m_sessionManager->hasOpenSessions();
+}
+
+void MainWindow::refreshTabStatuses()
+{
+    if (!m_sessionManager)
+        return;
+
+    const int count = m_tabBar.tabCount();
+    for (int i = 0; i < count; ++i) {
+        BrowserTabBar::TabStatusInfo status;
+
+        if (m_sessionManager->isTabConnected(i)) {
+            auto info = m_sessionManager->connectionInfoForTab(i);
+            if (info.rttAvailable) {
+                if (info.rtt <= 100)
+                    status.status = BrowserTabBar::TabStatus::ConnectedGood;
+                else if (info.rtt <= 300)
+                    status.status = BrowserTabBar::TabStatus::ConnectedWarn;
+                else
+                    status.status = BrowserTabBar::TabStatus::ConnectedBad;
+            } else {
+                status.status = BrowserTabBar::TabStatus::ConnectedGood;
+            }
+        }
+
+        m_tabBar.setTabStatus(i, status);
+    }
+}
+
+void MainWindow::OnTimer(UINT_PTR timerId)
+{
+    if (timerId == kTabStatusTimerId) {
+        refreshTabStatuses();
+        return;
+    }
+    CFrameWnd::OnTimer(timerId);
 }
 
 int MainWindow::tabIndexAtScreenPoint(CPoint point) const

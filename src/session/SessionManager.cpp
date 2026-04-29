@@ -167,6 +167,33 @@ FreeRdpProcess::ConnectionInfo SessionManager::connectionInfoForTab(int index) c
     return {};
 }
 
+bool SessionManager::isTabConnected(int index) const
+{
+    if (index < 0 || index >= static_cast<int>(m_sessions.size()))
+        return false;
+    return m_sessions[static_cast<size_t>(index)]->view
+        && m_sessions[static_cast<size_t>(index)]->view->isConnected();
+}
+
+bool SessionManager::isProfileConnected(const std::string &profileId) const
+{
+    for (const auto &session : m_sessions) {
+        if (session->profile.id == profileId && session->view && session->view->isConnected())
+            return true;
+    }
+    return false;
+}
+
+std::vector<std::string> SessionManager::connectedProfileIds() const
+{
+    std::vector<std::string> ids;
+    for (const auto &session : m_sessions) {
+        if (session->view && session->view->isConnected())
+            ids.push_back(session->profile.id);
+    }
+    return ids;
+}
+
 int SessionManager::indexOfSession(const std::string &sessionId) const
 {
     for (size_t index = 0; index < m_sessions.size(); ++index) {

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(RdpBox VERSION 1.2.0 LANGUAGES CXX RC)
+project(RdpBox VERSION 1.3.0 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,6 +12,7 @@ option(BUILD_TEST "Build test targets." OFF)
 
 set(CMAKE_MFC_FLAG 2)
 
+find_package(nlohmann_json CONFIG REQUIRED)
 find_package(cJSON CONFIG REQUIRED)
 find_package(FreeRDP CONFIG REQUIRED)
 find_package(FreeRDP-Client CONFIG REQUIRED)
@@ -129,6 +130,7 @@ target_link_libraries(RdpBox PRIVATE
     freerdp
     freerdp-client
     winpr
+    nlohmann_json::nlohmann_json
     cjson
     Bcrypt
     Crypt32
@@ -136,10 +138,23 @@ target_link_libraries(RdpBox PRIVATE
     Ole32
     Shell32
     Comctl32
+    Dwmapi
+    Msimg32
+    UxTheme
+    Gdiplus
 )
 
 if(MSVC)
     set_target_properties(RdpBox PROPERTIES LINK_FLAGS "/ENTRY:WinMainCRTStartup")
+    if(CMAKE_BUILD_TYPE STREQUAL "Release")
+        find_program(UPX_EXECUTABLE upx)
+        if(UPX_EXECUTABLE)
+            add_custom_command(TARGET RdpBox POST_BUILD
+                COMMAND "${UPX_EXECUTABLE}" -9 "$<TARGET_FILE:RdpBox>"
+                COMMENT "Compressing RdpBox.exe with UPX -9"
+            )
+        endif()
+    endif()
 endif()
 
 if(BUILD_TEST)

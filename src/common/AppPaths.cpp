@@ -1,6 +1,9 @@
 #include "AppPaths.h"
 
-#include <cjson/cJSON.h>
+#include <nlohmann/json.hpp>
+
+#include <cstdio>
+
 #include <shlobj.h>
 #include <windows.h>
 
@@ -85,18 +88,11 @@ bool readPortableModeFromProfiles()
     if (contents.empty())
         return false;
 
-    cJSON *root = cJSON_Parse(contents.c_str());
-    if (!root)
+    const auto root = nlohmann::json::parse(contents, nullptr, false);
+    if (!root.is_object())
         return false;
 
-    bool portableMode = false;
-    if (cJSON_IsObject(root)) {
-        const cJSON *node = cJSON_GetObjectItemCaseSensitive(root, "portableMode");
-        portableMode = cJSON_IsTrue(node);
-    }
-
-    cJSON_Delete(root);
-    return portableMode;
+    return root.value("portableMode", false);
 }
 
 bool writePortableModeToProfiles(bool portableMode)
@@ -105,34 +101,25 @@ bool writePortableModeToProfiles(bool portableMode)
     if (path.empty())
         return false;
 
-    cJSON *root = nullptr;
+    auto root = nlohmann::json::object();
     const std::string existing = readFile(path);
-    if (!existing.empty())
-        root = cJSON_Parse(existing.c_str());
-
-    if (cJSON_IsArray(root)) {
-        cJSON *profiles = root;
-        root = cJSON_CreateObject();
-        cJSON_AddBoolToObject(root, "portableMode", portableMode);
-        cJSON_AddItemToObject(root, "profiles", profiles);
-    } else if (cJSON_IsObject(root)) {
-        cJSON_ReplaceItemInObject(root, "portableMode", portableMode ? cJSON_CreateTrue() : cJSON_CreateFalse());
-        if (!cJSON_GetObjectItemCaseSensitive(root, "profiles"))
-            cJSON_AddItemToObject(root, "profiles", cJSON_CreateArray());
+    if (!existing.empty()) {
+        auto parsed = nlohmann::json::parse(existing, nullptr, false);
+        if (parsed.is_array()) {
+            root["portableMode"] = portableMode;
+            root["profiles"] = std::move(parsed);
+        } else if (parsed.is_object()) {
+            root = std::move(parsed);
+            root["portableMode"] = portableMode;
+            if (!root.contains("profiles"))
+                root["profiles"] = nlohmann::json::array();
+        }
     } else {
-        if (root)
-            cJSON_Delete(root);
-        root = cJSON_CreateObject();
-        cJSON_AddBoolToObject(root, "portableMode", portableMode);
-        cJSON_AddItemToObject(root, "profiles", cJSON_CreateArray());
+        root["portableMode"] = portableMode;
+        root["profiles"] = nlohmann::json::array();
     }
 
-    char *json = cJSON_Print(root);
-    const bool ok = json && writeFile(path, json);
-    if (json)
-        cJSON_free(json);
-    cJSON_Delete(root);
-    return ok;
+    return writeFile(path, root.dump(4));
 }
 }
 
@@ -172,12 +159,6 @@ std::wstring profilesFilePath()
 {
     const std::wstring root = dataRootPath();
     return root.empty() ? std::wstring() : (root + L"\\profiles.json");
-}
-
-std::wstring windowStateFilePath()
-{
-    const std::wstring root = dataRootPath();
-    return root.empty() ? std::wstring() : (root + L"\\window-state.json");
 }
 
 std::wstring frameCaptureRootPath()
