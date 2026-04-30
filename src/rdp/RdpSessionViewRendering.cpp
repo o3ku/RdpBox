@@ -89,6 +89,57 @@ bool saveFrameAsJpeg(const FrameBuffer &frame, const std::wstring &path)
 
     return bitmap.Save(path.c_str(), &jpegClsid, &params) == Gdiplus::Ok;
 }
+
+void copyFrameBuffer(FrameBuffer &target, const FrameBuffer &source)
+{
+    if (source.empty()) {
+        FrameBufferMemory::release(target);
+        return;
+    }
+
+    FrameBufferMemory::resize(target,
+                              source.width,
+                              source.height,
+                              source.stride,
+                              source.pixels.size());
+    std::memcpy(target.pixels.data(), source.pixels.data(), source.pixels.size());
+}
+
+void drawFrameBuffer(HDC targetDc, const CRect &targetRect, const FrameBuffer &frame)
+{
+    if (!targetDc || frame.empty())
+        return;
+
+    BITMAPINFO bmi = {};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = frame.width;
+    bmi.bmiHeader.biHeight = -frame.height;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    if (targetRect.Width() == frame.width && targetRect.Height() == frame.height) {
+        ::SetDIBitsToDevice(targetDc,
+                            0, 0,
+                            static_cast<DWORD>(frame.width),
+                            static_cast<DWORD>(frame.height),
+                            0, 0,
+                            0,
+                            static_cast<UINT>(frame.height),
+                            frame.pixels.data(),
+                            &bmi,
+                            DIB_RGB_COLORS);
+        return;
+    }
+
+    ::StretchDIBits(targetDc,
+                    0, 0, targetRect.Width(), targetRect.Height(),
+                    0, 0, frame.width, frame.height,
+                    frame.pixels.data(),
+                    &bmi,
+                    DIB_RGB_COLORS,
+                    SRCCOPY);
+}
 }
 
 void CRdpSessionView::beginFrameCapture(const wchar_t *reason)
@@ -253,7 +304,10 @@ void CRdpSessionView::OnPaint()
     bool hideOverlayAfterFramePresent = false;
 
     if (m_process) {
-        m_process->visitFrameIfNewer(m_cachedFrameGeneration, [this, &hideOverlayAfterFramePresent](const FrameBuffer &frame, uint64_t generation) {
+        FrameBuffer nextFrame;
+        if (m_process->consumeFrameIfNewer(m_cachedFrameGeneration, nextFrame)) {
+            const uint64_t generation = m_cachedFrameGeneration;
+            const FrameBuffer &frame = nextFrame;
             captureFrameIfRequested(frame);
 
             bool shouldRenderFrame = true;
@@ -278,56 +332,17 @@ void CRdpSessionView::OnPaint()
                 }
             }
 
-            if (!shouldRenderFrame)
-                return;
-
-            if (ensureRenderSurface(frame)) {
-                copyFrameToRenderSurface(frame);
+            if (shouldRenderFrame) {
+                m_cachedFrame = std::move(nextFrame);
                 m_renderedFrameGeneration = generation;
-                FrameBufferMemory::release(m_cachedFrame);
-                return;
+                releaseRenderSurface();
             }
-
-            m_cachedFrame = frame;
-        });
+        }
 
         const bool hasCachedFrame = !m_cachedFrame.empty();
         bool paintedFrame = false;
-        if (hasCachedFrame && ensureRenderSurface(m_cachedFrame)) {
-            if (m_renderedFrameGeneration != m_cachedFrameGeneration) {
-                copyFrameToRenderSurface(m_cachedFrame);
-                m_renderedFrameGeneration = m_cachedFrameGeneration;
-                FrameBufferMemory::release(m_cachedFrame);
-            }
-            drawRenderSurface(dc.GetSafeHdc(), rect);
-            paintedFrame = true;
-        } else if (hasCachedFrame) {
-            const FrameBuffer &frame = m_cachedFrame;
-            BITMAPINFO bmi = {};
-            bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-            bmi.bmiHeader.biWidth = frame.width;
-            bmi.bmiHeader.biHeight = -frame.height;
-            bmi.bmiHeader.biPlanes = 1;
-            bmi.bmiHeader.biBitCount = 32;
-            bmi.bmiHeader.biCompression = BI_RGB;
-            if (rect.Width() == frame.width && rect.Height() == frame.height) {
-                SetDIBitsToDevice(dc.GetSafeHdc(),
-                                  0, 0,
-                                  static_cast<DWORD>(frame.width),
-                                  static_cast<DWORD>(frame.height),
-                                  0, 0,
-                                  0,
-                                  static_cast<UINT>(frame.height),
-                                  frame.pixels.data(),
-                                  &bmi,
-                                  DIB_RGB_COLORS);
-            } else {
-                StretchDIBits(dc.GetSafeHdc(), 0, 0, rect.Width(), rect.Height(), 0, 0,
-                              frame.width, frame.height, frame.pixels.data(), &bmi, DIB_RGB_COLORS, SRCCOPY);
-            }
-            paintedFrame = true;
-        } else if (m_renderDc && m_renderBitmap) {
-            drawRenderSurface(dc.GetSafeHdc(), rect);
+        if (hasCachedFrame) {
+            drawFrameBuffer(dc.GetSafeHdc(), rect, m_cachedFrame);
             paintedFrame = true;
         } else {
             dc.FillSolidRect(rect, RGB(17, 17, 17));

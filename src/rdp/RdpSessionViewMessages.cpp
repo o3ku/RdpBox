@@ -40,7 +40,7 @@ LRESULT CRdpSessionView::OnRdpCertRequest(WPARAM, LPARAM generation)
     if (!isCurrentGeneration(static_cast<std::uintptr_t>(generation)) || !m_process)
         return 0;
 
-    std::shared_ptr<FreeRdpProcess::CertificateChallenge> challenge;
+    std::optional<FreeRdpProcess::CertificateChallenge> challenge;
     {
         std::scoped_lock lock(m_certMutex);
         challenge = std::move(m_pendingCert);

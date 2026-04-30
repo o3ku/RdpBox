@@ -27,41 +27,44 @@ std::string SessionManager::openSession(const Profile &profile)
     if (!m_tabBar || !m_sessionHost)
         return {};
 
-    auto session = std::make_unique<Session>();
-    session->id = createGuidString();
-    session->profile = profile;
-    session->view = std::make_unique<CRdpSessionView>();
+    Session session;
+    session.id = createGuidString();
+    session.profileId = profile.id;
+    session.profileName = profile.name;
+    session.fullScreenOnConnect = profile.fullScreenOnConnect;
+    session.lastConnectedAt = profile.lastConnectedAt;
+    session.view = std::make_unique<CRdpSessionView>();
 
     CRect hostRect;
     m_sessionHost->GetClientRect(&hostRect);
-    if (!session->view->create(m_sessionHost, hostRect))
+    if (!session.view->create(m_sessionHost, hostRect))
         return {};
 
-    const std::string sessionId = session->id;
-    session->view->setReconnectRequestedCallback([this, sessionId]() {
+    const std::string sessionId = session.id;
+    session.view->setReconnectRequestedCallback([this, sessionId]() {
         reconnectSession(sessionId);
     });
-    session->view->setConnectedCallback([this, sessionId]() {
+    session.view->setConnectedCallback([this, sessionId, profile]() {
         touchLastConnectedAt(sessionId);
         if (m_sessionConnectedCallback) {
             const int index = indexOfSession(sessionId);
             if (index >= 0)
-                m_sessionConnectedCallback(sessionId, m_sessions[static_cast<size_t>(index)]->profile);
+                m_sessionConnectedCallback(sessionId, profile);
         }
     });
-    session->view->connectToHost(profile);
+    session.view->connectToHost(profile);
 
     const std::wstring title = profile.name.empty() ? L"(unnamed)" : profile.name;
     const int index = m_tabBar->insertTab(title);
     if (index < 0) {
-        session->view->DestroyWindow();
+        session.view->DestroyWindow();
         return {};
     }
 
     m_sessions.push_back(std::move(session));
     m_tabBar->setSelectedIndex(index);
     showSessionAtIndex(index);
-    return m_sessions[static_cast<size_t>(index)]->id;
+    return m_sessions[static_cast<size_t>(index)].id;
 }
 
 void SessionManager::closeSession(const std::string &sessionId)
@@ -70,9 +73,10 @@ void SessionManager::closeSession(const std::string &sessionId)
     if (index < 0 || !m_tabBar)
         return;
 
-    m_sessions[static_cast<size_t>(index)]->view->DestroyWindow();
+    m_sessions[static_cast<size_t>(index)].view->DestroyWindow();
     m_sessions.erase(m_sessions.begin() + index);
     m_tabBar->removeTab(index);
+    trimSessionStorage();
 
     if (m_sessions.empty())
         return;
@@ -88,16 +92,17 @@ void SessionManager::reconnectSession(const std::string &sessionId)
     if (index < 0)
         return;
 
-    m_sessions[static_cast<size_t>(index)]->view->reconnect();
+    m_sessions[static_cast<size_t>(index)].view->reconnect();
 }
 
 void SessionManager::closeAllSessions()
 {
     for (auto &session : m_sessions) {
-        if (session->view)
-            session->view->DestroyWindow();
+        if (session.view)
+            session.view->DestroyWindow();
     }
     m_sessions.clear();
+    trimSessionStorage();
 
     if (m_tabBar)
         m_tabBar->clearTabs();
@@ -116,13 +121,13 @@ void SessionManager::layoutSessions()
     CRect rect;
     m_sessionHost->GetClientRect(&rect);
     for (auto &session : m_sessions) {
-        if (session->view && session->view->GetSafeHwnd()) {
-            session->view->SetWindowPos(nullptr,
-                                        rect.left, rect.top,
-                                        rect.Width(), rect.Height(),
-                                        SWP_NOZORDER | SWP_NOACTIVATE);
-            session->view->RedrawWindow(nullptr, nullptr,
-                                        RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN | RDW_NOERASE);
+        if (session.view && session.view->GetSafeHwnd()) {
+            session.view->SetWindowPos(nullptr,
+                                       rect.left, rect.top,
+                                       rect.Width(), rect.Height(),
+                                       SWP_NOZORDER | SWP_NOACTIVATE);
+            session.view->RedrawWindow(nullptr, nullptr,
+                                       RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN | RDW_NOERASE);
         }
     }
 }
@@ -130,16 +135,16 @@ void SessionManager::layoutSessions()
 void SessionManager::setResizeSuppressed(bool suppressed)
 {
     for (auto &session : m_sessions) {
-        if (session->view && session->view->GetSafeHwnd())
-            session->view->setResizeSuppressed(suppressed);
+        if (session.view && session.view->GetSafeHwnd())
+            session.view->setResizeSuppressed(suppressed);
     }
 }
 
 void SessionManager::flushPendingResize()
 {
     for (auto &session : m_sessions) {
-        if (session->view && session->view->GetSafeHwnd())
-            session->view->flushPendingResize();
+        if (session.view && session.view->GetSafeHwnd())
+            session.view->flushPendingResize();
     }
 }
 
@@ -148,7 +153,7 @@ std::string SessionManager::sessionIdByTabIndex(int index) const
     if (index < 0 || index >= static_cast<int>(m_sessions.size()))
         return {};
 
-    return m_sessions[static_cast<size_t>(index)]->id;
+    return m_sessions[static_cast<size_t>(index)].id;
 }
 
 bool SessionManager::hasOpenSessions() const
@@ -162,8 +167,8 @@ FreeRdpProcess::ConnectionInfo SessionManager::connectionInfoForTab(int index) c
         return {};
 
     auto &session = m_sessions[static_cast<size_t>(index)];
-    if (session->view)
-        return session->view->connectionInfo();
+    if (session.view)
+        return session.view->connectionInfo();
     return {};
 }
 
@@ -171,14 +176,14 @@ bool SessionManager::isTabConnected(int index) const
 {
     if (index < 0 || index >= static_cast<int>(m_sessions.size()))
         return false;
-    return m_sessions[static_cast<size_t>(index)]->view
-        && m_sessions[static_cast<size_t>(index)]->view->isConnected();
+    return m_sessions[static_cast<size_t>(index)].view
+        && m_sessions[static_cast<size_t>(index)].view->isConnected();
 }
 
 bool SessionManager::isProfileConnected(const std::string &profileId) const
 {
     for (const auto &session : m_sessions) {
-        if (session->profile.id == profileId && session->view && session->view->isConnected())
+        if (session.profileId == profileId && session.view && session.view->isConnected())
             return true;
     }
     return false;
@@ -187,9 +192,10 @@ bool SessionManager::isProfileConnected(const std::string &profileId) const
 std::vector<std::string> SessionManager::connectedProfileIds() const
 {
     std::vector<std::string> ids;
+    ids.reserve(m_sessions.size());
     for (const auto &session : m_sessions) {
-        if (session->view && session->view->isConnected())
-            ids.push_back(session->profile.id);
+        if (session.view && session.view->isConnected())
+            ids.push_back(session.profileId);
     }
     return ids;
 }
@@ -197,7 +203,7 @@ std::vector<std::string> SessionManager::connectedProfileIds() const
 int SessionManager::indexOfSession(const std::string &sessionId) const
 {
     for (size_t index = 0; index < m_sessions.size(); ++index) {
-        if (m_sessions[index]->id == sessionId)
+        if (m_sessions[index].id == sessionId)
             return static_cast<int>(index);
     }
     return -1;
@@ -207,13 +213,13 @@ void SessionManager::showSessionAtIndex(int index)
 {
     CRdpSessionView *activeView = nullptr;
     for (size_t currentIndex = 0; currentIndex < m_sessions.size(); ++currentIndex) {
-        if (!m_sessions[currentIndex]->view || !m_sessions[currentIndex]->view->GetSafeHwnd())
+        if (!m_sessions[currentIndex].view || !m_sessions[currentIndex].view->GetSafeHwnd())
             continue;
 
         const bool active = static_cast<int>(currentIndex) == index;
-        m_sessions[currentIndex]->view->ShowWindow(active ? SW_SHOW : SW_HIDE);
+        m_sessions[currentIndex].view->ShowWindow(active ? SW_SHOW : SW_HIDE);
         if (active)
-            activeView = m_sessions[currentIndex]->view.get();
+            activeView = m_sessions[currentIndex].view.get();
     }
 
     if (activeView && activeView->GetSafeHwnd())
@@ -229,9 +235,34 @@ void SessionManager::touchLastConnectedAt(const std::string &sessionId)
     if (index < 0)
         return;
 
-    Profile &profile = m_sessions[static_cast<size_t>(index)]->profile;
-    profile.lastConnectedAt = currentUtcIso8601();
+    Session &session = m_sessions[static_cast<size_t>(index)];
+    session.lastConnectedAt = currentUtcIso8601();
+
+    Profile profile = m_repository->profileById(session.profileId);
+    if (!profile.isValid())
+        return;
+
+    profile.lastConnectedAt = session.lastConnectedAt;
     m_repository->updateProfile(profile);
+}
+
+void SessionManager::trimSessionStorage()
+{
+    if (m_sessions.empty()) {
+        std::vector<Session>().swap(m_sessions);
+        return;
+    }
+
+    const size_t size = m_sessions.size();
+    const size_t capacity = m_sessions.capacity();
+    if (capacity <= 8 || size * 2 > capacity)
+        return;
+
+    std::vector<Session> compacted;
+    compacted.reserve(size);
+    for (auto &session : m_sessions)
+        compacted.push_back(std::move(session));
+    m_sessions.swap(compacted);
 }
 
 void SessionManager::setSessionConnectedCallback(SessionConnectedCallback callback)

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(RdpBox VERSION 1.3.0 LANGUAGES CXX RC)
+project(RdpBox VERSION 1.4.0 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -44,6 +44,8 @@ set(RDPBOX_SOURCES
     WinMain.cpp
     MainWindow.h
     MainWindow.cpp
+    MainWindowChrome.cpp
+    MainWindowSessions.cpp
     common/AppPaths.h
     common/AppPaths.cpp
     common/PasswordProtection.h
@@ -55,6 +57,8 @@ set(RDPBOX_SOURCES
     profiles/ProfileRepository.cpp
     rdp/FreeRdpProcess.h
     rdp/FreeRdpProcess.cpp
+    rdp/FreeRdpProcessNative.h
+    rdp/FreeRdpProcessNative.cpp
     rdp/RdpCursorClassifier.h
     rdp/RdpCursorClassifier.cpp
     rdp/RdpModifierSyncTracker.h
@@ -75,6 +79,9 @@ set(RDPBOX_SOURCES
     rdp/RdpSessionViewMessages.cpp
     rdp/RdpSessionViewRendering.cpp
     rdp/WindowsClipboardBackend.h
+    rdp/WindowsClipboardBackendInternal.h
+    rdp/WindowsClipboardBackendDataObject.cpp
+    rdp/WindowsClipboardBackendWindow.cpp
     rdp/WindowsClipboardBackend.cpp
     session/SessionManager.h
     session/SessionManager.cpp

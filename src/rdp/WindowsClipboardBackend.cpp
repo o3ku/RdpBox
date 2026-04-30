@@ -1,764 +1,23 @@
 #include "WindowsClipboardBackend.h"
-
-#define CINTERFACE
-#define COBJMACROS
-
-#include <freerdp/client/cliprdr.h>
-#include <freerdp/channels/cliprdr.h>
+#include "WindowsClipboardBackendInternal.h"
 
 #include <winpr/assert.h>
 #include <winpr/library.h>
 #include <winpr/string.h>
 
-#include <objidl.h>
-#include <ole2.h>
 #include <shlobj.h>
 #include <strsafe.h>
-#include <windows.h>
 #include <winuser.h>
 
-#include <array>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
 
 namespace
 {
-#if defined(NONAMELESSUNION)
-#define STGMEDIUM_HGLOBAL(value) ((value).u.hGlobal)
-#define STGMEDIUM_PSTM(value) ((value).u.pstm)
-#else
-#define STGMEDIUM_HGLOBAL(value) ((value).hGlobal)
-#define STGMEDIUM_PSTM(value) ((value).pstm)
-#endif
-
-typedef BOOL(WINAPI* fnAddClipboardFormatListener)(HWND hwnd);
-typedef BOOL(WINAPI* fnRemoveClipboardFormatListener)(HWND hwnd);
-typedef BOOL(WINAPI* fnGetUpdatedClipboardFormats)(PUINT lpuiFormats, UINT cFormats,
-                                                   PUINT pcFormatsOut);
-
-struct FormatMapping
-{
-    UINT32 remoteFormatId = 0;
-    UINT32 localFormatId = 0;
-    WCHAR *name = nullptr;
-};
-
-struct ClipboardContext;
-
-struct CliprdrEnumFORMATETC
-{
-    IEnumFORMATETC iface;
-    LONG refCount = 1;
-    LONG index = 0;
-    LONG count = 0;
-    FORMATETC *formats = nullptr;
-};
-
-struct CliprdrStream
-{
-    IStream iface;
-    LONG refCount = 1;
-    ULONG listIndex = 0;
-    ULARGE_INTEGER size = {};
-    ULARGE_INTEGER offset = {};
-    FILEDESCRIPTORW descriptor = {};
-    ClipboardContext *clipboard = nullptr;
-};
-
-struct CliprdrDataObject
-{
-    IDataObject iface;
-    LONG refCount = 1;
-    FORMATETC *formats = nullptr;
-    STGMEDIUM *mediums = nullptr;
-    ULONG formatCount = 0;
-    ULONG streamCount = 0;
-    IStream **streams = nullptr;
-    ClipboardContext *clipboard = nullptr;
-};
-
-struct ClipboardContext
-{
-    CliprdrClientContext *context = nullptr;
-    bool sync = false;
-    UINT32 capabilities = 0;
-
-    size_t mapSize = 0;
-    size_t mapCapacity = 32;
-    FormatMapping *formatMappings = nullptr;
-
-    UINT32 requestedFormatId = 0;
-
-    HWND hwnd = nullptr;
-    HANDLE responseData = nullptr;
-    HANDLE responseDataEvent = nullptr;
-    HANDLE requestFileEvent = nullptr;
-    HANDLE abortEvent = nullptr;
-    HANDLE thread = nullptr;
-
-    IDataObject *dataObject = nullptr;
-    ULONG requestFileSize = 0;
-    char *requestFileData = nullptr;
-
-    size_t fileCount = 0;
-    size_t fileArraySize = 0;
-    WCHAR **fileNames = nullptr;
-    FILEDESCRIPTORW **fileDescriptors = nullptr;
-
-    bool legacyApi = false;
-    HMODULE user32 = nullptr;
-    HWND nextViewer = nullptr;
-    fnAddClipboardFormatListener addClipboardFormatListener = nullptr;
-    fnRemoveClipboardFormatListener removeClipboardFormatListener = nullptr;
-    fnGetUpdatedClipboardFormats getUpdatedClipboardFormats = nullptr;
-};
-
-constexpr UINT WM_CLIPRDR_MESSAGE = WM_USER + 156;
-constexpr WPARAM OLE_SETCLIPBOARD = 1;
 constexpr DWORD kClipboardRequestTimeoutMs = 30000;
 constexpr size_t kMaxClipboardFileCount = 10000;
 constexpr int kMaxClipboardDirectoryDepth = 32;
-
-static BOOL tryOpenClipboard(HWND hwnd)
-{
-    for (int attempt = 0; attempt < 10; ++attempt) {
-        if (OpenClipboard(hwnd))
-            return TRUE;
-        Sleep(10);
-    }
-    return FALSE;
-}
-
-static UINT32 getRemoteFormatId(ClipboardContext *clipboard, UINT32 localFormat);
-static UINT sendDataRequest(ClipboardContext *clipboard, UINT32 formatId);
-static UINT sendFileContentsRequest(ClipboardContext *clipboard, const void *streamId, ULONG index,
-                                    UINT32 flags, UINT64 position, ULONG requestSize);
-static UINT waitForClipboardResponse(ClipboardContext *clipboard, HANDLE responseEvent);
-static BOOL createFileDataObject(ClipboardContext *clipboard, IDataObject **dataObject);
-static void destroyFileDataObject(IDataObject *instance);
-static BOOL clearFormatMap(ClipboardContext *clipboard);
-static void clearFileArray(ClipboardContext *clipboard);
-
-static void formatDeepCopy(FORMATETC *destination, const FORMATETC *source)
-{
-    *destination = *source;
-    if (!source->ptd)
-        return;
-
-    destination->ptd = static_cast<DVTARGETDEVICE*>(CoTaskMemAlloc(sizeof(DVTARGETDEVICE)));
-    if (destination->ptd)
-        *destination->ptd = *source->ptd;
-}
-
-static void deleteEnumFormatEtc(CliprdrEnumFORMATETC *instance)
-{
-    if (!instance)
-        return;
-
-    free(instance->iface.lpVtbl);
-    if (instance->formats) {
-        for (LONG i = 0; i < instance->count; ++i) {
-            if (instance->formats[i].ptd)
-                CoTaskMemFree(instance->formats[i].ptd);
-        }
-        free(instance->formats);
-    }
-    free(instance);
-}
-
-static HRESULT STDMETHODCALLTYPE enumFormatEtcQueryInterface(IEnumFORMATETC *self, REFIID riid,
-                                                             void **object)
-{
-    if (!object)
-        return E_INVALIDARG;
-
-    if (InlineIsEqualGUID(riid, IID_IEnumFORMATETC) || InlineIsEqualGUID(riid, IID_IUnknown)) {
-        IEnumFORMATETC_AddRef(self);
-        *object = self;
-        return S_OK;
-    }
-
-    *object = nullptr;
-    return E_NOINTERFACE;
-}
-
-static ULONG STDMETHODCALLTYPE enumFormatEtcAddRef(IEnumFORMATETC *self)
-{
-    auto *instance = reinterpret_cast<CliprdrEnumFORMATETC*>(self);
-    return instance ? InterlockedIncrement(&instance->refCount) : 0;
-}
-
-static ULONG STDMETHODCALLTYPE enumFormatEtcRelease(IEnumFORMATETC *self)
-{
-    auto *instance = reinterpret_cast<CliprdrEnumFORMATETC*>(self);
-    if (!instance)
-        return 0;
-
-    const LONG count = InterlockedDecrement(&instance->refCount);
-    if (count == 0)
-        deleteEnumFormatEtc(instance);
-    return (count > 0) ? static_cast<ULONG>(count) : 0;
-}
-
-static HRESULT STDMETHODCALLTYPE enumFormatEtcNext(IEnumFORMATETC *self, ULONG count,
-                                                   FORMATETC *items, ULONG *fetched)
-{
-    auto *instance = reinterpret_cast<CliprdrEnumFORMATETC*>(self);
-    if (!instance || !count || !items)
-        return E_INVALIDARG;
-
-    ULONG copied = 0;
-    while ((instance->index < instance->count) && (copied < count)) {
-        formatDeepCopy(&items[copied++], &instance->formats[instance->index++]);
-    }
-
-    if (fetched)
-        *fetched = copied;
-
-    return (copied == count) ? S_OK : E_FAIL;
-}
-
-static HRESULT STDMETHODCALLTYPE enumFormatEtcSkip(IEnumFORMATETC *self, ULONG count)
-{
-    auto *instance = reinterpret_cast<CliprdrEnumFORMATETC*>(self);
-    if (!instance)
-        return E_INVALIDARG;
-    if (instance->index + static_cast<LONG>(count) > instance->count)
-        return E_FAIL;
-    instance->index += static_cast<LONG>(count);
-    return S_OK;
-}
-
-static HRESULT STDMETHODCALLTYPE enumFormatEtcReset(IEnumFORMATETC *self)
-{
-    auto *instance = reinterpret_cast<CliprdrEnumFORMATETC*>(self);
-    if (!instance)
-        return E_INVALIDARG;
-    instance->index = 0;
-    return S_OK;
-}
-
-static HRESULT STDMETHODCALLTYPE enumFormatEtcClone(IEnumFORMATETC *self, IEnumFORMATETC **clone);
-
-static CliprdrEnumFORMATETC *newEnumFormatEtc(ULONG count, FORMATETC *formats)
-{
-    auto *instance = static_cast<CliprdrEnumFORMATETC*>(calloc(1, sizeof(CliprdrEnumFORMATETC)));
-    if (!instance)
-        return nullptr;
-
-    auto *vtable = static_cast<IEnumFORMATETCVtbl*>(calloc(1, sizeof(IEnumFORMATETCVtbl)));
-    if (!vtable) {
-        free(instance);
-        return nullptr;
-    }
-
-    vtable->QueryInterface = enumFormatEtcQueryInterface;
-    vtable->AddRef = enumFormatEtcAddRef;
-    vtable->Release = enumFormatEtcRelease;
-    vtable->Next = enumFormatEtcNext;
-    vtable->Skip = enumFormatEtcSkip;
-    vtable->Reset = enumFormatEtcReset;
-    vtable->Clone = enumFormatEtcClone;
-
-    instance->iface.lpVtbl = vtable;
-    instance->refCount = 1;
-    instance->index = 0;
-    instance->count = static_cast<LONG>(count);
-
-    if (count > 0) {
-        instance->formats = static_cast<FORMATETC*>(calloc(count, sizeof(FORMATETC)));
-        if (!instance->formats) {
-            deleteEnumFormatEtc(instance);
-            return nullptr;
-        }
-        for (ULONG i = 0; i < count; ++i)
-            formatDeepCopy(&instance->formats[i], &formats[i]);
-    }
-
-    return instance;
-}
-
-static HRESULT STDMETHODCALLTYPE enumFormatEtcClone(IEnumFORMATETC *self, IEnumFORMATETC **clone)
-{
-    auto *instance = reinterpret_cast<CliprdrEnumFORMATETC*>(self);
-    if (!instance || !clone)
-        return E_INVALIDARG;
-
-    auto *copy = newEnumFormatEtc(static_cast<ULONG>(instance->count), instance->formats);
-    if (!copy)
-        return E_OUTOFMEMORY;
-
-    copy->index = instance->index;
-    *clone = &copy->iface;
-    return S_OK;
-}
-
-static void deleteStream(CliprdrStream *instance)
-{
-    if (!instance)
-        return;
-    free(instance->iface.lpVtbl);
-    free(instance);
-}
-
-static HRESULT STDMETHODCALLTYPE streamQueryInterface(IStream *self, REFIID riid, void **object)
-{
-    if (!object)
-        return E_INVALIDARG;
-
-    if (InlineIsEqualGUID(riid, IID_IStream) || InlineIsEqualGUID(riid, IID_IUnknown)) {
-        IStream_AddRef(self);
-        *object = self;
-        return S_OK;
-    }
-
-    *object = nullptr;
-    return E_NOINTERFACE;
-}
-
-static ULONG STDMETHODCALLTYPE streamAddRef(IStream *self)
-{
-    auto *instance = reinterpret_cast<CliprdrStream*>(self);
-    return instance ? InterlockedIncrement(&instance->refCount) : 0;
-}
-
-static ULONG STDMETHODCALLTYPE streamRelease(IStream *self)
-{
-    auto *instance = reinterpret_cast<CliprdrStream*>(self);
-    if (!instance)
-        return 0;
-    const LONG count = InterlockedDecrement(&instance->refCount);
-    if (count == 0)
-        deleteStream(instance);
-    return (count > 0) ? static_cast<ULONG>(count) : 0;
-}
-
-static HRESULT STDMETHODCALLTYPE streamRead(IStream *self, void *buffer, ULONG bytes,
-                                            ULONG *bytesRead)
-{
-    auto *instance = reinterpret_cast<CliprdrStream*>(self);
-    if (!instance || !buffer || !bytesRead)
-        return E_INVALIDARG;
-
-    auto *clipboard = instance->clipboard;
-    *bytesRead = 0;
-
-    if (instance->offset.QuadPart >= instance->size.QuadPart)
-        return S_FALSE;
-
-    const UINT rc = sendFileContentsRequest(clipboard, self, instance->listIndex, FILECONTENTS_RANGE,
-                                            instance->offset.QuadPart, bytes);
-    if (rc != CHANNEL_RC_OK)
-        return E_FAIL;
-
-    ULONG actualRead = 0;
-    if (clipboard->requestFileData) {
-        actualRead = std::min(clipboard->requestFileSize, bytes);
-        CopyMemory(buffer, clipboard->requestFileData, actualRead);
-        free(clipboard->requestFileData);
-        clipboard->requestFileData = nullptr;
-    }
-
-    *bytesRead = actualRead;
-    instance->offset.QuadPart += actualRead;
-
-    return (actualRead < bytes) ? S_FALSE : S_OK;
-}
-
-static HRESULT STDMETHODCALLTYPE streamWrite(IStream *, const void *, ULONG, ULONG *)
-{
-    return STG_E_ACCESSDENIED;
-}
-
-static HRESULT STDMETHODCALLTYPE streamSeek(IStream *self, LARGE_INTEGER move, DWORD origin,
-                                            ULARGE_INTEGER *newPosition)
-{
-    auto *instance = reinterpret_cast<CliprdrStream*>(self);
-    if (!instance)
-        return E_INVALIDARG;
-
-    ULONGLONG offset = instance->offset.QuadPart;
-    switch (origin) {
-    case STREAM_SEEK_SET:
-        offset = move.QuadPart;
-        break;
-    case STREAM_SEEK_CUR:
-        offset += move.QuadPart;
-        break;
-    case STREAM_SEEK_END:
-        offset = instance->size.QuadPart + move.QuadPart;
-        break;
-    default:
-        return E_INVALIDARG;
-    }
-
-    if (offset >= instance->size.QuadPart)
-        return E_FAIL;
-
-    instance->offset.QuadPart = offset;
-    if (newPosition)
-        newPosition->QuadPart = instance->offset.QuadPart;
-    return S_OK;
-}
-
-static HRESULT STDMETHODCALLTYPE streamSetSize(IStream *, ULARGE_INTEGER) { return E_NOTIMPL; }
-static HRESULT STDMETHODCALLTYPE streamCopyTo(IStream *, IStream *, ULARGE_INTEGER, ULARGE_INTEGER *,
-                                              ULARGE_INTEGER *) { return E_NOTIMPL; }
-static HRESULT STDMETHODCALLTYPE streamCommit(IStream *, DWORD) { return E_NOTIMPL; }
-static HRESULT STDMETHODCALLTYPE streamRevert(IStream *) { return E_NOTIMPL; }
-static HRESULT STDMETHODCALLTYPE streamLockRegion(IStream *, ULARGE_INTEGER, ULARGE_INTEGER, DWORD)
-{
-    return E_NOTIMPL;
-}
-static HRESULT STDMETHODCALLTYPE streamUnlockRegion(IStream *, ULARGE_INTEGER, ULARGE_INTEGER, DWORD)
-{
-    return E_NOTIMPL;
-}
-
-static HRESULT STDMETHODCALLTYPE streamStat(IStream *self, STATSTG *stat, DWORD flags)
-{
-    auto *instance = reinterpret_cast<CliprdrStream*>(self);
-    if (!instance || !stat)
-        return STG_E_INVALIDPOINTER;
-
-    ZeroMemory(stat, sizeof(STATSTG));
-    if (flags == STATFLAG_DEFAULT)
-        return STG_E_INSUFFICIENTMEMORY;
-    if (flags == STATFLAG_NOOPEN)
-        return STG_E_INVALIDFLAG;
-
-    stat->cbSize.QuadPart = instance->size.QuadPart;
-    stat->grfLocksSupported = LOCK_EXCLUSIVE;
-    stat->grfMode = GENERIC_READ;
-    stat->type = STGTY_STREAM;
-    return S_OK;
-}
-
-static HRESULT STDMETHODCALLTYPE streamClone(IStream *, IStream **) { return E_NOTIMPL; }
-
-static CliprdrStream *newStream(ULONG index, ClipboardContext *clipboard,
-                                const FILEDESCRIPTORW *descriptor)
-{
-    auto *instance = static_cast<CliprdrStream*>(calloc(1, sizeof(CliprdrStream)));
-    if (!instance)
-        return nullptr;
-
-    auto *vtable = static_cast<IStreamVtbl*>(calloc(1, sizeof(IStreamVtbl)));
-    if (!vtable) {
-        free(instance);
-        return nullptr;
-    }
-
-    vtable->QueryInterface = streamQueryInterface;
-    vtable->AddRef = streamAddRef;
-    vtable->Release = streamRelease;
-    vtable->Read = streamRead;
-    vtable->Write = streamWrite;
-    vtable->Seek = streamSeek;
-    vtable->SetSize = streamSetSize;
-    vtable->CopyTo = streamCopyTo;
-    vtable->Commit = streamCommit;
-    vtable->Revert = streamRevert;
-    vtable->LockRegion = streamLockRegion;
-    vtable->UnlockRegion = streamUnlockRegion;
-    vtable->Stat = streamStat;
-    vtable->Clone = streamClone;
-
-    instance->iface.lpVtbl = vtable;
-    instance->refCount = 1;
-    instance->listIndex = index;
-    instance->clipboard = clipboard;
-    instance->descriptor = *descriptor;
-    instance->offset.QuadPart = 0;
-    instance->size.QuadPart =
-        (static_cast<UINT64>(descriptor->nFileSizeHigh) << 32) | descriptor->nFileSizeLow;
-
-    const bool isDirectory =
-        (descriptor->dwFlags & FD_ATTRIBUTES) && (descriptor->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY);
-
-    if (((descriptor->dwFlags & FD_FILESIZE) == 0) && !isDirectory) {
-        if (sendFileContentsRequest(clipboard, instance, index, FILECONTENTS_SIZE, 0, 8) != CHANNEL_RC_OK) {
-            deleteStream(instance);
-            return nullptr;
-        }
-
-        if (!clipboard->requestFileData) {
-            deleteStream(instance);
-            return nullptr;
-        }
-
-        instance->size.QuadPart = *reinterpret_cast<UINT64*>(clipboard->requestFileData);
-        free(clipboard->requestFileData);
-        clipboard->requestFileData = nullptr;
-    }
-
-    return instance;
-}
-
-static LONG lookupFormat(CliprdrDataObject *instance, FORMATETC *format)
-{
-    if (!instance || !format)
-        return -1;
-
-    for (ULONG i = 0; i < instance->formatCount; ++i) {
-        const auto &candidate = instance->formats[i];
-        if ((format->tymed & candidate.tymed) &&
-            format->cfFormat == candidate.cfFormat &&
-            (format->dwAspect & candidate.dwAspect)) {
-            return static_cast<LONG>(i);
-        }
-    }
-
-    return -1;
-}
-
-static void deleteDataObject(CliprdrDataObject *instance)
-{
-    if (!instance)
-        return;
-
-    free(instance->iface.lpVtbl);
-    free(instance->formats);
-    free(instance->mediums);
-
-    if (instance->streams) {
-        for (ULONG i = 0; i < instance->streamCount; ++i) {
-            if (instance->streams[i])
-                IStream_Release(instance->streams[i]);
-        }
-        free(instance->streams);
-    }
-
-    free(instance);
-}
-
-static HRESULT STDMETHODCALLTYPE dataObjectQueryInterface(IDataObject *self, REFIID riid,
-                                                          void **object)
-{
-    if (!object)
-        return E_INVALIDARG;
-
-    if (InlineIsEqualGUID(riid, IID_IDataObject) || InlineIsEqualGUID(riid, IID_IUnknown)) {
-        IDataObject_AddRef(self);
-        *object = self;
-        return S_OK;
-    }
-
-    *object = nullptr;
-    return E_NOINTERFACE;
-}
-
-static ULONG STDMETHODCALLTYPE dataObjectAddRef(IDataObject *self)
-{
-    auto *instance = reinterpret_cast<CliprdrDataObject*>(self);
-    return instance ? InterlockedIncrement(&instance->refCount) : 0;
-}
-
-static ULONG STDMETHODCALLTYPE dataObjectRelease(IDataObject *self)
-{
-    auto *instance = reinterpret_cast<CliprdrDataObject*>(self);
-    if (!instance)
-        return 0;
-
-    const LONG count = InterlockedDecrement(&instance->refCount);
-    if (count == 0)
-        deleteDataObject(instance);
-    return (count > 0) ? static_cast<ULONG>(count) : 0;
-}
-
-static HRESULT STDMETHODCALLTYPE dataObjectGetData(IDataObject *self, FORMATETC *format,
-                                                   STGMEDIUM *medium)
-{
-    auto *instance = reinterpret_cast<CliprdrDataObject*>(self);
-    if (!instance || !format || !medium)
-        return E_INVALIDARG;
-
-    auto *clipboard = instance->clipboard;
-    if (!clipboard)
-        return E_INVALIDARG;
-
-    const LONG index = lookupFormat(instance, format);
-    if (index < 0)
-        return DV_E_FORMATETC;
-
-    medium->tymed = instance->formats[index].tymed;
-    medium->pUnkForRelease = nullptr;
-
-    const UINT fileDescriptorFormat = RegisterClipboardFormat(CFSTR_FILEDESCRIPTORW);
-    const UINT fileContentsFormat = RegisterClipboardFormat(CFSTR_FILECONTENTS);
-
-    if (instance->formats[index].cfFormat == fileDescriptorFormat) {
-        const UINT remoteFormat = getRemoteFormatId(clipboard, instance->formats[index].cfFormat);
-        if (sendDataRequest(clipboard, remoteFormat) != CHANNEL_RC_OK)
-            return E_UNEXPECTED;
-
-        STGMEDIUM_HGLOBAL((*medium)) = clipboard->responseData;
-        auto *group = static_cast<FILEGROUPDESCRIPTORW*>(GlobalLock(clipboard->responseData));
-        if (!group)
-            return E_UNEXPECTED;
-
-        instance->streamCount = group->cItems;
-        GlobalUnlock(clipboard->responseData);
-
-        if (!instance->streams) {
-            instance->streams = static_cast<IStream**>(calloc(instance->streamCount, sizeof(IStream*)));
-            if (!instance->streams)
-                return E_OUTOFMEMORY;
-
-            for (ULONG i = 0; i < instance->streamCount; ++i) {
-                instance->streams[i] = reinterpret_cast<IStream*>(newStream(i, clipboard, &group->fgd[i]));
-                if (!instance->streams[i])
-                    return E_OUTOFMEMORY;
-            }
-        }
-    } else if (instance->formats[index].cfFormat == fileContentsFormat) {
-        if (format->lindex < 0 || static_cast<ULONG>(format->lindex) >= instance->streamCount)
-            return E_INVALIDARG;
-
-        STGMEDIUM_PSTM((*medium)) = instance->streams[format->lindex];
-        IStream_AddRef(instance->streams[format->lindex]);
-    } else {
-        return E_UNEXPECTED;
-    }
-
-    return S_OK;
-}
-
-static HRESULT STDMETHODCALLTYPE dataObjectGetDataHere(IDataObject *, FORMATETC *, STGMEDIUM *)
-{
-    return E_NOTIMPL;
-}
-
-static HRESULT STDMETHODCALLTYPE dataObjectQueryGetData(IDataObject *self, FORMATETC *format)
-{
-    auto *instance = reinterpret_cast<CliprdrDataObject*>(self);
-    if (!instance || !format)
-        return E_INVALIDARG;
-    return (lookupFormat(instance, format) >= 0) ? S_OK : DV_E_FORMATETC;
-}
-
-static HRESULT STDMETHODCALLTYPE dataObjectGetCanonicalFormatEtc(IDataObject *, FORMATETC *,
-                                                                 FORMATETC *output)
-{
-    if (!output)
-        return E_INVALIDARG;
-    output->ptd = nullptr;
-    return E_NOTIMPL;
-}
-
-static HRESULT STDMETHODCALLTYPE dataObjectSetData(IDataObject *, FORMATETC *, STGMEDIUM *, BOOL)
-{
-    return E_NOTIMPL;
-}
-
-static HRESULT STDMETHODCALLTYPE dataObjectEnumFormatEtc(IDataObject *self, DWORD direction,
-                                                         IEnumFORMATETC **enumerator)
-{
-    auto *instance = reinterpret_cast<CliprdrDataObject*>(self);
-    if (!instance || !enumerator)
-        return E_INVALIDARG;
-    if (direction != DATADIR_GET)
-        return E_NOTIMPL;
-
-    auto *value = newEnumFormatEtc(instance->formatCount, instance->formats);
-    if (!value)
-        return E_OUTOFMEMORY;
-    *enumerator = &value->iface;
-    return S_OK;
-}
-
-static HRESULT STDMETHODCALLTYPE dataObjectDAdvise(IDataObject *, FORMATETC *, DWORD, IAdviseSink *, DWORD *)
-{
-    return OLE_E_ADVISENOTSUPPORTED;
-}
-static HRESULT STDMETHODCALLTYPE dataObjectDUnadvise(IDataObject *, DWORD)
-{
-    return OLE_E_ADVISENOTSUPPORTED;
-}
-static HRESULT STDMETHODCALLTYPE dataObjectEnumDAdvise(IDataObject *, IEnumSTATDATA **)
-{
-    return OLE_E_ADVISENOTSUPPORTED;
-}
-
-static CliprdrDataObject *newDataObject(FORMATETC *formats, STGMEDIUM *mediums, ULONG count,
-                                        ClipboardContext *clipboard)
-{
-    auto *instance = static_cast<CliprdrDataObject*>(calloc(1, sizeof(CliprdrDataObject)));
-    if (!instance)
-        return nullptr;
-
-    auto *vtable = static_cast<IDataObjectVtbl*>(calloc(1, sizeof(IDataObjectVtbl)));
-    if (!vtable) {
-        free(instance);
-        return nullptr;
-    }
-
-    vtable->QueryInterface = dataObjectQueryInterface;
-    vtable->AddRef = dataObjectAddRef;
-    vtable->Release = dataObjectRelease;
-    vtable->GetData = dataObjectGetData;
-    vtable->GetDataHere = dataObjectGetDataHere;
-    vtable->QueryGetData = dataObjectQueryGetData;
-    vtable->GetCanonicalFormatEtc = dataObjectGetCanonicalFormatEtc;
-    vtable->SetData = dataObjectSetData;
-    vtable->EnumFormatEtc = dataObjectEnumFormatEtc;
-    vtable->DAdvise = dataObjectDAdvise;
-    vtable->DUnadvise = dataObjectDUnadvise;
-    vtable->EnumDAdvise = dataObjectEnumDAdvise;
-
-    instance->iface.lpVtbl = vtable;
-    instance->refCount = 1;
-    instance->clipboard = clipboard;
-    instance->formatCount = count;
-
-    if (count > 0) {
-        instance->formats = static_cast<FORMATETC*>(calloc(count, sizeof(FORMATETC)));
-        instance->mediums = static_cast<STGMEDIUM*>(calloc(count, sizeof(STGMEDIUM)));
-        if (!instance->formats || !instance->mediums) {
-            deleteDataObject(instance);
-            return nullptr;
-        }
-        for (ULONG i = 0; i < count; ++i) {
-            instance->formats[i] = formats[i];
-            instance->mediums[i] = mediums[i];
-        }
-    }
-
-    return instance;
-}
-
-static BOOL createFileDataObject(ClipboardContext *clipboard, IDataObject **dataObject)
-{
-    if (!dataObject)
-        return FALSE;
-
-    std::array<FORMATETC, 2> formats = {};
-    std::array<STGMEDIUM, 2> mediums = {};
-
-    formats[0].cfFormat = RegisterClipboardFormat(CFSTR_FILEDESCRIPTORW);
-    formats[0].dwAspect = DVASPECT_CONTENT;
-    formats[0].tymed = TYMED_HGLOBAL;
-    mediums[0].tymed = TYMED_HGLOBAL;
-
-    formats[1].cfFormat = RegisterClipboardFormat(CFSTR_FILECONTENTS);
-    formats[1].dwAspect = DVASPECT_CONTENT;
-    formats[1].tymed = TYMED_ISTREAM;
-    mediums[1].tymed = TYMED_ISTREAM;
-
-    auto *instance = newDataObject(formats.data(), mediums.data(), 2, clipboard);
-    if (!instance)
-        return FALSE;
-
-    *dataObject = &instance->iface;
-    return TRUE;
-}
-
-static void destroyFileDataObject(IDataObject *instance)
-{
-    if (instance)
-        IDataObject_Release(instance);
-}
 
 static UINT32 getLocalFormatIdByName(ClipboardContext *clipboard, const TCHAR *formatName)
 {
@@ -790,7 +49,21 @@ static BOOL fileTransferring(ClipboardContext *clipboard)
     return getLocalFormatIdByName(clipboard, CFSTR_FILEDESCRIPTORW) ? TRUE : FALSE;
 }
 
-static UINT32 getRemoteFormatId(ClipboardContext *clipboard, UINT32 localFormat)
+}
+
+BOOL clipboardTryOpenClipboard(HWND hwnd)
+{
+    for (int attempt = 0; attempt < 10; ++attempt) {
+        if (OpenClipboard(hwnd))
+            return TRUE;
+        Sleep(10);
+    }
+    return FALSE;
+}
+
+static UINT waitForClipboardResponse(ClipboardContext *clipboard, HANDLE responseEvent);
+
+UINT32 clipboardGetRemoteFormatId(ClipboardContext *clipboard, UINT32 localFormat)
 {
     if (!clipboard)
         return 0;
@@ -851,7 +124,7 @@ static UINT sendTempDirectory(ClipboardContext *clipboard)
     return clipboard->context->TempDirectory(clipboard->context, &tempDirectory);
 }
 
-static UINT sendFormatList(ClipboardContext *clipboard)
+UINT clipboardSendFormatList(ClipboardContext *clipboard)
 {
     if (!clipboard || !clipboard->context || !clipboard->context->ClientFormatList)
         return ERROR_INTERNAL_ERROR;
@@ -860,7 +133,7 @@ static UINT sendFormatList(ClipboardContext *clipboard)
     CLIPRDR_FORMAT *formats = nullptr;
     UINT32 numFormats = 0;
 
-    if (tryOpenClipboard(clipboard->hwnd)) {
+    if (clipboardTryOpenClipboard(clipboard->hwnd)) {
         const int count = CountClipboardFormats();
         numFormats = static_cast<UINT32>(count);
         formats = static_cast<CLIPRDR_FORMAT*>(calloc(numFormats ? numFormats : 1, sizeof(CLIPRDR_FORMAT)));
@@ -903,13 +176,13 @@ static UINT sendFormatList(ClipboardContext *clipboard)
     return rc;
 }
 
-static UINT sendDataRequest(ClipboardContext *clipboard, UINT32 formatId)
+UINT clipboardSendDataRequest(ClipboardContext *clipboard, UINT32 formatId)
 {
     if (!clipboard || !clipboard->context || !clipboard->context->ClientFormatDataRequest)
         return ERROR_INTERNAL_ERROR;
 
     CLIPRDR_FORMAT_DATA_REQUEST request = {};
-    request.requestedFormatId = getRemoteFormatId(clipboard, formatId);
+    request.requestedFormatId = clipboardGetRemoteFormatId(clipboard, formatId);
     clipboard->requestedFormatId = formatId;
 
     if (!ResetEvent(clipboard->responseDataEvent))
@@ -921,8 +194,8 @@ static UINT sendDataRequest(ClipboardContext *clipboard, UINT32 formatId)
     return rc;
 }
 
-static UINT sendFileContentsRequest(ClipboardContext *clipboard, const void *streamId, ULONG index,
-                                    UINT32 flags, UINT64 position, ULONG requestSize)
+UINT clipboardSendFileContentsRequest(ClipboardContext *clipboard, const void *streamId, ULONG index,
+                                      UINT32 flags, UINT64 position, ULONG requestSize)
 {
     if (!clipboard || !clipboard->context || !clipboard->context->ClientFileContentsRequest)
         return ERROR_INTERNAL_ERROR;
@@ -1049,14 +322,20 @@ static BOOL ensureFileArrayCapacity(ClipboardContext *clipboard)
     if (clipboard->fileCount != clipboard->fileArraySize)
         return TRUE;
 
-    const size_t newSize = (clipboard->fileArraySize + 1) * 2;
-    auto *newDescriptors = static_cast<FILEDESCRIPTORW**>(
-        realloc(clipboard->fileDescriptors, newSize * sizeof(FILEDESCRIPTORW*)));
-    auto *newNames = static_cast<WCHAR**>(
-        realloc(clipboard->fileNames, newSize * sizeof(WCHAR*)));
+    const size_t newSize = (clipboard->fileArraySize == 0) ? 16 : (clipboard->fileArraySize * 2);
+    auto *newDescriptors = static_cast<FILEDESCRIPTORW**>(calloc(newSize, sizeof(FILEDESCRIPTORW*)));
+    auto *newNames = static_cast<WCHAR**>(calloc(newSize, sizeof(WCHAR*)));
 
     if (!newDescriptors || !newNames)
         return FALSE;
+
+    if (clipboard->fileDescriptors)
+        CopyMemory(newDescriptors, clipboard->fileDescriptors, clipboard->fileCount * sizeof(FILEDESCRIPTORW*));
+    if (clipboard->fileNames)
+        CopyMemory(newNames, clipboard->fileNames, clipboard->fileCount * sizeof(WCHAR*));
+
+    free(clipboard->fileDescriptors);
+    free(clipboard->fileNames);
 
     clipboard->fileDescriptors = newDescriptors;
     clipboard->fileNames = newNames;
@@ -1072,10 +351,11 @@ static BOOL addToFileArrays(ClipboardContext *clipboard, WCHAR *fullFileName, si
     if (!ensureFileArrayCapacity(clipboard))
         return FALSE;
 
-    clipboard->fileNames[clipboard->fileCount] = static_cast<WCHAR*>(malloc(MAX_PATH * sizeof(WCHAR)));
+    const size_t fileNameLength = wcslen(fullFileName) + 1;
+    clipboard->fileNames[clipboard->fileCount] = static_cast<WCHAR*>(malloc(fileNameLength * sizeof(WCHAR)));
     if (!clipboard->fileNames[clipboard->fileCount])
         return FALSE;
-    wcscpy_s(clipboard->fileNames[clipboard->fileCount], MAX_PATH, fullFileName);
+    wcscpy_s(clipboard->fileNames[clipboard->fileCount], fileNameLength, fullFileName);
 
     clipboard->fileDescriptors[clipboard->fileCount] = createFileDescriptor(fullFileName, pathLength);
     if (!clipboard->fileDescriptors[clipboard->fileCount]) {
@@ -1167,7 +447,7 @@ static SSIZE_T tryOpenClipboardData(ClipboardContext *clipboard, UINT32 requeste
     WINPR_ASSERT(data);
     *data = nullptr;
 
-    if (!tryOpenClipboard(clipboard->hwnd))
+    if (!clipboardTryOpenClipboard(clipboard->hwnd))
         return 0;
 
     HANDLE clipData = GetClipboardData(requestedFormatId);
@@ -1316,7 +596,7 @@ static UINT CALLBACK onMonitorReady(CliprdrClientContext *context, const CLIPRDR
     if (rc != CHANNEL_RC_OK)
         return rc;
 
-    return sendFormatList(clipboard);
+    return clipboardSendFormatList(clipboard);
 }
 
 static UINT CALLBACK onServerCapabilities(CliprdrClientContext *context, const CLIPRDR_CAPABILITIES *capabilities)
@@ -1365,12 +645,12 @@ static UINT CALLBACK onServerFormatList(CliprdrClientContext *context, const CLI
     }
 
     if (fileTransferring(clipboard)) {
-        return PostMessage(clipboard->hwnd, WM_CLIPRDR_MESSAGE, OLE_SETCLIPBOARD, 0)
+        return PostMessage(clipboard->hwnd, WM_USER + 156, 1, 0)
             ? CHANNEL_RC_OK
             : ERROR_INTERNAL_ERROR;
     }
 
-    if (!tryOpenClipboard(clipboard->hwnd))
+    if (!clipboardTryOpenClipboard(clipboard->hwnd))
         return CHANNEL_RC_OK;
 
     UINT rc = ERROR_INTERNAL_ERROR;
@@ -1593,121 +873,6 @@ static UINT CALLBACK onServerFileContentsResponse(CliprdrClientContext *context,
     }
 
     return CHANNEL_RC_OK;
-}
-
-static LRESULT CALLBACK clipboardWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
-{
-    auto *clipboard = reinterpret_cast<ClipboardContext*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
-
-    switch (message) {
-    case WM_CREATE: {
-        auto *create = reinterpret_cast<CREATESTRUCT*>(lParam);
-        clipboard = static_cast<ClipboardContext*>(create->lpCreateParams);
-        SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(clipboard));
-        clipboard->hwnd = hwnd;
-        if (!clipboard->legacyApi)
-            clipboard->addClipboardFormatListener(hwnd);
-        else
-            clipboard->nextViewer = SetClipboardViewer(hwnd);
-        return 0;
-    }
-    case WM_CLOSE:
-        if (clipboard && !clipboard->legacyApi)
-            clipboard->removeClipboardFormatListener(hwnd);
-        return 0;
-    case WM_DESTROY:
-        if (clipboard && clipboard->legacyApi)
-            ChangeClipboardChain(hwnd, clipboard->nextViewer);
-        return 0;
-    case WM_CLIPBOARDUPDATE:
-        if (clipboard && clipboard->sync &&
-            GetClipboardOwner() != clipboard->hwnd &&
-            OleIsCurrentClipboard(clipboard->dataObject) == S_FALSE) {
-            if (clipboard->responseData) {
-                GlobalFree(clipboard->responseData);
-                clipboard->responseData = nullptr;
-            }
-            sendFormatList(clipboard);
-        }
-        return 0;
-    case WM_RENDERALLFORMATS:
-        if (clipboard && tryOpenClipboard(clipboard->hwnd)) {
-            EmptyClipboard();
-            CloseClipboard();
-        }
-        return 0;
-    case WM_RENDERFORMAT:
-        if (clipboard && sendDataRequest(clipboard, static_cast<UINT32>(wParam)) == CHANNEL_RC_OK) {
-            if (!SetClipboardData(static_cast<UINT>(wParam), clipboard->responseData) && clipboard->responseData) {
-                GlobalFree(clipboard->responseData);
-                clipboard->responseData = nullptr;
-            }
-        }
-        return 0;
-    case WM_DRAWCLIPBOARD:
-        if (clipboard && clipboard->legacyApi) {
-            if (GetClipboardOwner() != clipboard->hwnd &&
-                OleIsCurrentClipboard(clipboard->dataObject) == S_FALSE) {
-                sendFormatList(clipboard);
-            }
-            SendMessage(clipboard->nextViewer, message, wParam, lParam);
-        }
-        return 0;
-    case WM_CHANGECBCHAIN:
-        if (clipboard && clipboard->legacyApi) {
-            if (reinterpret_cast<HWND>(wParam) == clipboard->nextViewer)
-                clipboard->nextViewer = reinterpret_cast<HWND>(lParam);
-            else if (clipboard->nextViewer)
-                SendMessage(clipboard->nextViewer, message, wParam, lParam);
-        }
-        return 0;
-    case WM_CLIPRDR_MESSAGE:
-        if (clipboard && wParam == OLE_SETCLIPBOARD) {
-            destroyFileDataObject(clipboard->dataObject);
-            clipboard->dataObject = nullptr;
-            if (createFileDataObject(clipboard, &clipboard->dataObject))
-                OleSetClipboard(clipboard->dataObject);
-        }
-        return 0;
-    default:
-        return DefWindowProc(hwnd, message, wParam, lParam);
-    }
-}
-
-static int createClipboardWindow(ClipboardContext *clipboard)
-{
-    WNDCLASSEXW windowClass = {};
-    windowClass.cbSize = sizeof(WNDCLASSEXW);
-    windowClass.style = CS_OWNDC;
-    windowClass.lpfnWndProc = clipboardWindowProc;
-    windowClass.hInstance = GetModuleHandle(nullptr);
-    windowClass.lpszClassName = L"RdpBoxClipboardHiddenWindow";
-    RegisterClassExW(&windowClass);
-
-    clipboard->hwnd = CreateWindowExW(WS_EX_LEFT, windowClass.lpszClassName, L"rdpclip", 0, 0, 0, 0, 0,
-                                      HWND_MESSAGE, nullptr, GetModuleHandle(nullptr), clipboard);
-    return clipboard->hwnd ? 0 : -1;
-}
-
-static DWORD WINAPI clipboardThreadProc(LPVOID argument)
-{
-    auto *clipboard = static_cast<ClipboardContext*>(argument);
-    OleInitialize(nullptr);
-
-    if (createClipboardWindow(clipboard) != 0) {
-        OleUninitialize();
-        return 0;
-    }
-
-    MSG message = {};
-    while (GetMessage(&message, nullptr, 0, 0) > 0) {
-        TranslateMessage(&message);
-        DispatchMessage(&message);
-    }
-
-    OleUninitialize();
-    return 0;
-}
 }
 
 struct WindowsClipboardBackend::Private
