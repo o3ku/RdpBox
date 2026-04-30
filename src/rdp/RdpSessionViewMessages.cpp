@@ -13,6 +13,9 @@ LRESULT CRdpSessionView::OnRdpStateChanged(WPARAM state, LPARAM generation)
 
 LRESULT CRdpSessionView::OnRdpFrameUpdated(WPARAM, LPARAM generation)
 {
+    if (!IsWindowVisible())
+        return 0;
+
     if (!isCurrentGeneration(static_cast<std::uintptr_t>(generation)))
         return 0;
 
