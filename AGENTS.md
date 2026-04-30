@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 `src/` contains the Windows desktop client. Keep app shell code in `src/RdpBoxApp.*`, `src/MainWindow.*`, and `src/WinMain.cpp`. Use `src/ui/` for dialogs and list UIs, `src/session/` for tab/session orchestration, `src/profiles/` for profile models and persistence, `src/rdp/` for FreeRDP integration and input/rendering helpers, and `src/common/` for shared native types/utilities. Runtime assets and Windows resources live under `src/resources/`.
 
-`tests/` contains standalone native test executables wired through CMake when `BUILD_TEST=ON`. `tools/` is for helper binaries or packaging assets, `docs/superpowers/` is design/reference material, and `build/` is generated output that should not be edited by hand or committed.
+`tests/` contains standalone native test executables wired through CMake when `BUILD_TEST=ON`. `build/` is generated output that should not be edited by hand or committed.
 
 ## Architecture Notes
 RdpBox is a Windows-only multi-tab RDP session manager built with native Win32/MFC-style UI plumbing and FreeRDP 3.x. It embeds FreeRDP in-process rather than launching `wfreerdp.exe` as a subprocess.
