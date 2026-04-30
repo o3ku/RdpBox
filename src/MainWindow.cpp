@@ -74,6 +74,7 @@ void MainWindow::OnSize(UINT type, int cx, int cy)
         return;
 
     layoutChildren();
+    invalidateCaptionButtons();
 }
 
 void MainWindow::OnClose()
