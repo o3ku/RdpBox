@@ -113,6 +113,14 @@ void SessionManager::activateTab(int index)
     showSessionAtIndex(index);
 }
 
+void SessionManager::focusActiveSession()
+{
+    if (!m_tabBar)
+        return;
+
+    showSessionAtIndex(m_tabBar->selectedIndex());
+}
+
 void SessionManager::layoutSessions()
 {
     if (!m_sessionHost)

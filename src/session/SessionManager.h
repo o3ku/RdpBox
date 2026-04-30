@@ -26,6 +26,7 @@ public:
     void reconnectSession(const std::string &sessionId);
     void closeAllSessions();
     void activateTab(int index);
+    void focusActiveSession();
     void layoutSessions();
     void setResizeSuppressed(bool suppressed);
     void flushPendingResize();

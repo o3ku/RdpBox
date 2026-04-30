@@ -34,6 +34,7 @@ protected:
     afx_msg void OnSize(UINT type, int cx, int cy);
     afx_msg void OnClose();
     afx_msg void OnDestroy();
+    afx_msg void OnActivate(UINT state, CWnd *otherWnd, BOOL minimized);
     afx_msg void OnPaint();
     afx_msg void OnOpenConnections();
     afx_msg void OnMainNew();

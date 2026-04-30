@@ -4,6 +4,7 @@
 #include "profiles/ProfileRepository.h"
 #include "session/SessionManager.h"
 #include "ui/AboutDialog.h"
+#include "ui/MainWindowActivation.h"
 #include "ui/Win10Theme.h"
 #include "resources/resource.h"
 
@@ -16,6 +17,7 @@ BEGIN_MESSAGE_MAP(MainWindow, CFrameWnd)
     ON_WM_SIZE()
     ON_WM_CLOSE()
     ON_WM_DESTROY()
+    ON_WM_ACTIVATE()
     ON_WM_ERASEBKGND()
     ON_WM_NCACTIVATE()
     ON_WM_PAINT()
@@ -79,6 +81,17 @@ void MainWindow::OnClose()
     KillTimer(kTabStatusTimerId);
     saveWindowState();
     DestroyWindow();
+}
+
+void MainWindow::OnActivate(UINT state, CWnd *otherWnd, BOOL minimized)
+{
+    CFrameWnd::OnActivate(state, otherWnd, minimized);
+
+    if (!m_sessionManager)
+        return;
+
+    if (ui::shouldFocusActiveSessionOnActivate(state, minimized != FALSE))
+        m_sessionManager->focusActiveSession();
 }
 
 void MainWindow::OnMainAbout()

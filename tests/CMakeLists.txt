@@ -99,3 +99,13 @@ target_include_directories(WindowFrameMetricsTests PRIVATE
 )
 
 add_test(NAME WindowFrameMetricsTests COMMAND WindowFrameMetricsTests)
+
+add_executable(MainWindowActivationTests
+    ui/MainWindowActivationTests.cpp
+)
+
+target_include_directories(MainWindowActivationTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME MainWindowActivationTests COMMAND MainWindowActivationTests)
