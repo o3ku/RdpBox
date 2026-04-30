@@ -307,20 +307,16 @@ void BrowserTabBar::OnPaint()
         const bool selected = (static_cast<int>(i) == m_selectedIndex);
         const bool hovered = (static_cast<int>(i) == m_hoverTabIndex) || (static_cast<int>(i) == m_hoverCloseIndex);
 
-        COLORREF background;
         COLORREF textColor;
         if (selected) {
-            background = Win10Theme::kBrandAccentNearBlack;
+            memDc.FillSolidRect(item.rect, Win10Theme::kCaptionTabActive80);
             textColor = Win10Theme::kBrandAccentText;
         } else if (hovered) {
-            background = Win10Theme::kCaptionTabHover;
+            memDc.FillSolidRect(item.rect, Win10Theme::kCaptionTabHover);
             textColor = Win10Theme::kCaptionText;
         } else {
-            background = Win10Theme::kCaptionTabInactive;
             textColor = Win10Theme::kCaptionTextSubtle;
         }
-
-        memDc.FillSolidRect(item.rect, background);
 
         if (!selected && static_cast<int>(i) + 1 < static_cast<int>(m_tabs.size())) {
             CRect separator(item.rect);
