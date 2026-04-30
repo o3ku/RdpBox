@@ -82,7 +82,6 @@ src/
   ui/               ProfileEditDialog, ConnectionListDialog, ClosableTabCtrl
   resources/        MFC dialog resources, icons
 tests/              Standalone test executables (built with -DBUILD_TEST=ON)
-docs/superpowers/   Historical design specs and migration plans (Qt → MFC, full Qt removal)
 ```
 
 See `CLAUDE.md` and `AGENTS.md` for additional architecture and contribution notes.
