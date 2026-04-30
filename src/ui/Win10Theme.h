@@ -24,7 +24,7 @@ constexpr COLORREF kCloseHover = RGB(232, 17, 35);
 constexpr COLORREF kCloseHoverText = RGB(255, 255, 255);
 
 // Dark titlebar palette
-constexpr COLORREF kCaptionBg = RGB(32, 32, 32);
+constexpr COLORREF kCaptionBg = RGB(0, 0, 0);
 constexpr COLORREF kCaptionTabInactive = RGB(45, 45, 45);
 constexpr COLORREF kCaptionTabActive = RGB(60, 60, 60);
 constexpr COLORREF kCaptionTabHover = RGB(55, 55, 55);
@@ -32,6 +32,7 @@ constexpr COLORREF kCaptionText = RGB(230, 230, 230);
 constexpr COLORREF kCaptionTextSubtle = RGB(170, 170, 170);
 constexpr COLORREF kCaptionButtonHover = RGB(64, 64, 64);
 constexpr COLORREF kCaptionSeparator = RGB(70, 70, 70);
+constexpr COLORREF kCaptionTabActive80 = RGB(62, 48, 11);
 
 inline HFONT createUiFont(int pointSize = 9)
 {
