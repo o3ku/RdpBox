@@ -241,10 +241,9 @@ void CRdpSessionView::bindProcessCallbacks(std::uintptr_t generation)
     });
 
     m_process->setCertificateChallengeCallback([this, generation](const FreeRdpProcess::CertificateChallenge &challenge) {
-        auto pending = std::make_shared<FreeRdpProcess::CertificateChallenge>(challenge);
         {
             std::scoped_lock lock(m_certMutex);
-            m_pendingCert = std::move(pending);
+            m_pendingCert = challenge;
         }
         postProcessMessage(WM_APP_RDP_CERT, 0, generation);
     });
@@ -332,8 +331,13 @@ void CRdpSessionView::startProcess()
     m_frameGateRemaining = 0;
     m_pendingDesktopSize = {};
     m_captureDirectory.clear();
+    m_captureDirectory.shrink_to_fit();
     m_captureFramesRemaining = 0;
     m_captureFrameIndex = 0;
+    {
+        std::scoped_lock lock(m_certMutex);
+        m_pendingCert.reset();
+    }
     m_resizeBurstTracker.reset();
     m_modifierTracker.reset();
     m_mouseMoveCoalescer.reset();
@@ -375,10 +379,20 @@ void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
     m_frameGateActive = false;
     m_frameGateRemaining = 0;
     m_pendingDesktopSize = {};
+    m_pendingResize = {};
+    m_hasPendingResize = false;
     m_cachedFrameGeneration = 0;
     m_renderedFrameGeneration = 0;
     FrameBufferMemory::release(m_cachedFrame);
     releaseRenderSurface();
+    m_captureDirectory.clear();
+    m_captureDirectory.shrink_to_fit();
+    m_captureFramesRemaining = 0;
+    m_captureFrameIndex = 0;
+    {
+        std::scoped_lock lock(m_certMutex);
+        m_pendingCert.reset();
+    }
     m_resizeBurstTracker.reset();
     m_modifierTracker.reset();
     m_mouseMoveCoalescer.reset();

@@ -48,6 +48,7 @@ public:
     void writeFrameFromContext(void *rdpContext);
     bool visitFrameIfNewer(uint64_t &lastSeenGeneration,
                            const std::function<void(const FrameBuffer &, uint64_t)> &visitor);
+    bool consumeFrameIfNewer(uint64_t &lastSeenGeneration, FrameBuffer &target);
     SizeI desktopSize() const;
     CursorInfo cursor() const;
 

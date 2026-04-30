@@ -59,7 +59,6 @@ protected:
 private:
     void layoutChildren();
     void openConnectionDialog();
-    int tabIndexAtScreenPoint(CPoint point) const;
     void applyUiFont();
     void toggleFullScreen();
     void setFullScreen(bool enabled);
@@ -81,7 +80,6 @@ private:
     CFont m_uiFont;
     std::unique_ptr<SessionManager> m_sessionManager;
     std::unique_ptr<ProfileRepository> m_profileRepository;
-    bool m_isClosing = false;
     bool m_isFullScreen = false;
     static constexpr UINT_PTR kTabStatusTimerId = 1;
     DWORD m_savedStyle = 0;

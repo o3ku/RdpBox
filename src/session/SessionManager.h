@@ -43,17 +43,21 @@ private:
     struct Session
     {
         std::string id;
-        Profile profile;
+        std::string profileId;
+        std::wstring profileName;
+        bool fullScreenOnConnect = false;
+        std::string lastConnectedAt;
         std::unique_ptr<CRdpSessionView> view;
     };
 
     int indexOfSession(const std::string &sessionId) const;
     void showSessionAtIndex(int index);
     void touchLastConnectedAt(const std::string &sessionId);
+    void trimSessionStorage();
 
     BrowserTabBar *m_tabBar = nullptr;
     CWnd *m_sessionHost = nullptr;
     ProfileRepository *m_repository = nullptr;
-    std::vector<std::unique_ptr<Session>> m_sessions;
+    std::vector<Session> m_sessions;
     SessionConnectedCallback m_sessionConnectedCallback;
 };

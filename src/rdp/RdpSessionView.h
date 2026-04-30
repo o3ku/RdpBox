@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <mutex>
 #include <string>
 
@@ -138,5 +139,5 @@ private:
     bool m_created = false;
 
     mutable std::mutex m_certMutex;
-    std::shared_ptr<FreeRdpProcess::CertificateChallenge> m_pendingCert;
+    std::optional<FreeRdpProcess::CertificateChallenge> m_pendingCert;
 };
