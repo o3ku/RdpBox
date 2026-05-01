@@ -36,13 +36,10 @@ struct ClipboardContext
 {
     CliprdrClientContext *context = nullptr;
     bool sync = false;
-    UINT32 capabilities = 0;
 
     size_t mapSize = 0;
     size_t mapCapacity = 32;
     FormatMapping *formatMappings = nullptr;
-
-    UINT32 requestedFormatId = 0;
 
     HWND hwnd = nullptr;
     HANDLE responseData = nullptr;

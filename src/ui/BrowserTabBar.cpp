@@ -78,11 +78,6 @@ bool BrowserTabBar::create(CWnd *parent, const CRect &rect, UINT id)
 
 void BrowserTabBar::ensureFonts()
 {
-    if (!m_tabFont.GetSafeHandle()) {
-        HFONT raw = createTabFont(14, FW_NORMAL);
-        if (raw)
-            m_tabFont.Attach(raw);
-    }
     if (!m_tabFontBold.GetSafeHandle()) {
         HFONT raw = createTabFont(14, FW_BOLD);
         if (raw)
@@ -154,21 +149,6 @@ void BrowserTabBar::setSelectedIndex(int index)
 int BrowserTabBar::selectedIndex() const
 {
     return m_selectedIndex;
-}
-
-void BrowserTabBar::setTabTitle(int index, const std::wstring &title)
-{
-    if (index < 0 || index >= static_cast<int>(m_tabs.size()))
-        return;
-    m_tabs[index].title = title;
-    invalidateTab(index);
-}
-
-std::wstring BrowserTabBar::tabTitle(int index) const
-{
-    if (index < 0 || index >= static_cast<int>(m_tabs.size()))
-        return {};
-    return m_tabs[index].title;
 }
 
 void BrowserTabBar::setSelectionChangedCallback(SelectionChangedCallback callback)
@@ -299,13 +279,10 @@ void BrowserTabBar::OnPaint()
 
     memDc.FillSolidRect(clientRect, Win10Theme::kCaptionBg);
 
-    ensureFonts();
     HGDIOBJ oldFont = ::SelectObject(memDc.GetSafeHdc(),
                                      m_tabFontBold.GetSafeHandle()
                                          ? m_tabFontBold.GetSafeHandle()
-                                         : (m_tabFont.GetSafeHandle()
-                                             ? m_tabFont.GetSafeHandle()
-                                             : ::GetStockObject(DEFAULT_GUI_FONT)));
+                                         : ::GetStockObject(DEFAULT_GUI_FONT));
 
     for (size_t i = 0; i < m_tabs.size(); ++i) {
         const TabItem &item = m_tabs[i];
@@ -363,9 +340,7 @@ void BrowserTabBar::OnPaint()
 
         HFONT tabFont = m_tabFontBold.GetSafeHandle()
             ? reinterpret_cast<HFONT>(m_tabFontBold.GetSafeHandle())
-            : (m_tabFont.GetSafeHandle()
-                ? reinterpret_cast<HFONT>(m_tabFont.GetSafeHandle())
-                : reinterpret_cast<HFONT>(::GetStockObject(DEFAULT_GUI_FONT)));
+            : reinterpret_cast<HFONT>(::GetStockObject(DEFAULT_GUI_FONT));
         ::SelectObject(memDc.GetSafeHdc(), tabFont);
 
         const int oldBkMode = memDc.SetBkMode(TRANSPARENT);

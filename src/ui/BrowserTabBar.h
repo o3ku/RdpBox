@@ -36,9 +36,6 @@ public:
     void setSelectedIndex(int index);
     int selectedIndex() const;
 
-    void setTabTitle(int index, const std::wstring &title);
-    std::wstring tabTitle(int index) const;
-
     void setSelectionChangedCallback(SelectionChangedCallback callback);
     void setCloseRequestedCallback(CloseRequestedCallback callback);
 
@@ -85,8 +82,6 @@ private:
     bool m_trackingMouse = false;
     CToolTipCtrl m_tooltip;
     TooltipCallback m_tooltipCallback;
-    CString m_tooltipText;
-    CFont m_tabFont;
     CFont m_tabFontBold;
 
     SelectionChangedCallback m_selectionChanged;

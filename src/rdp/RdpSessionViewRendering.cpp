@@ -3,7 +3,6 @@
 #include "common/AppPaths.h"
 #include "rdp/FrameBufferMemory.h"
 #include <algorithm>
-#include <cstring>
 #include <iterator>
 #include <memory>
 #include <utility>
@@ -90,21 +89,6 @@ bool saveFrameAsJpeg(const FrameBuffer &frame, const std::wstring &path)
     return bitmap.Save(path.c_str(), &jpegClsid, &params) == Gdiplus::Ok;
 }
 
-void copyFrameBuffer(FrameBuffer &target, const FrameBuffer &source)
-{
-    if (source.empty()) {
-        FrameBufferMemory::release(target);
-        return;
-    }
-
-    FrameBufferMemory::resize(target,
-                              source.width,
-                              source.height,
-                              source.stride,
-                              source.pixels.size());
-    std::memcpy(target.pixels.data(), source.pixels.data(), source.pixels.size());
-}
-
 void drawFrameBuffer(HDC targetDc, const CRect &targetRect, const FrameBuffer &frame)
 {
     if (!targetDc || frame.empty())
@@ -183,113 +167,6 @@ void CRdpSessionView::captureFrameIfRequested(const FrameBuffer &frame)
     }
 }
 
-bool CRdpSessionView::ensureRenderSurface(const FrameBuffer &frame)
-{
-    if (frame.empty())
-        return false;
-
-    if (m_renderDc && m_renderBitmap && m_renderBits
-        && m_renderWidth == frame.width
-        && m_renderHeight == frame.height) {
-        return true;
-    }
-
-    releaseRenderSurface();
-
-    HDC screenDc = ::GetDC(nullptr);
-    if (!screenDc)
-        return false;
-
-    m_renderDc = ::CreateCompatibleDC(screenDc);
-    if (!m_renderDc) {
-        ::ReleaseDC(nullptr, screenDc);
-        return false;
-    }
-
-    BITMAPINFO bmi = {};
-    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bmi.bmiHeader.biWidth = frame.width;
-    bmi.bmiHeader.biHeight = -frame.height;
-    bmi.bmiHeader.biPlanes = 1;
-    bmi.bmiHeader.biBitCount = 32;
-    bmi.bmiHeader.biCompression = BI_RGB;
-
-    m_renderBitmap = ::CreateDIBSection(m_renderDc, &bmi, DIB_RGB_COLORS, &m_renderBits, nullptr, 0);
-    ::ReleaseDC(nullptr, screenDc);
-
-    if (!m_renderBitmap || !m_renderBits) {
-        releaseRenderSurface();
-        return false;
-    }
-
-    m_renderOldBitmap = ::SelectObject(m_renderDc, m_renderBitmap);
-    m_renderWidth = frame.width;
-    m_renderHeight = frame.height;
-    return true;
-}
-
-void CRdpSessionView::releaseRenderSurface()
-{
-    if (m_renderDc && m_renderOldBitmap) {
-        ::SelectObject(m_renderDc, m_renderOldBitmap);
-        m_renderOldBitmap = nullptr;
-    }
-
-    if (m_renderBitmap) {
-        ::DeleteObject(m_renderBitmap);
-        m_renderBitmap = nullptr;
-    }
-
-    if (m_renderDc) {
-        ::DeleteDC(m_renderDc);
-        m_renderDc = nullptr;
-    }
-
-    m_renderBits = nullptr;
-    m_renderWidth = 0;
-    m_renderHeight = 0;
-    m_renderedFrameGeneration = 0;
-}
-
-void CRdpSessionView::copyFrameToRenderSurface(const FrameBuffer &frame)
-{
-    if (!m_renderBits || frame.empty())
-        return;
-
-    const int dstStride = m_renderWidth * 4;
-    auto *dst = static_cast<std::uint8_t *>(m_renderBits);
-    const auto *src = frame.pixels.data();
-
-    if (frame.stride == dstStride) {
-        std::memcpy(dst, src, static_cast<std::size_t>(dstStride) * static_cast<std::size_t>(frame.height));
-        return;
-    }
-
-    for (int y = 0; y < frame.height; ++y) {
-        std::memcpy(dst + static_cast<std::size_t>(y) * static_cast<std::size_t>(dstStride),
-                    src + static_cast<std::size_t>(y) * static_cast<std::size_t>(frame.stride),
-                    static_cast<std::size_t>(dstStride));
-    }
-}
-
-void CRdpSessionView::drawRenderSurface(HDC targetDc, const CRect &targetRect) const
-{
-    if (!targetDc || !m_renderDc || !m_renderBitmap)
-        return;
-
-    if (targetRect.Width() == m_renderWidth && targetRect.Height() == m_renderHeight) {
-        ::BitBlt(targetDc, 0, 0, m_renderWidth, m_renderHeight, m_renderDc, 0, 0, SRCCOPY);
-        return;
-    }
-
-    ::SetStretchBltMode(targetDc, COLORONCOLOR);
-    ::StretchBlt(targetDc,
-                 0, 0, targetRect.Width(), targetRect.Height(),
-                 m_renderDc,
-                 0, 0, m_renderWidth, m_renderHeight,
-                 SRCCOPY);
-}
-
 BOOL CRdpSessionView::OnEraseBkgnd(CDC *dc)
 {
     UNREFERENCED_PARAMETER(dc);
@@ -306,7 +183,6 @@ void CRdpSessionView::OnPaint()
     if (m_process) {
         FrameBuffer nextFrame;
         if (m_process->consumeFrameIfNewer(m_cachedFrameGeneration, nextFrame)) {
-            const uint64_t generation = m_cachedFrameGeneration;
             const FrameBuffer &frame = nextFrame;
             captureFrameIfRequested(frame);
 
@@ -319,7 +195,6 @@ void CRdpSessionView::OnPaint()
                     m_frameGateActive = false;
                     m_waitingForFirstContentFrame = false;
                     m_resolutionUpdatePending = false;
-                    m_pendingDesktopSize = {};
                     hideOverlayAfterFramePresent = true;
                 } else {
                     shouldRenderFrame = false;
@@ -334,8 +209,6 @@ void CRdpSessionView::OnPaint()
 
             if (shouldRenderFrame) {
                 m_cachedFrame = std::move(nextFrame);
-                m_renderedFrameGeneration = generation;
-                releaseRenderSurface();
             }
         }
 

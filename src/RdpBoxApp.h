@@ -14,6 +14,7 @@ public:
 
 private:
     bool ensurePasswordProtectionReady();
+    void cleanupSubsystems();
 
     bool m_comInitialized = false;
     bool m_wsaInitialized = false;

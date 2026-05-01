@@ -128,7 +128,6 @@ CRdpSessionView::~CRdpSessionView()
     releaseKeyboardHookIfUnused();
     stopProcess();
     releaseCursorHandle();
-    releaseRenderSurface();
 }
 
 bool CRdpSessionView::create(CWnd *parent, const CRect &rect)
@@ -172,11 +171,6 @@ void CRdpSessionView::reconnect()
     connectToHost(m_profile);
 }
 
-void CRdpSessionView::disconnect()
-{
-    stopProcess();
-}
-
 void CRdpSessionView::setReconnectRequestedCallback(std::function<void()> callback)
 {
     m_reconnectRequested = std::move(callback);
@@ -215,7 +209,7 @@ void CRdpSessionView::flushPendingResize()
 
     m_hasPendingResize = false;
     m_resizeBurstTracker.reset();
-    beginResolutionUpdate(m_pendingResize);
+    beginResolutionUpdate();
     m_process->requestResize(m_pendingResize);
 }
 
@@ -323,13 +317,11 @@ void CRdpSessionView::startProcess()
 
     m_connected = false;
     m_cachedFrameGeneration = 0;
-    m_renderedFrameGeneration = 0;
     FrameBufferMemory::release(m_cachedFrame);
     m_resolutionUpdatePending = false;
     m_waitingForFirstContentFrame = true;
     m_frameGateActive = true;
     m_frameGateRemaining = 0;
-    m_pendingDesktopSize = {};
     m_captureDirectory.clear();
     m_captureDirectory.shrink_to_fit();
     m_captureFramesRemaining = 0;
@@ -378,13 +370,10 @@ void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
     m_waitingForFirstContentFrame = false;
     m_frameGateActive = false;
     m_frameGateRemaining = 0;
-    m_pendingDesktopSize = {};
     m_pendingResize = {};
     m_hasPendingResize = false;
     m_cachedFrameGeneration = 0;
-    m_renderedFrameGeneration = 0;
     FrameBufferMemory::release(m_cachedFrame);
-    releaseRenderSurface();
     m_captureDirectory.clear();
     m_captureDirectory.shrink_to_fit();
     m_captureFramesRemaining = 0;
@@ -431,7 +420,6 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
         m_waitingForFirstContentFrame = false;
         m_frameGateActive = false;
         m_frameGateRemaining = 0;
-        m_pendingDesktopSize = {};
         KillTimer(kResizeTimerId);
         {
             CString overlayText = L"Disconnected";
@@ -494,10 +482,9 @@ void CRdpSessionView::clearOverlay()
         Invalidate(FALSE);
 }
 
-void CRdpSessionView::beginResolutionUpdate(SizeI size)
+void CRdpSessionView::beginResolutionUpdate()
 {
     m_resolutionUpdatePending = true;
-    m_pendingDesktopSize = SizeI{(size.width + 3) & ~3, size.height};
     m_frameGateActive = true;
     m_frameGateRemaining = kInitialFrameDiscardWithCodec;
     beginFrameCapture(L"resize");
@@ -549,12 +536,12 @@ void CRdpSessionView::OnSize(UINT type, int cx, int cy)
     if (m_resizeSuppressed) {
         m_pendingResize = size;
         m_hasPendingResize = true;
-        beginResolutionUpdate(size);
+        beginResolutionUpdate();
         return;
     }
 
     if (m_resizeBurstTracker.onResize(size)) {
-        beginResolutionUpdate(size);
+        beginResolutionUpdate();
         m_process->requestResize(size);
         SetTimer(kResizeTimerId, 50, nullptr);
     }
@@ -595,7 +582,7 @@ void CRdpSessionView::OnTimer(UINT_PTR timerId)
 
     const SizeI size = currentViewSize();
     if (m_resizeBurstTracker.onTimeout(size)) {
-        beginResolutionUpdate(size);
+        beginResolutionUpdate();
         m_process->requestResize(size);
         return;
     }

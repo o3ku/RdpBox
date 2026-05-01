@@ -254,19 +254,6 @@ std::string FreeRdpProcess::lastDisconnectError() const
     return m_d->lastDisconnectError;
 }
 
-bool FreeRdpProcess::visitFrameIfNewer(uint64_t &lastSeenGeneration,
-                                       const std::function<void(const FrameBuffer &, uint64_t)> &visitor)
-{
-    std::scoped_lock lock(m_d->mutex);
-    if (m_d->frameGeneration == lastSeenGeneration || m_d->frame.empty())
-        return false;
-
-    lastSeenGeneration = m_d->frameGeneration;
-    if (visitor)
-        visitor(m_d->frame, m_d->frameGeneration);
-    return true;
-}
-
 bool FreeRdpProcess::consumeFrameIfNewer(uint64_t &lastSeenGeneration, FrameBuffer &target)
 {
     std::scoped_lock lock(m_d->mutex);
@@ -275,7 +262,6 @@ bool FreeRdpProcess::consumeFrameIfNewer(uint64_t &lastSeenGeneration, FrameBuff
 
     lastSeenGeneration = m_d->frameGeneration;
     target = std::move(m_d->frame);
-    m_d->frame = {};
     return true;
 }
 
@@ -538,6 +524,7 @@ void FreeRdpProcess::writeFrameFromContext(void *rawContext)
     std::function<void()> frameCallback;
     std::function<void()> cursorCallback;
     bool firstFrameArrived = false;
+    bool desktopSizeChanged = false;
     SizeI desktopSize{width, height};
 
     {
@@ -551,11 +538,13 @@ void FreeRdpProcess::writeFrameFromContext(void *rawContext)
         }
 
         std::memcpy(m_d->frame.pixels.data(), context->gdi->primary_buffer, requiredBytes);
+        desktopSizeChanged = (m_d->desktopSize.width != width || m_d->desktopSize.height != height);
         m_d->desktopSize = desktopSize;
         ++m_d->frameGeneration;
         firstFrameArrived = !m_d->hasFirstFrame;
         m_d->hasFirstFrame = true;
-        desktopCallback = m_d->desktopResized;
+        if (desktopSizeChanged)
+            desktopCallback = m_d->desktopResized;
         frameCallback = m_d->frameUpdated;
         cursorCallback = m_d->cursorUpdated;
     }

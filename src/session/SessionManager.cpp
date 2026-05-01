@@ -30,9 +30,6 @@ std::string SessionManager::openSession(const Profile &profile)
     Session session;
     session.id = createGuidString();
     session.profileId = profile.id;
-    session.profileName = profile.name;
-    session.fullScreenOnConnect = profile.fullScreenOnConnect;
-    session.lastConnectedAt = profile.lastConnectedAt;
     session.view = std::make_unique<CRdpSessionView>();
 
     CRect hostRect;
@@ -76,7 +73,6 @@ void SessionManager::closeSession(const std::string &sessionId)
     m_sessions[static_cast<size_t>(index)].view->DestroyWindow();
     m_sessions.erase(m_sessions.begin() + index);
     m_tabBar->removeTab(index);
-    trimSessionStorage();
 
     if (m_sessions.empty())
         return;
@@ -102,7 +98,6 @@ void SessionManager::closeAllSessions()
             session.view->DestroyWindow();
     }
     m_sessions.clear();
-    trimSessionStorage();
 
     if (m_tabBar)
         m_tabBar->clearTabs();
@@ -188,15 +183,6 @@ bool SessionManager::isTabConnected(int index) const
         && m_sessions[static_cast<size_t>(index)].view->isConnected();
 }
 
-bool SessionManager::isProfileConnected(const std::string &profileId) const
-{
-    for (const auto &session : m_sessions) {
-        if (session.profileId == profileId && session.view && session.view->isConnected())
-            return true;
-    }
-    return false;
-}
-
 std::vector<std::string> SessionManager::connectedProfileIds() const
 {
     std::vector<std::string> ids;
@@ -243,34 +229,12 @@ void SessionManager::touchLastConnectedAt(const std::string &sessionId)
     if (index < 0)
         return;
 
-    Session &session = m_sessions[static_cast<size_t>(index)];
-    session.lastConnectedAt = currentUtcIso8601();
-
-    Profile profile = m_repository->profileById(session.profileId);
+    Profile profile = m_repository->profileById(m_sessions[static_cast<size_t>(index)].profileId);
     if (!profile.isValid())
         return;
 
-    profile.lastConnectedAt = session.lastConnectedAt;
+    profile.lastConnectedAt = currentUtcIso8601();
     m_repository->updateProfile(profile);
-}
-
-void SessionManager::trimSessionStorage()
-{
-    if (m_sessions.empty()) {
-        std::vector<Session>().swap(m_sessions);
-        return;
-    }
-
-    const size_t size = m_sessions.size();
-    const size_t capacity = m_sessions.capacity();
-    if (capacity <= 8 || size * 2 > capacity)
-        return;
-
-    std::vector<Session> compacted;
-    compacted.reserve(size);
-    for (auto &session : m_sessions)
-        compacted.push_back(std::move(session));
-    m_sessions.swap(compacted);
 }
 
 void SessionManager::setSessionConnectedCallback(SessionConnectedCallback callback)

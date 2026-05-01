@@ -12,7 +12,6 @@ IMPLEMENT_DYNAMIC(AboutDialog, CDialogEx)
 BEGIN_MESSAGE_MAP(AboutDialog, CDialogEx)
     ON_WM_CTLCOLOR()
     ON_STN_CLICKED(IDC_ABOUT_REPO_VALUE, &AboutDialog::OnRepoClicked)
-    ON_CONTROL(STN_CLICKED, IDC_ABOUT_REPO_VALUE, &AboutDialog::OnRepoClicked)
 END_MESSAGE_MAP()
 
 AboutDialog::AboutDialog(CWnd *parent)
@@ -52,8 +51,7 @@ BOOL AboutDialog::OnInitDialog()
 
     if (CStatic *link = static_cast<CStatic *>(GetDlgItem(IDC_ABOUT_REPO_VALUE)))
     {
-        m_handCursor = ::LoadCursor(nullptr, IDC_HAND);
-        link->SetCursor(m_handCursor);
+        link->SetCursor(::LoadCursor(nullptr, IDC_HAND));
 
         LOGFONTW lf = {};
         if (HFONT hFont = reinterpret_cast<HFONT>(link->GetFont()->GetSafeHandle()))

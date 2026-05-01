@@ -278,22 +278,6 @@ bool isReady()
     return g_ready;
 }
 
-std::string protect(const std::wstring &plaintext)
-{
-    std::scoped_lock lock(g_mutex);
-    return g_mode == Mode::Portable
-        ? protectPortable(plaintext)
-        : protectDpapi(plaintext);
-}
-
-std::wstring unprotectCurrent(const std::string &encoded, bool *ok)
-{
-    std::scoped_lock lock(g_mutex);
-    return g_mode == Mode::Portable
-        ? unprotectPortable(encoded, ok)
-        : unprotectDpapi(encoded, ok);
-}
-
 std::string protectDpapi(const std::wstring &plaintext)
 {
     if (plaintext.empty())

@@ -9,7 +9,6 @@ constexpr COLORREF kAccentDark = RGB(0, 90, 158);
 constexpr COLORREF kAccentLight = RGB(229, 241, 251);
 constexpr COLORREF kAccentPressed = RGB(204, 228, 247);
 constexpr COLORREF kBrandAccent = RGB(203, 131, 6);
-constexpr COLORREF kBrandAccentNearBlack = RGB(78, 60, 14);
 constexpr COLORREF kSurface = RGB(255, 255, 255);
 constexpr COLORREF kSurfaceMuted = RGB(243, 243, 243);
 constexpr COLORREF kSurfaceSubtle = RGB(248, 248, 248);
@@ -19,13 +18,11 @@ constexpr COLORREF kText = RGB(33, 33, 33);
 constexpr COLORREF kBrandAccentText = RGB(244, 234, 204);
 constexpr COLORREF kTextSubtle = RGB(96, 96, 96);
 constexpr COLORREF kTextDisabled = RGB(160, 160, 160);
-constexpr COLORREF kTextOnAccent = RGB(255, 255, 255);
 constexpr COLORREF kCloseHover = RGB(232, 17, 35);
 constexpr COLORREF kCloseHoverText = RGB(255, 255, 255);
 
 // Dark titlebar palette
 constexpr COLORREF kCaptionBg = RGB(0, 0, 0);
-constexpr COLORREF kCaptionTabInactive = RGB(45, 45, 45);
 constexpr COLORREF kCaptionTabActive = RGB(60, 60, 60);
 constexpr COLORREF kCaptionTabHover = RGB(55, 55, 55);
 constexpr COLORREF kCaptionText = RGB(230, 230, 230);
