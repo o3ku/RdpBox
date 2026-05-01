@@ -32,6 +32,13 @@ void applyDwmExtension(HWND hwnd, const WindowFrameMetrics &metrics)
     ::DwmExtendFrameIntoClientArea(hwnd, &margins);
     ::DwmSetWindowAttribute(hwnd, kDwmwaBorderColor, &kDwmColorNone, sizeof(kDwmColorNone));
 }
+
+CRect logoHoverRectFor(const WindowFrameMetrics &metrics)
+{
+    return CRect(0, metrics.clientEdgeInset,
+                 kLogoLeftPadding + kLogoSize + kLogoRightPadding,
+                 kCaptionHeight);
+}
 }
 
 BOOL MainWindow::OnEraseBkgnd(CDC *dc)
@@ -427,8 +434,7 @@ void MainWindow::OnPaint()
         dc.FillSolidRect(captionRect, Win10Theme::kCaptionBg);
 
         if (m_logoHovered) {
-            CRect hoverRect = logoRect();
-            hoverRect.DeflateRect(2, 3);
+            CRect hoverRect = logoHoverRectFor(metrics);
             dc.FillSolidRect(hoverRect, Win10Theme::kCaptionButtonHover);
         }
 

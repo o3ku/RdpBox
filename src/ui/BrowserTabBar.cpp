@@ -31,6 +31,11 @@ HFONT createTabFont(int pixelHeight, int weight)
     wcscpy_s(lf.lfFaceName, L"Segoe UI");
     return ::CreateFontIndirectW(&lf);
 }
+
+bool shouldDrawSeparator(bool selected, bool nextSelected, bool hasNext)
+{
+    return hasNext && !selected && !nextSelected;
+}
 }
 
 IMPLEMENT_DYNAMIC(BrowserTabBar, CWnd)
@@ -318,7 +323,9 @@ void BrowserTabBar::OnPaint()
             textColor = Win10Theme::kCaptionTextSubtle;
         }
 
-        if (!selected && static_cast<int>(i) + 1 < static_cast<int>(m_tabs.size())) {
+        const bool hasNext = static_cast<int>(i) + 1 < static_cast<int>(m_tabs.size());
+        const bool nextSelected = hasNext && (static_cast<int>(i) + 1 == m_selectedIndex);
+        if (shouldDrawSeparator(selected, nextSelected, hasNext)) {
             CRect separator(item.rect);
             separator.left = separator.right - 1;
             separator.top += 6;
