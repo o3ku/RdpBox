@@ -40,8 +40,18 @@ struct CursorMaskFeatures
 double cursorMaskDistance(const std::vector<std::uint8_t> &left, const std::vector<std::uint8_t> &right);
 CursorMaskFeatures analyzeCursorMask(const std::vector<std::uint8_t> &mask);
 bool isCandidateCompatible(CursorKind kind, const CursorMaskFeatures &features);
+std::optional<CursorKind> matchKnownSplitResizeCursor(const std::vector<std::uint8_t> &mask,
+                                                      const CursorMaskFeatures &features);
 bool shouldUseLocalIBeamCursor(const CursorMaskFeatures &features, PointI hotspot);
+bool hasCenteredHorizontalBar(const CursorMaskFeatures &features);
 const std::vector<CursorCandidate> &systemCursorCandidates();
+std::vector<std::uint8_t> normalizedCursorMask(const FrameBuffer &source);
+FrameBuffer makeSyntheticCursorFrame(int width, int height);
+void setSyntheticCursorPixel(FrameBuffer &frame, int x, int y);
+FrameBuffer makeColumnSplitResizeCandidateFrame();
+FrameBuffer makeRowSplitResizeCandidateFrame();
+const std::vector<std::uint8_t> &columnSplitResizeCandidateMask();
+const std::vector<std::uint8_t> &rowSplitResizeCandidateMask();
 
 bool isValidFrameBuffer(const FrameBuffer &buffer)
 {
@@ -161,6 +171,93 @@ FrameBuffer cursorFrameBufferFromHandle(HCURSOR cursorHandle, PointI *hotspot = 
     return result;
 }
 
+FrameBuffer makeSyntheticCursorFrame(int width, int height)
+{
+    FrameBuffer frame;
+    frame.width = width;
+    frame.height = height;
+    frame.stride = width * 4;
+    frame.pixels.resize(static_cast<std::size_t>(frame.stride) * static_cast<std::size_t>(frame.height), 0);
+    return frame;
+}
+
+void setSyntheticCursorPixel(FrameBuffer &frame, int x, int y)
+{
+    if (x < 0 || y < 0 || x >= frame.width || y >= frame.height)
+        return;
+
+    const std::size_t offset = static_cast<std::size_t>(y) * static_cast<std::size_t>(frame.stride)
+        + static_cast<std::size_t>(x) * 4u;
+    frame.pixels[offset + 0] = 0x00;
+    frame.pixels[offset + 1] = 0x00;
+    frame.pixels[offset + 2] = 0x00;
+    frame.pixels[offset + 3] = 0xFF;
+}
+
+FrameBuffer makeColumnSplitResizeCandidateFrame()
+{
+    FrameBuffer frame = makeSyntheticCursorFrame(16, 16);
+
+    for (int y = 3; y <= 12; ++y)
+        setSyntheticCursorPixel(frame, 8, y);
+
+    for (int x = 3; x <= 6; ++x)
+        setSyntheticCursorPixel(frame, x, 8);
+    setSyntheticCursorPixel(frame, 2, 8);
+    setSyntheticCursorPixel(frame, 3, 7);
+    setSyntheticCursorPixel(frame, 3, 9);
+    setSyntheticCursorPixel(frame, 4, 6);
+    setSyntheticCursorPixel(frame, 4, 10);
+
+    for (int x = 10; x <= 13; ++x)
+        setSyntheticCursorPixel(frame, x, 8);
+    setSyntheticCursorPixel(frame, 14, 8);
+    setSyntheticCursorPixel(frame, 13, 7);
+    setSyntheticCursorPixel(frame, 13, 9);
+    setSyntheticCursorPixel(frame, 12, 6);
+    setSyntheticCursorPixel(frame, 12, 10);
+
+    return frame;
+}
+
+FrameBuffer makeRowSplitResizeCandidateFrame()
+{
+    FrameBuffer frame = makeSyntheticCursorFrame(16, 16);
+
+    for (int x = 3; x <= 12; ++x)
+        setSyntheticCursorPixel(frame, x, 8);
+
+    for (int y = 3; y <= 6; ++y)
+        setSyntheticCursorPixel(frame, 8, y);
+    setSyntheticCursorPixel(frame, 8, 2);
+    setSyntheticCursorPixel(frame, 7, 3);
+    setSyntheticCursorPixel(frame, 9, 3);
+    setSyntheticCursorPixel(frame, 6, 4);
+    setSyntheticCursorPixel(frame, 10, 4);
+
+    for (int y = 10; y <= 13; ++y)
+        setSyntheticCursorPixel(frame, 8, y);
+    setSyntheticCursorPixel(frame, 8, 14);
+    setSyntheticCursorPixel(frame, 7, 13);
+    setSyntheticCursorPixel(frame, 9, 13);
+    setSyntheticCursorPixel(frame, 6, 12);
+    setSyntheticCursorPixel(frame, 10, 12);
+
+    return frame;
+}
+
+const std::vector<std::uint8_t> &columnSplitResizeCandidateMask()
+{
+    static const std::vector<std::uint8_t> mask = normalizedCursorMask(makeColumnSplitResizeCandidateFrame());
+    return mask;
+}
+
+const std::vector<std::uint8_t> &rowSplitResizeCandidateMask()
+{
+    static const std::vector<std::uint8_t> mask = normalizedCursorMask(makeRowSplitResizeCandidateFrame());
+    return mask;
+}
+
 std::vector<std::uint8_t> normalizedCursorMask(const FrameBuffer &source)
 {
     if (!isValidFrameBuffer(source))
@@ -203,6 +300,9 @@ std::optional<CursorKind> classifyShapeFromPreparedFrame(const FrameBuffer &curs
     const CursorMaskFeatures remoteFeatures = analyzeCursorMask(remoteMask);
     if (!remoteFeatures.valid)
         return std::nullopt;
+
+    if (const auto splitResizeKind = matchKnownSplitResizeCursor(remoteMask, remoteFeatures))
+        return splitResizeKind;
 
     if (shouldUseLocalIBeamCursor(remoteFeatures, hotspot))
         return CursorKind::IBeam;
@@ -361,6 +461,36 @@ bool isCandidateCompatible(CursorKind kind, const CursorMaskFeatures &features)
     }
 }
 
+std::optional<CursorKind> matchKnownSplitResizeCursor(const std::vector<std::uint8_t> &mask,
+                                                      const CursorMaskFeatures &features)
+{
+    if (!features.valid)
+        return std::nullopt;
+
+    const int width = features.right - features.left + 1;
+    const int height = features.bottom - features.top + 1;
+
+    if (width >= height) {
+        const double score = cursorMaskDistance(mask, columnSplitResizeCandidateMask());
+        if (features.maxColumnFill >= 0.35
+            && features.maxRowFill >= 0.55
+            && score <= 0.12) {
+            return CursorKind::SizeWE;
+        }
+    }
+
+    if (height >= width) {
+        const double score = cursorMaskDistance(mask, rowSplitResizeCandidateMask());
+        if (hasCenteredHorizontalBar(features)
+            && features.maxColumnFill >= 0.55
+            && score <= 0.08) {
+            return CursorKind::SizeNS;
+        }
+    }
+
+    return std::nullopt;
+}
+
 bool isKnownRemoteIBeamSignature(const CursorMaskFeatures &features, PointI hotspot)
 {
     if (!features.valid)
@@ -401,6 +531,7 @@ bool isGenericRemoteIBeamSignature(const CursorMaskFeatures &features, PointI ho
         && hotspotDistanceFromCenter <= 3
         && hotspot.y >= features.top
         && hotspot.y <= features.bottom
+        && !hasCenteredHorizontalBar(features)
         && features.maxColumnFill >= 0.78
         && features.maxRowFill >= 0.55;
 }
@@ -416,6 +547,7 @@ bool isLooseIBeamSignature(const CursorMaskFeatures &features)
     return width <= 9
         && height >= 15
         && height >= (width * 3)
+        && !hasCenteredHorizontalBar(features)
         && features.maxColumnFill >= 0.80
         && features.maxRowFill < 0.55;
 }
@@ -425,6 +557,17 @@ bool shouldUseLocalIBeamCursor(const CursorMaskFeatures &features, PointI hotspo
     return isKnownRemoteIBeamSignature(features, hotspot)
         || isGenericRemoteIBeamSignature(features, hotspot)
         || isLooseIBeamSignature(features);
+}
+
+bool hasCenteredHorizontalBar(const CursorMaskFeatures &features)
+{
+    if (!features.valid)
+        return false;
+
+    const int height = features.bottom - features.top + 1;
+    return features.maxRowFill >= 0.55
+        && features.maxRowIndex >= 2
+        && features.maxRowIndex <= (height - 3);
 }
 
 HCURSOR loadSystemCursor(CursorKind kind)
