@@ -37,7 +37,6 @@ public:
 
     FreeRdpProcess::ConnectionInfo connectionInfoForTab(int index) const;
     bool isTabConnected(int index) const;
-    bool isProfileConnected(const std::string &profileId) const;
     std::vector<std::string> connectedProfileIds() const;
 
 private:
@@ -45,16 +44,12 @@ private:
     {
         std::string id;
         std::string profileId;
-        std::wstring profileName;
-        bool fullScreenOnConnect = false;
-        std::string lastConnectedAt;
         std::unique_ptr<CRdpSessionView> view;
     };
 
     int indexOfSession(const std::string &sessionId) const;
     void showSessionAtIndex(int index);
     void touchLastConnectedAt(const std::string &sessionId);
-    void trimSessionStorage();
 
     BrowserTabBar *m_tabBar = nullptr;
     CWnd *m_sessionHost = nullptr;

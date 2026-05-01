@@ -31,7 +31,6 @@ public:
     bool create(CWnd *parent, const CRect &rect);
     void connectToHost(const Profile &profile);
     void reconnect();
-    void disconnect();
     void setReconnectRequestedCallback(std::function<void()> callback);
     void setConnectedCallback(std::function<void()> callback);
 
@@ -86,7 +85,7 @@ private:
     void setFocusToFreeRdp();
     void showOverlay(const CString &text);
     void clearOverlay();
-    void beginResolutionUpdate(SizeI size);
+    void beginResolutionUpdate();
     void beginFrameCapture(const wchar_t *reason);
     void captureFrameIfRequested(const FrameBuffer &frame);
     void syncMouseModifiers();
@@ -94,10 +93,6 @@ private:
     SizeI currentViewSize() const;
     SizeI fullScreenSize() const;
     void releaseCursorHandle();
-    bool ensureRenderSurface(const FrameBuffer &frame);
-    void releaseRenderSurface();
-    void copyFrameToRenderSurface(const FrameBuffer &frame);
-    void drawRenderSurface(HDC targetDc, const CRect &targetRect) const;
     void drawOverlay(CDC &dc, const CRect &rect);
     void flushPendingMouseMove();
 
@@ -120,19 +115,11 @@ private:
     bool m_waitingForFirstContentFrame = false;
     bool m_frameGateActive = false;
     int m_frameGateRemaining = 0;
-    SizeI m_pendingDesktopSize;
     std::wstring m_captureDirectory;
     int m_captureFramesRemaining = 0;
     int m_captureFrameIndex = 0;
     uint64_t m_cachedFrameGeneration = 0;
-    uint64_t m_renderedFrameGeneration = 0;
     FrameBuffer m_cachedFrame;
-    HDC m_renderDc = nullptr;
-    HBITMAP m_renderBitmap = nullptr;
-    HGDIOBJ m_renderOldBitmap = nullptr;
-    void *m_renderBits = nullptr;
-    int m_renderWidth = 0;
-    int m_renderHeight = 0;
     HCURSOR m_cursorHandle = nullptr;
     bool m_ownsCursorHandle = false;
     bool m_connected = false;

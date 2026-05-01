@@ -183,7 +183,6 @@ UINT clipboardSendDataRequest(ClipboardContext *clipboard, UINT32 formatId)
 
     CLIPRDR_FORMAT_DATA_REQUEST request = {};
     request.requestedFormatId = clipboardGetRemoteFormatId(clipboard, formatId);
-    clipboard->requestedFormatId = formatId;
 
     if (!ResetEvent(clipboard->responseDataEvent))
         return ERROR_INTERNAL_ERROR;
@@ -603,18 +602,6 @@ static UINT CALLBACK onServerCapabilities(CliprdrClientContext *context, const C
 {
     if (!context || !capabilities)
         return ERROR_INTERNAL_ERROR;
-
-    auto *clipboard = static_cast<ClipboardContext*>(context->custom);
-    if (!clipboard)
-        return ERROR_INTERNAL_ERROR;
-    for (UINT32 i = 0; i < capabilities->cCapabilitiesSets; ++i) {
-        auto *set = &capabilities->capabilitySets[i];
-        if (set->capabilitySetType == CB_CAPSTYPE_GENERAL && set->capabilitySetLength >= CB_CAPSTYPE_GENERAL_LEN) {
-            auto *general = reinterpret_cast<CLIPRDR_GENERAL_CAPABILITY_SET*>(set);
-            clipboard->capabilities = general->generalFlags;
-            break;
-        }
-    }
     return CHANNEL_RC_OK;
 }
 

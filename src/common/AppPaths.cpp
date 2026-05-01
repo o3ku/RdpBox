@@ -186,11 +186,6 @@ bool isPortableMode()
     return g_forcePortable.load() || readPortableModeFromProfiles();
 }
 
-std::wstring appRootPath()
-{
-    return executableDirectory();
-}
-
 std::wstring dataRootPath()
 {
     const std::wstring root = isPortableMode()

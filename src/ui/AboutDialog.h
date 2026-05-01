@@ -27,5 +27,4 @@ private:
     CString m_repoUrlText;
     FlatButton m_btnOK;
     CFont m_linkFont;
-    HCURSOR m_handCursor = nullptr;
 };

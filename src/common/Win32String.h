@@ -1,8 +1,6 @@
 #pragma once
 
-#include <algorithm>
 #include <cstdio>
-#include <cwctype>
 #include <string>
 
 #include <objbase.h>
@@ -39,14 +37,6 @@ inline std::wstring wideFromUtf8(const std::string &text)
     if (written != size)
         return {};
     return result;
-}
-
-inline std::wstring lowerWide(std::wstring value)
-{
-    std::transform(value.begin(), value.end(), value.begin(), [](wchar_t ch) {
-        return static_cast<wchar_t>(std::towlower(ch));
-    });
-    return value;
 }
 
 inline std::string createGuidString()

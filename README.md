@@ -79,7 +79,7 @@ src/
   profiles/         Profile + ProfileRepository (cJSON persistence)
   rdp/              FreeRdpProcess (worker thread), RdpSessionView (MFC view), cursor/clipboard/input helpers
   session/          SessionManager (UUID ↔ tab mapping, lifecycle)
-  ui/               ProfileEditDialog, ConnectionListDialog, ClosableTabCtrl
+  ui/               ProfileEditDialog, ConnectionListDialog, BrowserTabBar
   resources/        MFC dialog resources, icons
 tests/              Standalone test executables (built with -DBUILD_TEST=ON)
 ```

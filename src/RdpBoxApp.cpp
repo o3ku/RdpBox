@@ -47,8 +47,7 @@ BOOL CRdpBoxApp::InitInstance()
 
     WSADATA wsaData = {};
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
-        CoUninitialize();
-        m_comInitialized = false;
+        cleanupSubsystems();
         return FALSE;
     }
     m_wsaInitialized = true;
@@ -56,43 +55,25 @@ BOOL CRdpBoxApp::InitInstance()
     Gdiplus::GdiplusStartupInput gdiInput;
     ULONG_PTR token = 0;
     if (Gdiplus::GdiplusStartup(&token, &gdiInput, nullptr) != Gdiplus::Ok) {
-        WSACleanup();
-        m_wsaInitialized = false;
-        CoUninitialize();
-        m_comInitialized = false;
+        cleanupSubsystems();
         return FALSE;
     }
     m_gdiplusToken = static_cast<std::uintptr_t>(token);
 
     if (!CWinApp::InitInstance()) {
-        Gdiplus::GdiplusShutdown(static_cast<ULONG_PTR>(m_gdiplusToken));
-        m_gdiplusToken = 0;
-        WSACleanup();
-        m_wsaInitialized = false;
-        CoUninitialize();
-        m_comInitialized = false;
+        cleanupSubsystems();
         return FALSE;
     }
 
     if (!ensurePasswordProtectionReady()) {
-        Gdiplus::GdiplusShutdown(static_cast<ULONG_PTR>(m_gdiplusToken));
-        m_gdiplusToken = 0;
-        WSACleanup();
-        m_wsaInitialized = false;
-        CoUninitialize();
-        m_comInitialized = false;
+        cleanupSubsystems();
         return FALSE;
     }
 
     auto *frame = new MainWindow();
     if (!frame->createShell()) {
         delete frame;
-        Gdiplus::GdiplusShutdown(static_cast<ULONG_PTR>(m_gdiplusToken));
-        m_gdiplusToken = 0;
-        WSACleanup();
-        m_wsaInitialized = false;
-        CoUninitialize();
-        m_comInitialized = false;
+        cleanupSubsystems();
         return FALSE;
     }
 
@@ -105,18 +86,22 @@ BOOL CRdpBoxApp::InitInstance()
 
 int CRdpBoxApp::ExitInstance()
 {
+    cleanupSubsystems();
+    return CWinApp::ExitInstance();
+}
+
+void CRdpBoxApp::cleanupSubsystems()
+{
     if (m_gdiplusToken) {
         Gdiplus::GdiplusShutdown(static_cast<ULONG_PTR>(m_gdiplusToken));
         m_gdiplusToken = 0;
     }
-
     if (m_wsaInitialized) {
         WSACleanup();
         m_wsaInitialized = false;
     }
-
-    if (m_comInitialized)
+    if (m_comInitialized) {
         CoUninitialize();
-
-    return CWinApp::ExitInstance();
+        m_comInitialized = false;
+    }
 }

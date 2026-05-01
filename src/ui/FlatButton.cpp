@@ -1,9 +1,6 @@
 #include "FlatButton.h"
 
-#include "ResourceImage.h"
 #include "Win10Theme.h"
-
-#include <algorithm>
 
 #include <uxtheme.h>
 
@@ -25,76 +22,6 @@ void FlatButton::setDefault(bool isDefault)
     m_default = isDefault;
     if (GetSafeHwnd())
         Invalidate(FALSE);
-}
-
-void FlatButton::setToolbarStyle(bool enabled)
-{
-    if (m_toolbarStyle == enabled)
-        return;
-    m_toolbarStyle = enabled;
-    if (GetSafeHwnd())
-        Invalidate(FALSE);
-}
-
-void FlatButton::setIconKind(IconKind kind)
-{
-    if (m_iconKind == kind)
-        return;
-    m_iconKind = kind;
-    if (GetSafeHwnd())
-        Invalidate(FALSE);
-}
-
-bool FlatButton::setIconResource(UINT resourceId, LPCWSTR resourceType)
-{
-    auto image = std::make_unique<ResourceImage>();
-    if (!image->loadFromResource(resourceId, resourceType))
-        return false;
-
-    m_iconImage = std::move(image);
-    if (GetSafeHwnd())
-        Invalidate(FALSE);
-    return true;
-}
-
-void FlatButton::drawIconImage(CDC &dc, const CRect &rect) const
-{
-    if (!m_iconImage || !m_iconImage->isValid())
-        return;
-
-    constexpr int kIconRender = 16;
-    const int x = rect.left + (rect.Width() - kIconRender) / 2;
-    const int y = rect.top + (rect.Height() - kIconRender) / 2;
-    CRect target(x, y, x + kIconRender, y + kIconRender);
-    m_iconImage->drawTo(dc.GetSafeHdc(), target);
-}
-
-void FlatButton::drawIcon(CDC &dc, const CRect &rect, COLORREF color) const
-{
-    if (m_iconKind == IconKind::None)
-        return;
-
-    const int cx = rect.left + rect.Width() / 2;
-    const int cy = rect.top + rect.Height() / 2;
-    const int half = 7;
-
-    CPen pen(PS_SOLID, 2, color);
-    CPen *oldPen = dc.SelectObject(&pen);
-
-    if (m_iconKind == IconKind::Plus) {
-        dc.MoveTo(cx - half, cy);
-        dc.LineTo(cx + half + 1, cy);
-        dc.MoveTo(cx, cy - half);
-        dc.LineTo(cx, cy + half + 1);
-    } else if (m_iconKind == IconKind::List) {
-        for (int i = -1; i <= 1; ++i) {
-            const int y = cy + i * 5;
-            dc.MoveTo(cx - half, y);
-            dc.LineTo(cx + half + 1, y);
-        }
-    }
-
-    dc.SelectObject(oldPen);
 }
 
 void FlatButton::DrawItem(LPDRAWITEMSTRUCT drawItem)
@@ -123,24 +50,8 @@ void FlatButton::DrawItem(LPDRAWITEMSTRUCT drawItem)
     COLORREF background;
     COLORREF textColor;
     COLORREF border;
-    bool drawBorder = !m_toolbarStyle;
 
-    if (m_toolbarStyle) {
-        if (disabled) {
-            background = Win10Theme::kCaptionBg;
-            textColor = Win10Theme::kCaptionTextSubtle;
-        } else if (pressed) {
-            background = Win10Theme::kCaptionTabActive;
-            textColor = Win10Theme::kCaptionText;
-        } else if (m_hover) {
-            background = Win10Theme::kCaptionButtonHover;
-            textColor = Win10Theme::kCaptionText;
-        } else {
-            background = Win10Theme::kCaptionBg;
-            textColor = Win10Theme::kCaptionText;
-        }
-        border = background;
-    } else if (disabled) {
+    if (disabled) {
         background = Win10Theme::kSurfaceMuted;
         textColor = Win10Theme::kTextDisabled;
         border = Win10Theme::kBorderSubtle;
@@ -169,35 +80,27 @@ void FlatButton::DrawItem(LPDRAWITEMSTRUCT drawItem)
 
     dc.FillSolidRect(rect, background);
 
-    if (drawBorder) {
-        CBrush borderBrush(border);
-        dc.FrameRect(rect, &borderBrush);
-    }
+    CBrush borderBrush(border);
+    dc.FrameRect(rect, &borderBrush);
 
     HFONT font = nullptr;
     if (CFont *inherited = GetFont())
         font = reinterpret_cast<HFONT>(inherited->GetSafeHandle());
     HGDIOBJ oldFont = font ? ::SelectObject(dc.GetSafeHdc(), font) : nullptr;
 
-    if (m_iconImage && m_iconImage->isValid()) {
-        drawIconImage(dc, rect);
-    } else if (m_iconKind != IconKind::None) {
-        drawIcon(dc, rect, textColor);
-    } else {
-        CString text;
-        GetWindowText(text);
+    CString text;
+    GetWindowText(text);
 
-        const int oldBkMode = dc.SetBkMode(TRANSPARENT);
-        const COLORREF oldText = dc.SetTextColor(textColor);
-        dc.DrawTextW(text, &rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-        dc.SetTextColor(oldText);
-        dc.SetBkMode(oldBkMode);
-    }
+    const int oldBkMode = dc.SetBkMode(TRANSPARENT);
+    const COLORREF oldText = dc.SetTextColor(textColor);
+    dc.DrawTextW(text, &rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    dc.SetTextColor(oldText);
+    dc.SetBkMode(oldBkMode);
 
     if (oldFont)
         ::SelectObject(dc.GetSafeHdc(), oldFont);
 
-    if (focused && !disabled && !m_toolbarStyle) {
+    if (focused && !disabled) {
         CRect focusRect(rect);
         focusRect.DeflateRect(3, 3);
         dc.DrawFocusRect(focusRect);

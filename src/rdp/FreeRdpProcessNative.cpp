@@ -121,7 +121,6 @@ BOOL nativefreerdp_pointer_new(rdpContext *context, rdpPointer *pointer)
             cursorFrame.pixels.data(), PIXEL_FORMAT_BGRA32, static_cast<UINT32>(cursorFrame.stride), 0, 0,
             pointer->width, pointer->height, pointer->xorMaskData, pointer->lengthXorMask,
             pointer->andMaskData, pointer->lengthAndMask, pointer->xorBpp, &context->gdi->palette)) {
-        cursorFrame = {};
         return FALSE;
     }
 

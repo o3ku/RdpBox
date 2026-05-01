@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+This repo uses the **CodeStable** workflow (see `codestable/`). Both this file and `AGENTS.md` are project hard-constraint entry points and apply together; **CLAUDE.md takes precedence on conflicts**. `AGENTS.md` covers contribution / commit / security conventions and is still authoritative for those topics.
+
 ## Build Commands
 
 This project uses CMake with Ninja and vcpkg on Windows. MSVC toolchain is required.
@@ -58,6 +60,15 @@ MainWindow (CFrameWnd + tab host)
 - `src/ui/` - `ProfileEditDialog` and `ConnectionListDialog`.
 - `src/common/` - Shared native types: `PointI`, `SizeI`, `FrameBuffer`, `CursorInfo` (see `NativeTypes.h`).
 
+### File Layout Conventions
+
+Several large classes are intentionally split across multiple `.cpp` files in the same directory — when editing them, find the right partial rather than collapsing them back together:
+- `MainWindow.{h,cpp}` + `MainWindowChrome.cpp` (top strip / fullscreen chrome) + `MainWindowSessions.cpp` (tab + session orchestration).
+- `RdpSessionView.{h,cpp}` + `RdpSessionViewInput.cpp` (mouse/keyboard) + `RdpSessionViewMessages.cpp` (Win32 message pump) + `RdpSessionViewRendering.cpp` (paint).
+- `WindowsClipboardBackend.{h,cpp}` + `WindowsClipboardBackendDataObject.cpp` (`IDataObject` impl) + `WindowsClipboardBackendWindow.cpp` (hidden message window).
+
+Profile persistence is implemented with `nlohmann_json` (in `src/common/AppPaths.cpp` and `src/profiles/ProfileRepository.cpp`). `cJSON` is used **only** by `tests/profiles/ProfileRepositoryTests.cpp` as an independent JSON parser to assert against the output `ProfileRepository` writes — the dual-library setup is intentional cross-validation. Don't remove `cJSON` from `tests/CMakeLists.txt` or from the `find_package(cJSON)` in `src/CMakeLists.txt` (the latter is needed because `tests/CMakeLists.txt` is included via `add_subdirectory` from `src/`). The release build also runs `upx -9` on `RdpBox.exe` post-build if `upx` is on PATH.
+
 ### FreeRDP Integration Details
 
 `FreeRdpProcess` registers custom callbacks with the FreeRDP 3 API:
@@ -68,12 +79,16 @@ MainWindow (CFrameWnd + tab host)
 
 ### Test Setup
 
-Tests use standalone native executables under `tests/`. The current targets are:
+Tests use standalone native executables under `tests/`, organized by module (`tests/rdp/`, `tests/profiles/`, `tests/ui/`). Each test is its own `add_executable` + `add_test` pair — there is no aggregated test binary. Current targets:
 - `RdpResizeBurstTrackerTests`
 - `RdpMouseMoveCoalescerTests`
 - `RdpModifierSyncTrackerTests`
 - `RdpCursorClassifierTests`
 - `ProfileRepositoryTests`
+- `WindowFrameMetricsTests`
+- `MainWindowActivationTests`
+
+When adding a new test, register it in `tests/CMakeLists.txt` with both `add_executable` and `add_test(...)`, and pull in the specific source files under test rather than linking against `RdpBox` (the test exes intentionally compile only the files they need so they don't drag in MFC/FreeRDP).
 
 ## Coding Style
 

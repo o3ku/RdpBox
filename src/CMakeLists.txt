@@ -67,8 +67,6 @@ set(RDPBOX_SOURCES
     rdp/RdpMouseMoveCoalescer.cpp
     rdp/RdpResizeBurstTracker.h
     rdp/RdpResizeBurstTracker.cpp
-    rdp/FrameBufferAnalysis.h
-    rdp/FrameBufferAnalysis.cpp
     rdp/FrameBufferMemory.h
     rdp/RdpClipboardBridge.h
     rdp/RdpClipboardBridge.cpp
@@ -91,16 +89,12 @@ set(RDPBOX_SOURCES
     ui/ProfileEditDialog.cpp
     ui/ConnectionListDialog.h
     ui/ConnectionListDialog.cpp
-    ui/ClosableTabCtrl.h
-    ui/ClosableTabCtrl.cpp
     ui/BrowserTabBar.h
     ui/BrowserTabBar.cpp
     ui/FlatButton.h
     ui/FlatButton.cpp
     ui/SessionHostWnd.h
     ui/SessionHostWnd.cpp
-    ui/ResourceImage.h
-    ui/ResourceImage.cpp
     ui/ParentResizeForwarder.h
     ui/ParentResizeForwarder.cpp
     ui/Win10Theme.h
@@ -142,7 +136,6 @@ target_link_libraries(RdpBox PRIVATE
     freerdp-client
     winpr
     nlohmann_json::nlohmann_json
-    cjson
 
     Bcrypt
     Crypt32

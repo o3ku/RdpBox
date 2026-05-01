@@ -14,9 +14,6 @@ void setMode(Mode mode);
 Mode mode();
 bool isReady();
 
-std::string protect(const std::wstring &plaintext);
-std::wstring unprotectCurrent(const std::string &encoded, bool *ok = nullptr);
-
 std::string protectDpapi(const std::wstring &plaintext);
 std::wstring unprotectDpapi(const std::string &encoded, bool *ok = nullptr);
 std::string protectPortable(const std::wstring &plaintext);
