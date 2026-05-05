@@ -21,7 +21,19 @@ constexpr int kCaptionButtonWidth = 46;
 constexpr int kSystemButtonReserve = kCaptionButtonWidth * 3;
 constexpr int kResizeBorderTop = 6;
 constexpr DWORD kDwmwaBorderColor = 34;
+constexpr DWORD kDwmwaWindowCornerPreference = 33;
+constexpr DWORD kDwmcpDoNotRound = 1;
 constexpr COLORREF kDwmColorNone = 0xFFFFFFFE;
+
+void adjustMaximizedClientRect(RECT &rect)
+{
+    const int frameX = ::GetSystemMetrics(SM_CXFRAME) + ::GetSystemMetrics(SM_CXPADDEDBORDER);
+    const int frameY = ::GetSystemMetrics(SM_CYFRAME) + ::GetSystemMetrics(SM_CXPADDEDBORDER);
+    rect.left += frameX;
+    rect.right -= frameX;
+    rect.top += frameY;
+    rect.bottom -= frameY;
+}
 
 void applyDwmExtension(HWND hwnd, const WindowFrameMetrics &metrics)
 {
@@ -31,6 +43,20 @@ void applyDwmExtension(HWND hwnd, const WindowFrameMetrics &metrics)
     MARGINS margins = { 0, 0, metrics.dwmTopInset, 0 };
     ::DwmExtendFrameIntoClientArea(hwnd, &margins);
     ::DwmSetWindowAttribute(hwnd, kDwmwaBorderColor, &kDwmColorNone, sizeof(kDwmColorNone));
+    ::DwmSetWindowAttribute(hwnd, kDwmwaWindowCornerPreference, &kDwmcpDoNotRound, sizeof(kDwmcpDoNotRound));
+
+    RECT windowRect = {};
+    if (!::GetWindowRect(hwnd, &windowRect))
+        return;
+
+    const int width = std::max(1, static_cast<int>(windowRect.right - windowRect.left));
+    const int height = std::max(1, static_cast<int>(windowRect.bottom - windowRect.top));
+    HRGN region = ::CreateRectRgn(0, 0, width, height);
+    if (!region)
+        return;
+
+    if (!::SetWindowRgn(hwnd, region, FALSE))
+        ::DeleteObject(region);
 }
 
 CRect logoHoverRectFor(const WindowFrameMetrics &metrics)
@@ -62,16 +88,18 @@ BOOL MainWindow::OnNcActivate(BOOL active)
 
 LRESULT MainWindow::OnNcCalcSize(WPARAM wParam, LPARAM lParam)
 {
-    if (!wParam)
-        return 0;
-
-    auto *params = reinterpret_cast<NCCALCSIZE_PARAMS *>(lParam);
     if (isMaximized()) {
-        const int frameX = ::GetSystemMetrics(SM_CXFRAME) + ::GetSystemMetrics(SM_CXPADDEDBORDER);
-        const int frameY = ::GetSystemMetrics(SM_CYFRAME) + ::GetSystemMetrics(SM_CXPADDEDBORDER);
-        params->rgrc[0].left += frameX;
-        params->rgrc[0].right -= frameX;
-        params->rgrc[0].bottom -= frameY;
+        if (!lParam)
+            return 0;
+
+        if (!wParam) {
+            auto *rect = reinterpret_cast<RECT *>(lParam);
+            adjustMaximizedClientRect(*rect);
+            return 0;
+        }
+
+        auto *params = reinterpret_cast<NCCALCSIZE_PARAMS *>(lParam);
+        adjustMaximizedClientRect(params->rgrc[0]);
     }
 
     return 0;
@@ -139,17 +167,23 @@ LRESULT MainWindow::OnNcPaint(WPARAM wParam, LPARAM)
         return 0;
 
     HBRUSH brush = ::CreateSolidBrush(Win10Theme::kCaptionBg);
-    if (reinterpret_cast<HRGN>(wParam) != reinterpret_cast<HRGN>(1)) {
+    if (wParam && reinterpret_cast<HRGN>(wParam) != reinterpret_cast<HRGN>(1)) {
         ::FillRgn(hdc, reinterpret_cast<HRGN>(wParam), brush);
     } else {
         CRect winRect;
         CRect clientRect;
         GetWindowRect(&winRect);
         GetClientRect(&clientRect);
-        ::MapWindowPoints(HWND_DESKTOP, GetSafeHwnd(), reinterpret_cast<LPPOINT>(&clientRect), 2);
+
+        POINT clientOrigin = { 0, 0 };
+        ::ClientToScreen(GetSafeHwnd(), &clientOrigin);
+        CRect clientInWindow(clientOrigin.x - winRect.left,
+                             clientOrigin.y - winRect.top,
+                             clientOrigin.x - winRect.left + clientRect.Width(),
+                             clientOrigin.y - winRect.top + clientRect.Height());
 
         HRGN winRgn = ::CreateRectRgn(0, 0, winRect.Width(), winRect.Height());
-        HRGN clientRgn = ::CreateRectRgnIndirect(&clientRect);
+        HRGN clientRgn = ::CreateRectRgnIndirect(&clientInWindow);
         HRGN frameRgn = ::CreateRectRgn(0, 0, 0, 0);
         ::CombineRgn(frameRgn, winRgn, clientRgn, RGN_DIFF);
         ::FillRgn(hdc, frameRgn, brush);
@@ -246,6 +280,11 @@ bool MainWindow::isMaximized() const
     if (!const_cast<MainWindow *>(this)->GetWindowPlacement(&placement))
         return false;
     return placement.showCmd == SW_SHOWMAXIMIZED;
+}
+
+void MainWindow::refreshDwmFrame()
+{
+    applyDwmExtension(GetSafeHwnd(), calculateWindowFrameMetrics(isMaximized(), m_isFullScreen));
 }
 
 void MainWindow::saveWindowState() const

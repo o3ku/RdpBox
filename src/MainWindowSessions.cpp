@@ -78,6 +78,7 @@ int MainWindow::OnCreate(LPCREATESTRUCT createStruct)
     });
 
     layoutChildren();
+    refreshDwmFrame();
     SetTimer(kTabStatusTimerId, 2000, nullptr);
     return 0;
 }
