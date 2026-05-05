@@ -21,12 +21,8 @@ Windows-only multi-tab RDP session manager built with MFC/Win32 and FreeRDP 3.x.
 ### Prerequisites
 
 - Visual Studio 2019 or later with the **Desktop development with C++** workload (MFC required).
-- vcpkg with the dependencies installed for the `x64-windows-static-md` triplet:
-  - `cjson`
-  - `freerdp` (with the client target)
 - CMake 3.24+ and Ninja.
-- Set the `VCPKG_ROOT` environment variable to your vcpkg checkout (e.g. `D:\Local\vcpkg-latest`). The CMake presets resolve the toolchain file from `$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake`.
-- Configure from a Visual Studio Developer command prompt (or any shell where `cl` is on PATH). The presets pin `CMAKE_CXX_COMPILER=cl`; clang/lld will fail to link the FreeRDP static libraries because vcpkg builds them with `/GL`.
+- Configure from a Visual Studio Developer command prompt (or any shell where `cl` is on PATH).
 
 ### Configure and build
 
