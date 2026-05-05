@@ -71,6 +71,7 @@ private:
     CRect logoRect() const;
     bool logoHitTest(CPoint clientPoint) const;
     void showLogoMenu();
+    void refreshDwmFrame();
     bool isMaximized() const;
     void saveWindowState() const;
     bool restoreWindowState();

@@ -73,8 +73,10 @@ void MainWindow::OnSize(UINT type, int cx, int cy)
     if (type == SIZE_MINIMIZED)
         return;
 
+    refreshDwmFrame();
     layoutChildren();
     invalidateCaptionButtons();
+    RedrawWindow(nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_FRAME | RDW_ALLCHILDREN);
 }
 
 void MainWindow::OnClose()
