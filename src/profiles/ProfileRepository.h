@@ -7,10 +7,11 @@
 
 struct WindowState
 {
-    int left = 0;
-    int top = 0;
-    int right = 0;
-    int bottom = 0;
+    double leftRatio = 0.0;
+    double topRatio = 0.0;
+    double widthRatio = 0.0;
+    double heightRatio = 0.0;
+    std::wstring monitorDeviceName;
     int showCmd = 1; // SW_SHOWNORMAL
     bool valid = false;
 };
