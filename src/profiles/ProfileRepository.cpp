@@ -13,20 +13,25 @@
 void to_json(nlohmann::json &j, const WindowState &s)
 {
     j = nlohmann::json{
-        {"left", s.left}, {"top", s.top},
-        {"right", s.right}, {"bottom", s.bottom},
+        {"leftRatio", s.leftRatio}, {"topRatio", s.topRatio},
+        {"widthRatio", s.widthRatio}, {"heightRatio", s.heightRatio},
+        {"monitorDeviceName", utf8FromWide(s.monitorDeviceName)},
         {"showCmd", s.showCmd},
     };
 }
 
 void from_json(const nlohmann::json &j, WindowState &s)
 {
-    s.left = j.value("left", 0);
-    s.top = j.value("top", 0);
-    s.right = j.value("right", 0);
-    s.bottom = j.value("bottom", 0);
+    s.leftRatio = j.value("leftRatio", 0.0);
+    s.topRatio = j.value("topRatio", 0.0);
+    s.widthRatio = j.value("widthRatio", 0.0);
+    s.heightRatio = j.value("heightRatio", 0.0);
+    s.monitorDeviceName = wideFromUtf8(j.value("monitorDeviceName", ""));
     s.showCmd = j.value("showCmd", 1);
-    s.valid = j.contains("left");
+    s.valid = j.contains("leftRatio")
+        && j.contains("topRatio")
+        && j.contains("widthRatio")
+        && j.contains("heightRatio");
 }
 
 void to_json(nlohmann::json &j, const Profile &p)

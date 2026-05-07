@@ -3,6 +3,7 @@
 #include "profiles/ProfileRepository.h"
 #include "session/SessionManager.h"
 #include "ui/Win10Theme.h"
+#include "ui/WindowStateScaling.h"
 #include "ui/WindowFrameMetrics.h"
 #include "resources/resource.h"
 
@@ -64,6 +65,97 @@ CRect logoHoverRectFor(const WindowFrameMetrics &metrics)
     return CRect(0, metrics.clientEdgeInset,
                  kLogoLeftPadding + kLogoSize + kLogoRightPadding,
                  kCaptionHeight);
+}
+
+bool monitorWorkAreaForRect(const RECT &rect, RECT &workArea)
+{
+    const HMONITOR monitor = ::MonitorFromRect(&rect, MONITOR_DEFAULTTONEAREST);
+    if (!monitor)
+        return false;
+
+    MONITORINFOEXW info = {};
+    info.cbSize = sizeof(info);
+    if (!::GetMonitorInfoW(monitor, &info))
+        return false;
+
+    workArea = info.rcWork;
+    return true;
+}
+
+bool monitorInfoForRect(const RECT &rect, RECT &workArea, std::wstring &deviceName)
+{
+    const HMONITOR monitor = ::MonitorFromRect(&rect, MONITOR_DEFAULTTONEAREST);
+    if (!monitor)
+        return false;
+
+    MONITORINFOEXW info = {};
+    info.cbSize = sizeof(info);
+    if (!::GetMonitorInfoW(monitor, &info))
+        return false;
+
+    workArea = info.rcWork;
+    deviceName = info.szDevice;
+    return true;
+}
+
+struct MonitorLookupContext
+{
+    const wchar_t *deviceName = nullptr;
+    RECT workArea = {};
+    bool found = false;
+};
+
+BOOL CALLBACK findMonitorByDeviceName(HMONITOR monitor, HDC, LPRECT, LPARAM userData)
+{
+    auto *context = reinterpret_cast<MonitorLookupContext *>(userData);
+    if (!context || !context->deviceName)
+        return TRUE;
+
+    MONITORINFOEXW info = {};
+    info.cbSize = sizeof(info);
+    if (!::GetMonitorInfoW(monitor, &info))
+        return TRUE;
+
+    if (::wcscmp(info.szDevice, context->deviceName) != 0)
+        return TRUE;
+
+    context->workArea = info.rcWork;
+    context->found = true;
+    return FALSE;
+}
+
+bool monitorWorkAreaForDeviceName(const std::wstring &deviceName, RECT &workArea)
+{
+    if (deviceName.empty())
+        return false;
+
+    MonitorLookupContext context;
+    context.deviceName = deviceName.c_str();
+    ::EnumDisplayMonitors(nullptr, nullptr, &findMonitorByDeviceName, reinterpret_cast<LPARAM>(&context));
+    if (!context.found)
+        return false;
+
+    workArea = context.workArea;
+    return true;
+}
+
+bool activeMonitorWorkArea(RECT &workArea)
+{
+    POINT point = {};
+    if (!::GetCursorPos(&point))
+        point = POINT{0, 0};
+
+    const HMONITOR monitor = ::MonitorFromPoint(point, MONITOR_DEFAULTTOPRIMARY);
+    if (!monitor)
+        return false;
+
+    MONITORINFOEXW info = {};
+    info.cbSize = sizeof(info);
+    if (!::GetMonitorInfoW(monitor, &info))
+        return false;
+
+    workArea = info.rcWork;
+    return true;
 }
 }
 
@@ -297,13 +389,21 @@ void MainWindow::saveWindowState() const
     if (!const_cast<MainWindow *>(this)->GetWindowPlacement(&placement))
         return;
 
+    RECT workArea = {};
+    std::wstring deviceName;
+    if (!monitorInfoForRect(placement.rcNormalPosition, workArea, deviceName))
+        return;
+
     WindowState state;
-    state.left = placement.rcNormalPosition.left;
-    state.top = placement.rcNormalPosition.top;
-    state.right = placement.rcNormalPosition.right;
-    state.bottom = placement.rcNormalPosition.bottom;
-    state.showCmd = static_cast<int>(placement.showCmd);
-    state.valid = true;
+    if (!WindowStateScaling::saveToMonitorWorkArea(placement.rcNormalPosition,
+                                                   workArea,
+                                                   static_cast<int>(placement.showCmd),
+                                                   state)) {
+        return;
+    }
+
+    state.monitorDeviceName = deviceName;
+
     m_profileRepository->saveWindowState(state);
 }
 
@@ -316,21 +416,20 @@ bool MainWindow::restoreWindowState()
     if (!state.valid)
         return false;
 
-    const int width = state.right - state.left;
-    const int height = state.bottom - state.top;
-    if (width < 400 || height < 300)
+    RECT workArea = {};
+    if (!monitorWorkAreaForDeviceName(state.monitorDeviceName, workArea)
+        && !activeMonitorWorkArea(workArea)) {
+        return false;
+    }
+
+    RECT restoredRect = {};
+    if (!WindowStateScaling::restoreFromMonitorWorkArea(state, workArea, restoredRect))
         return false;
 
     WINDOWPLACEMENT placement = {};
     placement.length = sizeof(placement);
-    placement.rcNormalPosition.left = state.left;
-    placement.rcNormalPosition.top = state.top;
-    placement.rcNormalPosition.right = state.right;
-    placement.rcNormalPosition.bottom = state.bottom;
+    placement.rcNormalPosition = restoredRect;
     placement.showCmd = state.showCmd;
-
-    if (!::MonitorFromRect(&placement.rcNormalPosition, MONITOR_DEFAULTTONULL))
-        return false;
 
     SetWindowPlacement(&placement);
     return true;
