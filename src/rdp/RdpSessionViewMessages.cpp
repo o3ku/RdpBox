@@ -1,5 +1,7 @@
 #include "RdpSessionView.h"
 
+#include "ui/MainWindowShortcuts.h"
+
 #include <utility>
 
 LRESULT CRdpSessionView::OnRdpStateChanged(WPARAM state, LPARAM generation)
@@ -98,6 +100,15 @@ LRESULT CRdpSessionView::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
     }
 
     if (message == WM_KEYDOWN || message == WM_KEYUP || message == WM_SYSKEYDOWN || message == WM_SYSKEYUP) {
+        const bool controlDown = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+        const bool altDown = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+        if ((message == WM_KEYDOWN || message == WM_SYSKEYDOWN)
+            && ui::isReservedMainWindowShortcut(controlDown,
+                                                altDown,
+                                                static_cast<unsigned int>(wParam))) {
+            return CWnd::WindowProc(message, wParam, lParam);
+        }
+
         forwardNativeKeyMessage(static_cast<std::uint32_t>(message),
                                 static_cast<std::uintptr_t>(wParam),
                                 static_cast<std::intptr_t>(lParam));

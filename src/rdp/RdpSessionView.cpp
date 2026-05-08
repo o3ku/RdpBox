@@ -3,6 +3,8 @@
 #include "common/Win32String.h"
 #include "rdp/FrameBufferMemory.h"
 #include "rdp/RdpCursorClassifier.h"
+#include "resources/resource.h"
+#include "ui/MainWindowShortcuts.h"
 #include "ui/ParentResizeForwarder.h"
 #include "ui/Win10Theme.h"
 
@@ -45,10 +47,42 @@ bool shouldCaptureLowLevelKey(const KBDLLHOOKSTRUCT *info)
     if (!info)
         return false;
 
+    if (ui::isReservedMainWindowShortcut(
+            (::GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0,
+            isAltKey(info->vkCode) || ((info->flags & LLKHF_ALTDOWN) != 0),
+            static_cast<unsigned int>(info->vkCode))) {
+        return false;
+    }
+
     return isSystemKey(info->vkCode)
         || isAltKey(info->vkCode)
         || isCtrlEscapeSequence(info->vkCode)
         || (info->vkCode == VK_TAB && (info->flags & LLKHF_ALTDOWN));
+}
+
+void dispatchReservedMainWindowShortcut(CRdpSessionView *target, ui::MainWindowShortcutAction action)
+{
+    if (!target)
+        return;
+
+    UINT command = 0;
+    switch (action) {
+    case ui::MainWindowShortcutAction::NewConnection:
+        command = ID_MAIN_NEW;
+        break;
+    case ui::MainWindowShortcutAction::OpenConnections:
+        command = ID_MAIN_CONNECTIONS;
+        break;
+    case ui::MainWindowShortcutAction::None:
+    default:
+        return;
+    }
+
+    HWND root = ::GetAncestor(target->GetSafeHwnd(), GA_ROOT);
+    if (!root)
+        return;
+
+    ::PostMessageW(root, WM_COMMAND, command, 0);
 }
 
 LRESULT CALLBACK keyboardHookProc(int code, WPARAM wParam, LPARAM lParam)
@@ -57,6 +91,17 @@ LRESULT CALLBACK keyboardHookProc(int code, WPARAM wParam, LPARAM lParam)
         return CallNextHookEx(g_keyboardHook, code, wParam, lParam);
 
     auto *info = reinterpret_cast<KBDLLHOOKSTRUCT *>(lParam);
+    const auto shortcutAction = ui::shortcutActionForKey(
+        WM_SYSKEYDOWN,
+        (::GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0,
+        isAltKey(info->vkCode) || ((info->flags & LLKHF_ALTDOWN) != 0),
+        static_cast<unsigned int>(info->vkCode));
+    if (shortcutAction != ui::MainWindowShortcutAction::None) {
+        if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN)
+            dispatchReservedMainWindowShortcut(g_systemKeyTarget, shortcutAction);
+        return 1;
+    }
+
     if (!shouldCaptureLowLevelKey(info) || !g_systemKeyTarget->canCaptureSystemKeys())
         return CallNextHookEx(g_keyboardHook, code, wParam, lParam);
 

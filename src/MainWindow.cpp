@@ -106,7 +106,7 @@ void MainWindow::OnMainAbout()
 
 BOOL MainWindow::PreTranslateMessage(MSG *msg)
 {
-    if (msg && msg->message == WM_KEYDOWN) {
+    if (msg && (msg->message == WM_KEYDOWN || msg->message == WM_SYSKEYDOWN)) {
         if (msg->wParam == VK_F11) {
             toggleFullScreen();
             return TRUE;
@@ -116,6 +116,7 @@ BOOL MainWindow::PreTranslateMessage(MSG *msg)
             return TRUE;
         }
         const auto shortcutAction = ui::shortcutActionForKey(
+            msg->message,
             (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0,
             (GetAsyncKeyState(VK_MENU) & 0x8000) != 0,
             static_cast<unsigned int>(msg->wParam));

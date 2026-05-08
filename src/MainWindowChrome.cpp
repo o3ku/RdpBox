@@ -545,8 +545,8 @@ void MainWindow::showLogoMenu()
 
     CMenu menu;
     menu.CreatePopupMenu();
-    menu.AppendMenu(MF_STRING, ID_MAIN_NEW, L"New\tCtrl+Alt+N");
-    menu.AppendMenu(MF_STRING, ID_MAIN_CONNECTIONS, L"Connections\tCtrl+Alt+O");
+    menu.AppendMenu(MF_STRING, ID_MAIN_NEW, L"New");
+    menu.AppendMenu(MF_STRING, ID_MAIN_CONNECTIONS, L"Connections\tCtrl+P");
     menu.AppendMenu(MF_SEPARATOR);
     menu.AppendMenu(MF_STRING, ID_MAIN_ABOUT, L"About");
     menu.TrackPopupMenu(TPM_LEFTALIGN | TPM_TOPALIGN, rect.left, rect.bottom, this);
