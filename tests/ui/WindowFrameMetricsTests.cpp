@@ -10,7 +10,7 @@ int main()
         assert(metrics.dwmTopInset == 1);
         assert(metrics.clientEdgeInset == 1);
         assert(metrics.drawAccentBorder);
-        assert(metrics.backgroundColor == Win10Theme::kAccent);
+        assert(metrics.backgroundColor == Win10Theme::kBrandAccent);
     }
 
     {

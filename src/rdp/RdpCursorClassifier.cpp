@@ -1,10 +1,12 @@
 #include "rdp/RdpCursorClassifier.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <iterator>
+#include <queue>
 #include <vector>
 
 #include <windows.h>
@@ -35,6 +37,7 @@ struct CursorMaskFeatures
     double antiDiagonalFill = 0.0;
     int maxColumnIndex = 0;
     int maxRowIndex = 0;
+    bool hasInteriorHole = false;
 };
 
 double cursorMaskDistance(const std::vector<std::uint8_t> &left, const std::vector<std::uint8_t> &right);
@@ -407,6 +410,60 @@ CursorMaskFeatures analyzeCursorMask(const std::vector<std::uint8_t> &mask)
     features.mainDiagonalFill = static_cast<double>(mainDiagonalHits) / static_cast<double>(features.occupiedPixels);
     features.antiDiagonalFill = static_cast<double>(antiDiagonalHits) / static_cast<double>(features.occupiedPixels);
 
+    const int maxInteriorHolePixels = std::max(4, (boundsWidth * boundsHeight) / 18);
+    std::array<bool, kCursorMaskSize * kCursorMaskSize> visited = {};
+    std::queue<PointI> pending;
+
+    for (int y = features.top; y <= features.bottom && !features.hasInteriorHole; ++y) {
+        for (int x = features.left; x <= features.right; ++x) {
+            const std::size_t index = static_cast<std::size_t>(y) * kCursorMaskSize + static_cast<std::size_t>(x);
+            if (visited[index] || mask[index] != 0)
+                continue;
+
+            bool touchesBounds = false;
+            int regionPixels = 0;
+            pending.push(PointI{x, y});
+            visited[index] = true;
+
+            while (!pending.empty()) {
+                const PointI current = pending.front();
+                pending.pop();
+
+                ++regionPixels;
+                if (current.x == features.left || current.x == features.right
+                    || current.y == features.top || current.y == features.bottom) {
+                    touchesBounds = true;
+                }
+
+                constexpr PointI kNeighbors[] = {
+                    {-1, 0}, {1, 0}, {0, -1}, {0, 1}
+                };
+
+                for (const auto &neighbor : kNeighbors) {
+                    const int nextX = current.x + neighbor.x;
+                    const int nextY = current.y + neighbor.y;
+                    if (nextX < features.left || nextX > features.right
+                        || nextY < features.top || nextY > features.bottom) {
+                        continue;
+                    }
+
+                    const std::size_t nextIndex = static_cast<std::size_t>(nextY) * kCursorMaskSize
+                        + static_cast<std::size_t>(nextX);
+                    if (visited[nextIndex] || mask[nextIndex] != 0)
+                        continue;
+
+                    visited[nextIndex] = true;
+                    pending.push(PointI{nextX, nextY});
+                }
+            }
+
+            if (!touchesBounds && regionPixels >= maxInteriorHolePixels) {
+                features.hasInteriorHole = true;
+                break;
+            }
+        }
+    }
+
     return features;
 }
 
@@ -443,12 +500,14 @@ bool isCandidateCompatible(CursorKind kind, const CursorMaskFeatures &features)
     case CursorKind::SizeNWSE:
         return width >= 10
             && height >= 10
+            && !features.hasInteriorHole
             && features.mainDiagonalFill >= 0.42
             && features.mainDiagonalFill > features.antiDiagonalFill
             && diagonalGap >= 0.05;
     case CursorKind::SizeNESW:
         return width >= 10
             && height >= 10
+            && !features.hasInteriorHole
             && features.antiDiagonalFill >= 0.42
             && features.antiDiagonalFill > features.mainDiagonalFill
             && diagonalGap >= 0.05;

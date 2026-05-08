@@ -66,10 +66,15 @@ bool restoreFromMonitorWorkArea(const WindowState &state,
                                   kMinWindowHeight,
                                   workHeight);
 
-    int left = workArea.left + scaleToPixels(state.leftRatio, workWidth);
-    int top = workArea.top + scaleToPixels(state.topRatio, workHeight);
-    left = std::clamp(left, workArea.left, workArea.right - width);
-    top = std::clamp(top, workArea.top, workArea.bottom - height);
+    const int workLeft = static_cast<int>(workArea.left);
+    const int workTop = static_cast<int>(workArea.top);
+    const int workRight = static_cast<int>(workArea.right);
+    const int workBottom = static_cast<int>(workArea.bottom);
+
+    int left = workLeft + scaleToPixels(state.leftRatio, workWidth);
+    int top = workTop + scaleToPixels(state.topRatio, workHeight);
+    left = std::clamp(left, workLeft, workRight - width);
+    top = std::clamp(top, workTop, workBottom - height);
 
     windowRect.left = left;
     windowRect.top = top;
