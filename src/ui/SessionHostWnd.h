@@ -15,7 +15,6 @@ public:
 protected:
     afx_msg BOOL OnEraseBkgnd(CDC *dc);
     afx_msg void OnPaint();
-    afx_msg void OnMouseMove(UINT flags, CPoint point);
     afx_msg void OnLButtonDown(UINT flags, CPoint point);
 
     DECLARE_MESSAGE_MAP()

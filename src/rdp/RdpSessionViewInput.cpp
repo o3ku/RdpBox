@@ -55,14 +55,6 @@ void CRdpSessionView::flushPendingMouseMove()
 
 void CRdpSessionView::OnMouseMove(UINT flags, CPoint point)
 {
-    CPoint screenPoint(point);
-    ClientToScreen(&screenPoint);
-    const int parentHit = ParentResizeForwarder::hitTestParentFrame(this, screenPoint);
-    if (parentHit) {
-        ParentResizeForwarder::applyResizeCursor(parentHit);
-        return;
-    }
-
     syncMouseModifiers();
     if (!m_process)
         return;

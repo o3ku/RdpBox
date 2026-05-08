@@ -65,34 +65,6 @@ int hitTestParentFrame(CWnd *child, CPoint screenPoint)
     return 0;
 }
 
-bool applyResizeCursor(int hitCode)
-{
-    LPCWSTR cursor = nullptr;
-    switch (hitCode) {
-    case HTTOP:
-    case HTBOTTOM:
-        cursor = IDC_SIZENS;
-        break;
-    case HTLEFT:
-    case HTRIGHT:
-        cursor = IDC_SIZEWE;
-        break;
-    case HTTOPLEFT:
-    case HTBOTTOMRIGHT:
-        cursor = IDC_SIZENWSE;
-        break;
-    case HTTOPRIGHT:
-    case HTBOTTOMLEFT:
-        cursor = IDC_SIZENESW;
-        break;
-    default:
-        return false;
-    }
-
-    ::SetCursor(::LoadCursorW(nullptr, cursor));
-    return true;
-}
-
 bool forwardLButtonDown(CWnd *child, CPoint screenPoint)
 {
     HWND topLevel = topLevelOf(child);

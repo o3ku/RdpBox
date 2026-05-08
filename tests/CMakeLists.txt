@@ -109,3 +109,13 @@ target_include_directories(MainWindowActivationTests PRIVATE
 )
 
 add_test(NAME MainWindowActivationTests COMMAND MainWindowActivationTests)
+
+add_executable(MainWindowShortcutsTests
+    ui/MainWindowShortcutsTests.cpp
+)
+
+target_include_directories(MainWindowShortcutsTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME MainWindowShortcutsTests COMMAND MainWindowShortcutsTests)

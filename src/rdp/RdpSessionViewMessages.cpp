@@ -91,9 +91,7 @@ LRESULT CRdpSessionView::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
     }
 
     if (message == WM_SETCURSOR && LOWORD(lParam) == HTCLIENT) {
-        if (m_process
-            && m_process->state() == FreeRdpProcess::State::Running
-            && !isInTopLevelResizeBorder()) {
+        if (m_process && m_process->state() == FreeRdpProcess::State::Running) {
             ::SetCursor(m_cursorHandle);
             return TRUE;
         }

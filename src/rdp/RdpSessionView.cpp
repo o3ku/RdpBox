@@ -269,38 +269,6 @@ bool CRdpSessionView::isCurrentGeneration(std::uintptr_t generation) const
     return generation == m_processGeneration;
 }
 
-bool CRdpSessionView::isInTopLevelResizeBorder() const
-{
-    const HWND hwnd = GetSafeHwnd();
-    if (!hwnd)
-        return false;
-
-    HWND root = ::GetAncestor(hwnd, GA_ROOT);
-    if (!root)
-        root = ::GetParent(hwnd);
-    if (!root)
-        return false;
-
-    POINT cursorPos = {};
-    if (!::GetCursorPos(&cursorPos))
-        return false;
-
-    RECT windowRect = {};
-    if (!::GetWindowRect(root, &windowRect))
-        return false;
-
-    const int frameX = std::max(0, ::GetSystemMetrics(SM_CXSIZEFRAME) + ::GetSystemMetrics(SM_CXPADDEDBORDER));
-    const int frameY = std::max(0, ::GetSystemMetrics(SM_CYSIZEFRAME) + ::GetSystemMetrics(SM_CXPADDEDBORDER));
-    if (frameX == 0 && frameY == 0)
-        return false;
-
-    const bool nearLeft = cursorPos.x >= windowRect.left && cursorPos.x < (windowRect.left + frameX);
-    const bool nearRight = cursorPos.x < windowRect.right && cursorPos.x >= (windowRect.right - frameX);
-    const bool nearTop = cursorPos.y >= windowRect.top && cursorPos.y < (windowRect.top + frameY);
-    const bool nearBottom = cursorPos.y < windowRect.bottom && cursorPos.y >= (windowRect.bottom - frameY);
-    return nearLeft || nearRight || nearTop || nearBottom;
-}
-
 void CRdpSessionView::disableLocalIme() const
 {
     const HWND hwnd = GetSafeHwnd();

@@ -76,7 +76,6 @@ private:
     void clearProcessCallbacks();
     bool postProcessMessage(UINT message, WPARAM wParam, std::uintptr_t generation) const;
     bool isCurrentGeneration(std::uintptr_t generation) const;
-    bool isInTopLevelResizeBorder() const;
     void disableLocalIme() const;
     void startProcess();
     void stopProcess(bool showDisconnectedOverlay = true);

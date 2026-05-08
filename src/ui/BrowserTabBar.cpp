@@ -449,7 +449,6 @@ void BrowserTabBar::OnMouseMove(UINT flags, CPoint point)
     ClientToScreen(&screenPoint);
     const int parentHit = ParentResizeForwarder::hitTestParentFrame(this, screenPoint);
     if (parentHit) {
-        ParentResizeForwarder::applyResizeCursor(parentHit);
         if (m_hoverTabIndex != -1 || m_hoverCloseIndex != -1) {
             const int oldTab = m_hoverTabIndex;
             const int oldClose = m_hoverCloseIndex;

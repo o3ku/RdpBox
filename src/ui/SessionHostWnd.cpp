@@ -8,7 +8,6 @@ IMPLEMENT_DYNAMIC(SessionHostWnd, CWnd)
 BEGIN_MESSAGE_MAP(SessionHostWnd, CWnd)
     ON_WM_ERASEBKGND()
     ON_WM_PAINT()
-    ON_WM_MOUSEMOVE()
     ON_WM_LBUTTONDOWN()
 END_MESSAGE_MAP()
 
@@ -45,19 +44,6 @@ void SessionHostWnd::OnPaint()
     CRect rect;
     GetClientRect(&rect);
     dc.FillSolidRect(rect, RGB(17, 17, 17));
-}
-
-void SessionHostWnd::OnMouseMove(UINT flags, CPoint point)
-{
-    CPoint screenPoint(point);
-    ClientToScreen(&screenPoint);
-    const int hit = ParentResizeForwarder::hitTestParentFrame(this, screenPoint);
-    if (hit) {
-        ParentResizeForwarder::applyResizeCursor(hit);
-        return;
-    }
-
-    CWnd::OnMouseMove(flags, point);
 }
 
 void SessionHostWnd::OnLButtonDown(UINT flags, CPoint point)

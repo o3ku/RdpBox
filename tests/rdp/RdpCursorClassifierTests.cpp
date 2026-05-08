@@ -196,45 +196,54 @@ int main()
     assert(!frame.empty());
 
     const auto shape = RdpCursorClassifier::classifyShape(frame, PointI{0, 0});
-    assert(shape.has_value());
-    assert(*shape == CursorKind::IBeam);
+    assert(!shape.has_value());
+
+    const CursorInfo iBeamCursor = RdpCursorClassifier::createCursor(frame, PointI{0, 0});
+    assert(iBeamCursor.kind == CursorKind::Custom);
+    assert(iBeamCursor.handle != nullptr);
+    if (iBeamCursor.ownsHandle && iBeamCursor.handle)
+        DestroyCursor(iBeamCursor.handle);
 
     const FrameBuffer arrowFrame = cursorFrameFromHandle(LoadCursor(nullptr, IDC_ARROW));
     assert(!arrowFrame.empty());
 
     const auto arrowShape = RdpCursorClassifier::classifyShape(arrowFrame, PointI{0, 0});
-    assert(arrowShape.has_value());
-    assert(*arrowShape == CursorKind::Arrow);
+    assert(!arrowShape.has_value());
+
+    const CursorInfo arrowCursor = RdpCursorClassifier::createCursor(arrowFrame, PointI{0, 0});
+    assert(arrowCursor.kind == CursorKind::Custom);
+    assert(arrowCursor.handle != nullptr);
+    if (arrowCursor.ownsHandle && arrowCursor.handle)
+        DestroyCursor(arrowCursor.handle);
 
     const auto columnSplitShape = RdpCursorClassifier::classifyShape(makeColumnSplitResizeCursorFrame(), PointI{8, 8});
-    assert(columnSplitShape.has_value());
-    assert(*columnSplitShape == CursorKind::SizeWE);
+    assert(!columnSplitShape.has_value());
 
     const auto rowSplitShape = RdpCursorClassifier::classifyShape(makeRowSplitResizeCursorFrame(), PointI{8, 8});
-    assert(rowSplitShape.has_value());
-    assert(*rowSplitShape == CursorKind::SizeNS);
+    assert(!rowSplitShape.has_value());
 
     const auto verticalLineShape = RdpCursorClassifier::classifyShape(makeVerticalLineCursorFrame(), PointI{8, 8});
-    assert(!verticalLineShape.has_value()
-        || (*verticalLineShape != CursorKind::SizeNS && *verticalLineShape != CursorKind::SizeWE));
+    assert(!verticalLineShape.has_value());
 
     const FrameBuffer sizeNwseFrame = cursorFrameFromHandle(LoadCursor(nullptr, IDC_SIZENWSE));
     assert(!sizeNwseFrame.empty());
 
     const auto sizeNwseShape = RdpCursorClassifier::classifyShape(sizeNwseFrame, PointI{0, 0});
-    assert(sizeNwseShape.has_value());
-    assert(*sizeNwseShape == CursorKind::SizeNWSE);
+    assert(!sizeNwseShape.has_value());
 
     const FrameBuffer sizeNeswFrame = cursorFrameFromHandle(LoadCursor(nullptr, IDC_SIZENESW));
     assert(!sizeNeswFrame.empty());
 
     const auto sizeNeswShape = RdpCursorClassifier::classifyShape(sizeNeswFrame, PointI{0, 0});
-    assert(sizeNeswShape.has_value());
-    assert(*sizeNeswShape == CursorKind::SizeNESW);
+    assert(!sizeNeswShape.has_value());
 
     const auto magnifierShape = RdpCursorClassifier::classifyShape(makeMagnifierCursorFrame(), PointI{5, 5});
-    assert(!magnifierShape.has_value()
-        || (*magnifierShape != CursorKind::SizeNWSE && *magnifierShape != CursorKind::SizeNESW));
+    assert(!magnifierShape.has_value());
+
+    const CursorInfo magnifierCursor = RdpCursorClassifier::createCursor(makeMagnifierCursorFrame(), PointI{5, 5});
+    assert(magnifierCursor.kind == CursorKind::Custom);
+    if (magnifierCursor.ownsHandle && magnifierCursor.handle)
+        DestroyCursor(magnifierCursor.handle);
 
     return 0;
 }
