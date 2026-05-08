@@ -5,6 +5,7 @@
 #include "session/SessionManager.h"
 #include "ui/AboutDialog.h"
 #include "ui/MainWindowActivation.h"
+#include "ui/MainWindowShortcuts.h"
 #include "ui/Win10Theme.h"
 #include "resources/resource.h"
 
@@ -114,15 +115,20 @@ BOOL MainWindow::PreTranslateMessage(MSG *msg)
             setFullScreen(false);
             return TRUE;
         }
-        if (GetAsyncKeyState(VK_CONTROL) & 0x8000) {
-            if (msg->wParam == 'N') {
+        const auto shortcutAction = ui::shortcutActionForKey(
+            (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0,
+            (GetAsyncKeyState(VK_MENU) & 0x8000) != 0,
+            static_cast<unsigned int>(msg->wParam));
+        switch (shortcutAction) {
+        case ui::MainWindowShortcutAction::NewConnection:
                 SendMessage(WM_COMMAND, ID_MAIN_NEW, 0);
                 return TRUE;
-            }
-            if (msg->wParam == 'O') {
+        case ui::MainWindowShortcutAction::OpenConnections:
                 openConnectionDialog();
                 return TRUE;
-            }
+        case ui::MainWindowShortcutAction::None:
+        default:
+            break;
         }
     }
 
