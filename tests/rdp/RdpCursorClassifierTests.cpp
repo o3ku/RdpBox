@@ -160,6 +160,34 @@ FrameBuffer makeVerticalLineCursorFrame()
 
     return frame;
 }
+
+FrameBuffer makeMagnifierCursorFrame()
+{
+    FrameBuffer frame = makeCursorFrame(16, 16);
+
+    const PointI lensPixels[] = {
+        {4, 1}, {5, 1}, {6, 1},
+        {3, 2}, {7, 2},
+        {2, 3}, {8, 3},
+        {2, 4}, {8, 4},
+        {2, 5}, {8, 5},
+        {3, 6}, {7, 6},
+        {4, 7}, {5, 7}, {6, 7}
+    };
+
+    for (const auto &pixel : lensPixels)
+        setPixel(frame, pixel.x, pixel.y);
+
+    const PointI handlePixels[] = {
+        {7, 7}, {8, 8}, {9, 9}, {10, 10}, {11, 11},
+        {10, 11}, {11, 12}, {12, 13}
+    };
+
+    for (const auto &pixel : handlePixels)
+        setPixel(frame, pixel.x, pixel.y);
+
+    return frame;
+}
 }
 
 int main()
@@ -189,6 +217,24 @@ int main()
     const auto verticalLineShape = RdpCursorClassifier::classifyShape(makeVerticalLineCursorFrame(), PointI{8, 8});
     assert(!verticalLineShape.has_value()
         || (*verticalLineShape != CursorKind::SizeNS && *verticalLineShape != CursorKind::SizeWE));
+
+    const FrameBuffer sizeNwseFrame = cursorFrameFromHandle(LoadCursor(nullptr, IDC_SIZENWSE));
+    assert(!sizeNwseFrame.empty());
+
+    const auto sizeNwseShape = RdpCursorClassifier::classifyShape(sizeNwseFrame, PointI{0, 0});
+    assert(sizeNwseShape.has_value());
+    assert(*sizeNwseShape == CursorKind::SizeNWSE);
+
+    const FrameBuffer sizeNeswFrame = cursorFrameFromHandle(LoadCursor(nullptr, IDC_SIZENESW));
+    assert(!sizeNeswFrame.empty());
+
+    const auto sizeNeswShape = RdpCursorClassifier::classifyShape(sizeNeswFrame, PointI{0, 0});
+    assert(sizeNeswShape.has_value());
+    assert(*sizeNeswShape == CursorKind::SizeNESW);
+
+    const auto magnifierShape = RdpCursorClassifier::classifyShape(makeMagnifierCursorFrame(), PointI{5, 5});
+    assert(!magnifierShape.has_value()
+        || (*magnifierShape != CursorKind::SizeNWSE && *magnifierShape != CursorKind::SizeNESW));
 
     return 0;
 }
