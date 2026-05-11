@@ -78,6 +78,9 @@ void MainWindow::OnSize(UINT type, int cx, int cy)
     layoutChildren();
     invalidateCaptionButtons();
     RedrawWindow(nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_FRAME | RDW_ALLCHILDREN);
+
+    if (ui::shouldPersistWindowStateOnSize(type, m_inMoveOrSizeLoop))
+        saveWindowState();
 }
 
 void MainWindow::OnClose()

@@ -199,8 +199,13 @@ LRESULT MainWindow::OnNcCalcSize(WPARAM wParam, LPARAM lParam)
 
 LRESULT MainWindow::OnNcLButtonDown(WPARAM hitTest, LPARAM)
 {
-    if (hitTest >= HTLEFT && hitTest <= HTBOTTOMRIGHT && m_sessionManager)
-        m_sessionManager->setResizeSuppressed(true);
+    if (ui::shouldTrackWindowStateInteraction(WM_NCLBUTTONDOWN, hitTest)) {
+        m_inMoveOrSizeLoop = true;
+        if (m_sessionManager
+            && ui::shouldSuppressSessionResizeDuringWindowInteraction(WM_NCLBUTTONDOWN, hitTest)) {
+            m_sessionManager->setResizeSuppressed(true);
+        }
+    }
 
     return Default();
 }

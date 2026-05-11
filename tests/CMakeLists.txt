@@ -119,3 +119,13 @@ target_include_directories(MainWindowShortcutsTests PRIVATE
 )
 
 add_test(NAME MainWindowShortcutsTests COMMAND MainWindowShortcutsTests)
+
+add_executable(MainWindowStatePersistenceTests
+    ui/MainWindowStatePersistenceTests.cpp
+)
+
+target_include_directories(MainWindowStatePersistenceTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME MainWindowStatePersistenceTests COMMAND MainWindowStatePersistenceTests)

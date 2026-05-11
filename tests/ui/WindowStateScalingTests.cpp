@@ -58,5 +58,16 @@ int main()
         assert(restoredRect.top >= targetWorkArea.top);
     }
 
+    {
+        const RECT workArea = makeRect(0, 0, 1920, 1080);
+        const RECT windowRect = makeRect(160, 90, 1120, 630);
+
+        WindowState state;
+        const bool saved = WindowStateScaling::saveToMonitorWorkArea(windowRect, workArea, SW_SHOWMINIMIZED, state);
+        assert(saved);
+        assert(state.valid);
+        assert(state.showCmd == SW_SHOWNORMAL);
+    }
+
     return 0;
 }

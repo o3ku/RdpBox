@@ -22,6 +22,11 @@ int scaleToPixels(double ratio, int span)
 {
     return static_cast<int>(std::lround(ratio * static_cast<double>(span)));
 }
+
+int persistedShowCommand(int showCmd)
+{
+    return showCmd == SW_SHOWMINIMIZED ? SW_SHOWNORMAL : showCmd;
+}
 }
 
 namespace WindowStateScaling
@@ -42,7 +47,7 @@ bool saveToMonitorWorkArea(const RECT &windowRect,
     state.topRatio = static_cast<double>(windowRect.top - workArea.top) / static_cast<double>(workHeight);
     state.widthRatio = static_cast<double>(windowWidth) / static_cast<double>(workWidth);
     state.heightRatio = static_cast<double>(windowHeight) / static_cast<double>(workHeight);
-    state.showCmd = showCmd;
+    state.showCmd = persistedShowCommand(showCmd);
     state.valid = true;
     return true;
 }
