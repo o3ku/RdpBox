@@ -158,10 +158,16 @@ void MainWindow::OnContextMenu(CWnd *window, CPoint point)
 
 LRESULT MainWindow::OnExitSizeMove(WPARAM, LPARAM)
 {
+    const bool shouldPersist = ui::shouldPersistWindowStateOnExitSizeMove(m_inMoveOrSizeLoop);
+    m_inMoveOrSizeLoop = false;
+
     if (m_sessionManager) {
         m_sessionManager->setResizeSuppressed(false);
         m_sessionManager->flushPendingResize();
     }
+
+    if (shouldPersist)
+        saveWindowState();
 
     return 0;
 }

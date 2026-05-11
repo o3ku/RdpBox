@@ -89,7 +89,7 @@ int main()
         state.topRatio = 0.25;
         state.widthRatio = 0.5;
         state.heightRatio = 0.75;
-        state.monitorDeviceName = L"\\.\DISPLAY7";
+        state.monitorDeviceName = L"\\\\.\\DISPLAY7";
         state.showCmd = 3;
         state.valid = true;
         repository.saveWindowState(state);
@@ -100,7 +100,7 @@ int main()
         assert(stored.topRatio == 0.25);
         assert(stored.widthRatio == 0.5);
         assert(stored.heightRatio == 0.75);
-        assert(stored.monitorDeviceName == L"\\.\DISPLAY7");
+        assert(stored.monitorDeviceName == L"\\\\.\\DISPLAY7");
         assert(stored.showCmd == 3);
 
         cJSON *root = parseJsonFile(filePath);
@@ -113,12 +113,52 @@ int main()
         assert(cJSON_GetObjectItemCaseSensitive(windowState, "heightRatio"));
         cJSON *monitorDeviceName = cJSON_GetObjectItemCaseSensitive(windowState, "monitorDeviceName");
         assert(monitorDeviceName && cJSON_IsString(monitorDeviceName));
-        assert(std::string(monitorDeviceName->valuestring) == "\\.\DISPLAY7");
+        assert(std::string(monitorDeviceName->valuestring) == "\\\\.\\DISPLAY7");
         assert(!cJSON_GetObjectItemCaseSensitive(windowState, "left"));
         assert(!cJSON_GetObjectItemCaseSensitive(windowState, "top"));
         assert(!cJSON_GetObjectItemCaseSensitive(windowState, "right"));
         assert(!cJSON_GetObjectItemCaseSensitive(windowState, "bottom"));
         cJSON_Delete(root);
+    }
+
+    {
+        const std::filesystem::path mixedStatePath =
+            std::filesystem::temp_directory_path()
+            / wideFromUtf8("RdpBox-ProfileRepositoryWindowStatePersistenceTests-" + createGuidString() + ".json");
+        std::filesystem::remove(mixedStatePath);
+
+        ProfileRepository repository(mixedStatePath.wstring());
+
+        WindowState state;
+        state.leftRatio = 0.2;
+        state.topRatio = 0.3;
+        state.widthRatio = 0.4;
+        state.heightRatio = 0.5;
+        state.monitorDeviceName = L"\\\\.\\DISPLAY9";
+        state.showCmd = 1;
+        state.valid = true;
+        repository.saveWindowState(state);
+
+        Profile profile = Profile::create();
+        profile.name = L"state-preserved";
+        profile.host = L"10.0.0.11";
+        repository.addProfile(profile);
+
+        const WindowState stored = repository.loadWindowState();
+        assert(stored.valid);
+        assert(stored.leftRatio == 0.2);
+        assert(stored.topRatio == 0.3);
+        assert(stored.widthRatio == 0.4);
+        assert(stored.heightRatio == 0.5);
+        assert(stored.monitorDeviceName == L"\\\\.\\DISPLAY9");
+        assert(stored.showCmd == 1);
+
+        cJSON *root = parseJsonFile(mixedStatePath);
+        assert(root && cJSON_IsObject(root));
+        assert(cJSON_GetObjectItemCaseSensitive(root, "windowState"));
+        cJSON_Delete(root);
+
+        std::filesystem::remove(mixedStatePath);
     }
 
     {

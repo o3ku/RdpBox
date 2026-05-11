@@ -84,6 +84,24 @@ void from_json(const nlohmann::json &j, Profile &p)
 
 namespace
 {
+nlohmann::json loadRepositoryRoot(const std::wstring &filePath)
+{
+    const std::string contents = AppPaths::readFileContent(filePath);
+    if (contents.empty())
+        return nlohmann::json::object();
+
+    nlohmann::json root = nlohmann::json::parse(contents, nullptr, false);
+    if (!root.is_object())
+        return nlohmann::json::object();
+
+    return root;
+}
+
+void saveRepositoryRoot(const std::wstring &filePath, const nlohmann::json &root)
+{
+    AppPaths::writeFileContent(filePath, root.dump(4));
+}
+
 bool containsInsensitive(const std::wstring &haystack, const std::wstring &needle)
 {
     if (needle.empty())
@@ -169,14 +187,7 @@ std::vector<Profile> ProfileRepository::search(const std::wstring &query) const
 
 void ProfileRepository::load()
 {
-    const std::string contents = AppPaths::readFileContent(m_filePath);
-    if (contents.empty())
-        return;
-
-    auto root = nlohmann::json::parse(contents, nullptr, false);
-    if (!root.is_object())
-        return;
-
+    const nlohmann::json root = loadRepositoryRoot(m_filePath);
     const auto it = root.find("profiles");
     if (it == root.end() || !it->is_array())
         return;
@@ -190,20 +201,16 @@ void ProfileRepository::load()
 
 void ProfileRepository::save() const
 {
-    nlohmann::json root;
+    nlohmann::json root = loadRepositoryRoot(m_filePath);
     root["portableMode"] = PasswordProtection::mode() == PasswordProtection::Mode::Portable;
     root["profiles"] = m_profiles;
 
-    AppPaths::writeFileContent(m_filePath, root.dump(4));
+    saveRepositoryRoot(m_filePath, root);
 }
 
 WindowState ProfileRepository::loadWindowState() const
 {
-    const std::string contents = AppPaths::readFileContent(m_filePath);
-    if (contents.empty())
-        return {};
-
-    auto root = nlohmann::json::parse(contents, nullptr, false);
+    const nlohmann::json root = loadRepositoryRoot(m_filePath);
     if (!root.is_object() || !root.contains("windowState"))
         return {};
 
@@ -216,15 +223,7 @@ WindowState ProfileRepository::loadWindowState() const
 
 void ProfileRepository::saveWindowState(const WindowState &state) const
 {
-    const std::string contents = AppPaths::readFileContent(m_filePath);
-
-    nlohmann::json root;
-    if (!contents.empty()) {
-        root = nlohmann::json::parse(contents, nullptr, false);
-        if (!root.is_object())
-            root = nlohmann::json::object();
-    }
-
+    nlohmann::json root = loadRepositoryRoot(m_filePath);
     root["windowState"] = state;
-    AppPaths::writeFileContent(m_filePath, root.dump(4));
+    saveRepositoryRoot(m_filePath, root);
 }

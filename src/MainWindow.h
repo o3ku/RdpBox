@@ -6,6 +6,7 @@
 #include <memory>
 
 #include "ui/BrowserTabBar.h"
+#include "ui/MainWindowStatePersistence.h"
 #include "ui/SessionHostWnd.h"
 
 #include <string>
@@ -90,4 +91,5 @@ private:
     int m_hoverCaptionButton = 0;
     bool m_trackingMouse = false;
     bool m_logoHovered = false;
+    bool m_inMoveOrSizeLoop = false;
 };
