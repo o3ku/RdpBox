@@ -178,6 +178,14 @@ LRESULT MainWindow::OnOpenConnectionsMessage(WPARAM, LPARAM)
     return 0;
 }
 
+LRESULT MainWindow::OnPowerBroadcast(WPARAM wParam, LPARAM)
+{
+    if ((wParam == PBT_APMRESUMEAUTOMATIC || wParam == PBT_APMRESUMESUSPEND) && m_sessionManager)
+        m_sessionManager->handleHostResume();
+
+    return TRUE;
+}
+
 void MainWindow::openConnectionDialog()
 {
     if (!m_profileRepository)

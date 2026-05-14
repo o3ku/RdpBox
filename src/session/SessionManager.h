@@ -30,6 +30,7 @@ public:
     void layoutSessions();
     void setResizeSuppressed(bool suppressed);
     void flushPendingResize();
+    void handleHostResume();
     void setSessionConnectedCallback(SessionConnectedCallback callback);
 
     std::string sessionIdByTabIndex(int index) const;

@@ -31,6 +31,29 @@ int persistedShowCommand(int showCmd)
 
 namespace WindowStateScaling
 {
+RECT workspaceRectForMonitorWorkArea(const RECT &monitorRect,
+                                     const RECT &workAreaRect)
+{
+    RECT workspaceRect = workAreaRect;
+
+    const int topInset = static_cast<int>(workAreaRect.top - monitorRect.top);
+    const int leftInset = static_cast<int>(workAreaRect.left - monitorRect.left);
+    const int rightInset = static_cast<int>(monitorRect.right - workAreaRect.right);
+    const int bottomInset = static_cast<int>(monitorRect.bottom - workAreaRect.bottom);
+
+    if (topInset > 0) {
+        ::OffsetRect(&workspaceRect, 0, -topInset);
+    } else if (leftInset > 0) {
+        ::OffsetRect(&workspaceRect, -leftInset, 0);
+    } else if (rightInset > 0) {
+        ::OffsetRect(&workspaceRect, rightInset, 0);
+    } else if (bottomInset > 0) {
+        ::OffsetRect(&workspaceRect, 0, bottomInset);
+    }
+
+    return workspaceRect;
+}
+
 bool saveToMonitorWorkArea(const RECT &windowRect,
                            const RECT &workArea,
                            int showCmd,

@@ -17,6 +17,7 @@
 #include <freerdp3/freerdp/codecs.h>
 #include <freerdp3/freerdp/constants.h>
 #include <freerdp3/freerdp/input.h>
+#include <freerdp3/freerdp/update.h>
 
 #include <windows.h>
 
@@ -504,6 +505,23 @@ void FreeRdpProcess::requestResize(SizeI size)
     layout.PhysicalHeight = layout.Height;
 
     context->disp->SendMonitorLayout(context->disp, 1, &layout);
+}
+
+void FreeRdpProcess::requestRefresh()
+{
+    if (!m_d->context || !m_d->context->update || !m_d->context->update->RefreshRect)
+        return;
+
+    const SizeI desktop = desktopSize();
+    if (desktop.width <= 0 || desktop.height <= 0)
+        return;
+
+    RECTANGLE_16 area = {};
+    area.left = 0;
+    area.top = 0;
+    area.right = static_cast<UINT16>(std::clamp(desktop.width, 0, 0xFFFF));
+    area.bottom = static_cast<UINT16>(std::clamp(desktop.height, 0, 0xFFFF));
+    m_d->context->update->RefreshRect(m_d->context, 1, &area);
 }
 
 void FreeRdpProcess::writeFrameFromContext(void *rawContext)

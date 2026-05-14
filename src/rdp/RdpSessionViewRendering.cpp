@@ -183,6 +183,13 @@ void CRdpSessionView::OnPaint()
     if (m_process) {
         FrameBuffer nextFrame;
         if (m_process->consumeFrameIfNewer(m_cachedFrameGeneration, nextFrame)) {
+            if (m_resumeRecovery.awaitingFrame()) {
+                m_resumeRecovery.onFrameArrived();
+                KillTimer(kResumeRecoveryTimerId);
+                if (m_overlayText == L"Resuming session...")
+                    hideOverlayAfterFramePresent = true;
+            }
+
             const FrameBuffer &frame = nextFrame;
             captureFrameIfRequested(frame);
 

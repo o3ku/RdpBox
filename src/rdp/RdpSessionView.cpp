@@ -16,6 +16,7 @@ namespace
 {
 constexpr UINT_PTR kResizeTimerId = 1;
 constexpr UINT_PTR kMouseMoveTimerId = 2;
+constexpr UINT kResumeRecoveryTimeoutMs = 2500;
 constexpr int kInitialFrameDiscardWithCodec = 3;
 constexpr int kInitialFrameDiscardNoCodec = 5;
 
@@ -258,6 +259,23 @@ void CRdpSessionView::flushPendingResize()
     m_process->requestResize(m_pendingResize);
 }
 
+void CRdpSessionView::handleHostResume()
+{
+    if (!m_process)
+        return;
+
+    const auto action = m_resumeRecovery.onResume(
+        m_connected && m_process->state() == FreeRdpProcess::State::Running,
+        IsWindowVisible() != FALSE);
+    if (action == RdpResumeRecovery::Action::RequestRefresh)
+        beginResumeRecovery();
+}
+
+void CRdpSessionView::handleBecameVisible()
+{
+    requestDeferredResumeRefreshIfNeeded();
+}
+
 void CRdpSessionView::bindProcessCallbacks(std::uintptr_t generation)
 {
     if (!m_process)
@@ -328,6 +346,8 @@ void CRdpSessionView::startProcess()
     if (!m_process || !GetSafeHwnd())
         return;
 
+    KillTimer(kResumeRecoveryTimerId);
+    m_resumeRecovery.reset();
     m_connected = false;
     m_cachedFrameGeneration = 0;
     FrameBufferMemory::release(m_cachedFrame);
@@ -366,6 +386,7 @@ void CRdpSessionView::startProcess()
 void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
 {
     KillTimer(kResizeTimerId);
+    KillTimer(kResumeRecoveryTimerId);
     if (m_mouseMoveTimerActive) {
         KillTimer(kMouseMoveTimerId);
         m_mouseMoveTimerActive = false;
@@ -398,6 +419,7 @@ void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
     m_resizeBurstTracker.reset();
     m_modifierTracker.reset();
     m_mouseMoveCoalescer.reset();
+    m_resumeRecovery.reset();
     if (showDisconnectedOverlay)
         showOverlay(L"Disconnected - Click to Reconnect");
     releaseCursorHandle();
@@ -419,6 +441,8 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
             clearOverlay();
         m_modifierTracker.reset();
         m_resizeBurstTracker.reset();
+        KillTimer(kResumeRecoveryTimerId);
+        m_resumeRecovery.reset();
         updateCursorFromProcess();
         setFocusToFreeRdp();
         if (m_process)
@@ -434,6 +458,8 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
         m_frameGateActive = false;
         m_frameGateRemaining = 0;
         KillTimer(kResizeTimerId);
+        KillTimer(kResumeRecoveryTimerId);
+        m_resumeRecovery.reset();
         {
             CString overlayText = L"Disconnected";
             if (m_process) {
@@ -502,6 +528,31 @@ void CRdpSessionView::beginResolutionUpdate()
     m_frameGateRemaining = kInitialFrameDiscardWithCodec;
     beginFrameCapture(L"resize");
     showOverlay(L"Reconnecting...");
+}
+
+void CRdpSessionView::beginResumeRecovery()
+{
+    if (!m_process)
+        return;
+
+    beginFrameCapture(L"resume");
+    showOverlay(L"Resuming session...");
+    m_process->requestRefresh();
+    SetTimer(kResumeRecoveryTimerId, kResumeRecoveryTimeoutMs, nullptr);
+}
+
+void CRdpSessionView::requestDeferredResumeRefreshIfNeeded()
+{
+    if (!m_process)
+        return;
+
+    if (m_resumeRecovery.onBecameVisible(
+            m_connected && m_process->state() == FreeRdpProcess::State::Running)
+        != RdpResumeRecovery::Action::RequestRefresh) {
+        return;
+    }
+
+    beginResumeRecovery();
 }
 
 SizeI CRdpSessionView::currentViewSize() const
@@ -579,6 +630,13 @@ void CRdpSessionView::OnTimer(UINT_PTR timerId)
 
         KillTimer(kMouseMoveTimerId);
         m_mouseMoveTimerActive = false;
+        return;
+    }
+
+    if (timerId == kResumeRecoveryTimerId) {
+        KillTimer(kResumeRecoveryTimerId);
+        if (m_resumeRecovery.onTimeout() == RdpResumeRecovery::Action::Reconnect)
+            reconnect();
         return;
     }
 

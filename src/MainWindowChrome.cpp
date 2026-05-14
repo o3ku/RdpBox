@@ -82,7 +82,7 @@ bool monitorWorkAreaForRect(const RECT &rect, RECT &workArea)
     return true;
 }
 
-bool monitorInfoForRect(const RECT &rect, RECT &workArea, std::wstring &deviceName)
+bool monitorInfoForRect(const RECT &rect, RECT &monitorRect, RECT &workArea, std::wstring &deviceName)
 {
     const HMONITOR monitor = ::MonitorFromRect(&rect, MONITOR_DEFAULTTONEAREST);
     if (!monitor)
@@ -93,6 +93,7 @@ bool monitorInfoForRect(const RECT &rect, RECT &workArea, std::wstring &deviceNa
     if (!::GetMonitorInfoW(monitor, &info))
         return false;
 
+    monitorRect = info.rcMonitor;
     workArea = info.rcWork;
     deviceName = info.szDevice;
     return true;
@@ -101,6 +102,7 @@ bool monitorInfoForRect(const RECT &rect, RECT &workArea, std::wstring &deviceNa
 struct MonitorLookupContext
 {
     const wchar_t *deviceName = nullptr;
+    RECT monitorRect = {};
     RECT workArea = {};
     bool found = false;
 };
@@ -119,12 +121,13 @@ BOOL CALLBACK findMonitorByDeviceName(HMONITOR monitor, HDC, LPRECT, LPARAM user
     if (::wcscmp(info.szDevice, context->deviceName) != 0)
         return TRUE;
 
+    context->monitorRect = info.rcMonitor;
     context->workArea = info.rcWork;
     context->found = true;
     return FALSE;
 }
 
-bool monitorWorkAreaForDeviceName(const std::wstring &deviceName, RECT &workArea)
+bool monitorInfoForDeviceName(const std::wstring &deviceName, RECT &monitorRect, RECT &workArea)
 {
     if (deviceName.empty())
         return false;
@@ -135,11 +138,12 @@ bool monitorWorkAreaForDeviceName(const std::wstring &deviceName, RECT &workArea
     if (!context.found)
         return false;
 
+    monitorRect = context.monitorRect;
     workArea = context.workArea;
     return true;
 }
 
-bool activeMonitorWorkArea(RECT &workArea)
+bool activeMonitorInfo(RECT &monitorRect, RECT &workArea)
 {
     POINT point = {};
     if (!::GetCursorPos(&point))
@@ -154,6 +158,7 @@ bool activeMonitorWorkArea(RECT &workArea)
     if (!::GetMonitorInfoW(monitor, &info))
         return false;
 
+    monitorRect = info.rcMonitor;
     workArea = info.rcWork;
     return true;
 }
@@ -394,14 +399,17 @@ void MainWindow::saveWindowState() const
     if (!const_cast<MainWindow *>(this)->GetWindowPlacement(&placement))
         return;
 
+    RECT monitorRect = {};
     RECT workArea = {};
     std::wstring deviceName;
-    if (!monitorInfoForRect(placement.rcNormalPosition, workArea, deviceName))
+    if (!monitorInfoForRect(placement.rcNormalPosition, monitorRect, workArea, deviceName))
         return;
+
+    const RECT workspaceRect = WindowStateScaling::workspaceRectForMonitorWorkArea(monitorRect, workArea);
 
     WindowState state;
     if (!WindowStateScaling::saveToMonitorWorkArea(placement.rcNormalPosition,
-                                                   workArea,
+                                                   workspaceRect,
                                                    static_cast<int>(placement.showCmd),
                                                    state)) {
         return;
@@ -421,14 +429,16 @@ bool MainWindow::restoreWindowState()
     if (!state.valid)
         return false;
 
+    RECT monitorRect = {};
     RECT workArea = {};
-    if (!monitorWorkAreaForDeviceName(state.monitorDeviceName, workArea)
-        && !activeMonitorWorkArea(workArea)) {
+    if (!monitorInfoForDeviceName(state.monitorDeviceName, monitorRect, workArea)
+        && !activeMonitorInfo(monitorRect, workArea)) {
         return false;
     }
 
+    const RECT workspaceRect = WindowStateScaling::workspaceRectForMonitorWorkArea(monitorRect, workArea);
     RECT restoredRect = {};
-    if (!WindowStateScaling::restoreFromMonitorWorkArea(state, workArea, restoredRect))
+    if (!WindowStateScaling::restoreFromMonitorWorkArea(state, workspaceRect, restoredRect))
         return false;
 
     WINDOWPLACEMENT placement = {};
@@ -438,6 +448,26 @@ bool MainWindow::restoreWindowState()
 
     SetWindowPlacement(&placement);
     return true;
+}
+
+LRESULT MainWindow::OnDpiChanged(WPARAM, LPARAM lParam)
+{
+    if (!GetSafeHwnd() || !lParam)
+        return 0;
+
+    const auto *suggestedRect = reinterpret_cast<const RECT *>(lParam);
+    SetWindowPos(nullptr,
+                 suggestedRect->left,
+                 suggestedRect->top,
+                 suggestedRect->right - suggestedRect->left,
+                 suggestedRect->bottom - suggestedRect->top,
+                 SWP_NOZORDER | SWP_NOACTIVATE);
+
+    applyUiFont();
+    refreshDwmFrame();
+    layoutChildren();
+    invalidateCaptionButtons();
+    return 0;
 }
 
 CRect MainWindow::captionButtonRectFor(int hitCode) const
