@@ -151,6 +151,14 @@ void SessionManager::flushPendingResize()
     }
 }
 
+void SessionManager::handleHostResume()
+{
+    for (auto &session : m_sessions) {
+        if (session.view && session.view->GetSafeHwnd())
+            session.view->handleHostResume();
+    }
+}
+
 std::string SessionManager::sessionIdByTabIndex(int index) const
 {
     if (index < 0 || index >= static_cast<int>(m_sessions.size()))
@@ -216,8 +224,10 @@ void SessionManager::showSessionAtIndex(int index)
             activeView = m_sessions[currentIndex].view.get();
     }
 
-    if (activeView && activeView->GetSafeHwnd())
+    if (activeView && activeView->GetSafeHwnd()) {
+        activeView->handleBecameVisible();
         activeView->SetFocus();
+    }
 }
 
 void SessionManager::touchLastConnectedAt(const std::string &sessionId)

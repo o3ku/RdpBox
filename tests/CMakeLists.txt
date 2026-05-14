@@ -68,6 +68,17 @@ target_link_libraries(RdpCursorClassifierTests PRIVATE
 
 add_test(NAME RdpCursorClassifierTests COMMAND RdpCursorClassifierTests)
 
+add_executable(RdpResumeRecoveryTests
+    rdp/RdpResumeRecoveryTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/rdp/RdpResumeRecovery.cpp
+)
+
+target_include_directories(RdpResumeRecoveryTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME RdpResumeRecoveryTests COMMAND RdpResumeRecoveryTests)
+
 add_executable(ProfileRepositoryTests
     profiles/ProfileRepositoryTests.cpp
     ${CMAKE_SOURCE_DIR}/src/common/AppPaths.cpp

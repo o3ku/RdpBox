@@ -13,6 +13,7 @@
 #include "rdp/FreeRdpProcess.h"
 #include "rdp/RdpModifierSyncTracker.h"
 #include "rdp/RdpMouseMoveCoalescer.h"
+#include "rdp/RdpResumeRecovery.h"
 #include "rdp/RdpResizeBurstTracker.h"
 
 class CRdpSessionView : public CWnd
@@ -24,6 +25,7 @@ public:
     static constexpr UINT WM_APP_RDP_FRAME = WM_APP + 102;
     static constexpr UINT WM_APP_RDP_CURSOR = WM_APP + 103;
     static constexpr UINT WM_APP_RDP_CERT = WM_APP + 104;
+    static constexpr UINT_PTR kResumeRecoveryTimerId = 3;
 
     CRdpSessionView();
     ~CRdpSessionView() override;
@@ -39,6 +41,8 @@ public:
 
     void setResizeSuppressed(bool suppressed);
     void flushPendingResize();
+    void handleHostResume();
+    void handleBecameVisible();
 
     bool canCaptureSystemKeys() const;
     void forwardNativeKeyMessage(std::uint32_t message, std::uintptr_t wParam, std::intptr_t lParam);
@@ -85,6 +89,8 @@ private:
     void showOverlay(const CString &text);
     void clearOverlay();
     void beginResolutionUpdate();
+    void beginResumeRecovery();
+    void requestDeferredResumeRefreshIfNeeded();
     void beginFrameCapture(const wchar_t *reason);
     void captureFrameIfRequested(const FrameBuffer &frame);
     void syncMouseModifiers(UINT mouseFlags);
@@ -106,6 +112,7 @@ private:
     RdpResizeBurstTracker m_resizeBurstTracker;
     RdpMouseMoveCoalescer m_mouseMoveCoalescer;
     bool m_mouseMoveTimerActive = false;
+    RdpResumeRecovery m_resumeRecovery;
     Profile m_profile;
     CString m_overlayText;
     CFont m_overlayFont;

@@ -7,6 +7,8 @@
 #include <memory>
 #include <string>
 
+#include <winpr/wtypes.h>
+
 class FreeRdpProcess
 {
 public:
@@ -66,6 +68,7 @@ public:
     void sendMouseButton(MouseButton button, bool down, PointI pos, SizeI viewSize);
     void sendWheel(PointI angleDelta, PointI pos, SizeI viewSize);
     void requestResize(SizeI size);
+    void requestRefresh();
 
     ConnectionInfo connectionInfo() const;
     std::string lastDisconnectError() const;

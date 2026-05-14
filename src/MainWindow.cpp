@@ -38,6 +38,8 @@ BEGIN_MESSAGE_MAP(MainWindow, CFrameWnd)
     ON_MESSAGE(WM_EXITSIZEMOVE, &MainWindow::OnExitSizeMove)
     ON_MESSAGE(WM_APP_OPEN_CONNECTIONS, &MainWindow::OnOpenConnectionsMessage)
     ON_MESSAGE(WM_DWMCOMPOSITIONCHANGED, &MainWindow::OnDwmCompositionChanged)
+    ON_MESSAGE(WM_DPICHANGED, &MainWindow::OnDpiChanged)
+    ON_MESSAGE(WM_POWERBROADCAST, &MainWindow::OnPowerBroadcast)
 END_MESSAGE_MAP()
 
 MainWindow::MainWindow() = default;

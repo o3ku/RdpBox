@@ -17,6 +17,16 @@ RECT makeRect(int left, int top, int right, int bottom)
 int main()
 {
     {
+        const RECT monitorRect = makeRect(0, 0, 1920, 1080);
+        const RECT workArea = makeRect(0, 40, 1920, 1080);
+        const RECT workspace = WindowStateScaling::workspaceRectForMonitorWorkArea(monitorRect, workArea);
+        assert(workspace.left == 0);
+        assert(workspace.top == 0);
+        assert(workspace.right == 1920);
+        assert(workspace.bottom == 1040);
+    }
+
+    {
         const RECT workArea = makeRect(0, 0, 1920, 1080);
         const RECT windowRect = makeRect(192, 108, 1152, 648);
 

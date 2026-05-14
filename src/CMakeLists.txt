@@ -59,14 +59,16 @@ set(RDPBOX_SOURCES
     rdp/FreeRdpProcess.cpp
     rdp/FreeRdpProcessNative.h
     rdp/FreeRdpProcessNative.cpp
-    rdp/RdpInputModifiers.h
-    rdp/RdpInputModifiers.cpp
     rdp/RdpCursorClassifier.h
     rdp/RdpCursorClassifier.cpp
+    rdp/RdpInputModifiers.h
+    rdp/RdpInputModifiers.cpp
     rdp/RdpModifierSyncTracker.h
     rdp/RdpModifierSyncTracker.cpp
     rdp/RdpMouseMoveCoalescer.h
     rdp/RdpMouseMoveCoalescer.cpp
+    rdp/RdpResumeRecovery.h
+    rdp/RdpResumeRecovery.cpp
     rdp/RdpResizeBurstTracker.h
     rdp/RdpResizeBurstTracker.cpp
     rdp/FrameBufferMemory.h

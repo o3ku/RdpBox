@@ -51,6 +51,8 @@ protected:
     afx_msg LRESULT OnExitSizeMove(WPARAM, LPARAM);
     afx_msg LRESULT OnOpenConnectionsMessage(WPARAM, LPARAM);
     afx_msg LRESULT OnDwmCompositionChanged(WPARAM, LPARAM);
+    afx_msg LRESULT OnDpiChanged(WPARAM, LPARAM);
+    afx_msg LRESULT OnPowerBroadcast(WPARAM, LPARAM);
     afx_msg void OnLButtonDown(UINT flags, CPoint point);
     afx_msg void OnLButtonDblClk(UINT flags, CPoint point);
     afx_msg void OnMouseMove(UINT flags, CPoint point);
