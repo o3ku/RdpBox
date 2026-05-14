@@ -1,5 +1,6 @@
 #include "RdpSessionView.h"
 
+#include "rdp/RdpInputModifiers.h"
 #include "ui/ParentResizeForwarder.h"
 
 #include <vector>
@@ -10,13 +11,14 @@ constexpr UINT_PTR kMouseMoveTimerId = 2;
 constexpr UINT kMouseMoveCoalesceMs = 16;
 }
 
-void CRdpSessionView::syncMouseModifiers()
+void CRdpSessionView::syncMouseModifiers(UINT mouseFlags)
 {
     if (!m_process)
         return;
 
     const std::vector<RdpModifierSyncTracker::KeyAction> actions =
-        m_modifierTracker.synchronize(currentModifiers());
+        m_modifierTracker.synchronize(
+            rdp::mouseInputModifiers(mouseFlags, currentModifiers()));
     for (const auto &action : actions)
         m_process->sendKeyMessage(action.message, action.virtualKey, 0);
 }
@@ -55,7 +57,7 @@ void CRdpSessionView::flushPendingMouseMove()
 
 void CRdpSessionView::OnMouseMove(UINT flags, CPoint point)
 {
-    syncMouseModifiers();
+    syncMouseModifiers(flags);
     if (!m_process)
         return;
 
@@ -84,7 +86,7 @@ void CRdpSessionView::OnLButtonDown(UINT flags, CPoint point)
 
     flushPendingMouseMove();
     setFocusToFreeRdp();
-    syncMouseModifiers();
+    syncMouseModifiers(flags);
     if (m_process)
         m_process->sendMouseButton(MouseButton::Left, true, PointI{point.x, point.y}, currentViewSize());
 }
@@ -92,7 +94,7 @@ void CRdpSessionView::OnLButtonDown(UINT flags, CPoint point)
 void CRdpSessionView::OnLButtonUp(UINT flags, CPoint point)
 {
     flushPendingMouseMove();
-    syncMouseModifiers();
+    syncMouseModifiers(flags);
     if (m_process)
         m_process->sendMouseButton(MouseButton::Left, false, PointI{point.x, point.y}, currentViewSize());
 }
@@ -106,7 +108,7 @@ void CRdpSessionView::OnLButtonDblClk(UINT flags, CPoint point)
 
     flushPendingMouseMove();
     setFocusToFreeRdp();
-    syncMouseModifiers();
+    syncMouseModifiers(flags);
     if (m_process)
         m_process->sendMouseButton(MouseButton::Left, true, PointI{point.x, point.y}, currentViewSize());
 }
@@ -115,7 +117,7 @@ void CRdpSessionView::OnRButtonDown(UINT flags, CPoint point)
 {
     flushPendingMouseMove();
     setFocusToFreeRdp();
-    syncMouseModifiers();
+    syncMouseModifiers(flags);
     if (m_process)
         m_process->sendMouseButton(MouseButton::Right, true, PointI{point.x, point.y}, currentViewSize());
 }
@@ -123,7 +125,7 @@ void CRdpSessionView::OnRButtonDown(UINT flags, CPoint point)
 void CRdpSessionView::OnRButtonUp(UINT flags, CPoint point)
 {
     flushPendingMouseMove();
-    syncMouseModifiers();
+    syncMouseModifiers(flags);
     if (m_process)
         m_process->sendMouseButton(MouseButton::Right, false, PointI{point.x, point.y}, currentViewSize());
 }
@@ -137,7 +139,7 @@ void CRdpSessionView::OnMButtonDown(UINT flags, CPoint point)
 {
     flushPendingMouseMove();
     setFocusToFreeRdp();
-    syncMouseModifiers();
+    syncMouseModifiers(flags);
     if (m_process)
         m_process->sendMouseButton(MouseButton::Middle, true, PointI{point.x, point.y}, currentViewSize());
 }
@@ -145,7 +147,7 @@ void CRdpSessionView::OnMButtonDown(UINT flags, CPoint point)
 void CRdpSessionView::OnMButtonUp(UINT flags, CPoint point)
 {
     flushPendingMouseMove();
-    syncMouseModifiers();
+    syncMouseModifiers(flags);
     if (m_process)
         m_process->sendMouseButton(MouseButton::Middle, false, PointI{point.x, point.y}, currentViewSize());
 }
@@ -158,7 +160,7 @@ void CRdpSessionView::OnMButtonDblClk(UINT flags, CPoint point)
 BOOL CRdpSessionView::OnMouseWheel(UINT flags, short zDelta, CPoint point)
 {
     flushPendingMouseMove();
-    syncMouseModifiers();
+    syncMouseModifiers(flags);
     if (m_process) {
         CPoint clientPoint(point);
         ScreenToClient(&clientPoint);

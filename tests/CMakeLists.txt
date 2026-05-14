@@ -41,6 +41,17 @@ target_include_directories(RdpModifierSyncTrackerTests PRIVATE
 
 add_test(NAME RdpModifierSyncTrackerTests COMMAND RdpModifierSyncTrackerTests)
 
+add_executable(RdpInputModifiersTests
+    rdp/RdpInputModifiersTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/rdp/RdpInputModifiers.cpp
+)
+
+target_include_directories(RdpInputModifiersTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME RdpInputModifiersTests COMMAND RdpInputModifiersTests)
+
 add_executable(RdpCursorClassifierTests
     rdp/RdpCursorClassifierTests.cpp
     ${CMAKE_SOURCE_DIR}/src/rdp/RdpCursorClassifier.cpp
