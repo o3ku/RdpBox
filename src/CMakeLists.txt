@@ -59,6 +59,8 @@ set(RDPBOX_SOURCES
     rdp/FreeRdpProcess.cpp
     rdp/FreeRdpProcessNative.h
     rdp/FreeRdpProcessNative.cpp
+    rdp/RdpInputModifiers.h
+    rdp/RdpInputModifiers.cpp
     rdp/RdpCursorClassifier.h
     rdp/RdpCursorClassifier.cpp
     rdp/RdpModifierSyncTracker.h

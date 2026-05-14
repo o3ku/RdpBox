@@ -87,7 +87,7 @@ private:
     void beginResolutionUpdate();
     void beginFrameCapture(const wchar_t *reason);
     void captureFrameIfRequested(const FrameBuffer &frame);
-    void syncMouseModifiers();
+    void syncMouseModifiers(UINT mouseFlags);
     unsigned int currentModifiers() const;
     SizeI currentViewSize() const;
     SizeI fullScreenSize() const;
