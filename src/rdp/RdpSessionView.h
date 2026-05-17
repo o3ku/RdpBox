@@ -15,6 +15,7 @@
 #include "rdp/RdpInputEventUtil.h"
 #include "rdp/RdpModifierSyncTracker.h"
 #include "rdp/RdpMouseMoveCoalescer.h"
+#include "rdp/RdpResolutionRecovery.h"
 #include "rdp/RdpReservedShortcutTracker.h"
 #include "rdp/RdpResumeRecovery.h"
 #include "rdp/RdpResizeBurstTracker.h"
@@ -97,6 +98,7 @@ private:
     void beginResolutionUpdate();
     void beginResumeRecovery();
     void requestDeferredResumeRefreshIfNeeded();
+    void syncRecoveryTimer();
     void beginFrameCapture(const wchar_t *reason);
     void captureFrameIfRequested(const FrameBuffer &frame);
     void syncMouseModifiers(UINT mouseFlags);
@@ -129,6 +131,7 @@ private:
     RdpResizeBurstTracker m_resizeBurstTracker;
     RdpMouseMoveCoalescer m_mouseMoveCoalescer;
     bool m_mouseMoveTimerActive = false;
+    RdpResolutionRecovery m_resolutionRecovery;
     RdpResumeRecovery m_resumeRecovery;
     Profile m_profile;
     CString m_overlayText;

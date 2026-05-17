@@ -66,6 +66,8 @@ set(RDPBOX_SOURCES
     rdp/RdpInputModifiers.h
     rdp/RdpInputModifiers.cpp
     rdp/RdpReconnectInteraction.h
+    rdp/RdpResolutionRecovery.h
+    rdp/RdpResolutionRecovery.cpp
     rdp/RdpReservedShortcutTracker.h
     rdp/RdpReservedShortcutTracker.cpp
     rdp/RdpModifierSyncTracker.h

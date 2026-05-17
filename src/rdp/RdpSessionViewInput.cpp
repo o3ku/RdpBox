@@ -82,7 +82,11 @@ void CRdpSessionView::OnLButtonDown(UINT flags, CPoint point)
         return;
 
     const bool processFinished = m_process && m_process->state() == FreeRdpProcess::State::Finished;
-    if (shouldReconnectOnPointerDown(m_profile.isValid(), m_connected, m_process != nullptr, processFinished)) {
+    if (shouldReconnectOnPointerDown(m_profile.isValid(),
+                                     m_connected,
+                                     m_process != nullptr,
+                                     processFinished,
+                                     m_resolutionUpdatePending)) {
         if (m_reconnectRequested)
             m_reconnectRequested();
         return;
@@ -114,7 +118,11 @@ void CRdpSessionView::OnLButtonDblClk(UINT flags, CPoint point)
         return;
 
     const bool processFinished = m_process && m_process->state() == FreeRdpProcess::State::Finished;
-    if (shouldReconnectOnPointerDown(m_profile.isValid(), m_connected, m_process != nullptr, processFinished)) {
+    if (shouldReconnectOnPointerDown(m_profile.isValid(),
+                                     m_connected,
+                                     m_process != nullptr,
+                                     processFinished,
+                                     m_resolutionUpdatePending)) {
         if (m_reconnectRequested)
             m_reconnectRequested();
         return;
