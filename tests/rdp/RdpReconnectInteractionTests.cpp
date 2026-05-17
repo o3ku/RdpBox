@@ -4,12 +4,13 @@
 
 int main()
 {
-    assert(shouldReconnectOnPointerDown(true, false, false, false));
-    assert(shouldReconnectOnPointerDown(true, false, true, true));
+    assert(shouldReconnectOnPointerDown(true, false, false, false, false));
+    assert(shouldReconnectOnPointerDown(true, false, true, true, false));
+    assert(shouldReconnectOnPointerDown(true, true, true, false, true));
 
-    assert(!shouldReconnectOnPointerDown(false, false, false, false));
-    assert(!shouldReconnectOnPointerDown(true, true, true, true));
-    assert(!shouldReconnectOnPointerDown(true, false, true, false));
+    assert(!shouldReconnectOnPointerDown(false, false, false, false, false));
+    assert(!shouldReconnectOnPointerDown(true, true, true, true, false));
+    assert(!shouldReconnectOnPointerDown(true, false, true, false, false));
 
     return 0;
 }

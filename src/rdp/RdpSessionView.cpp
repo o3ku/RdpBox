@@ -329,6 +329,7 @@ void CRdpSessionView::startProcess()
     m_pressedMouseButtons = 0;
     m_hasLastPointerPoint = false;
     m_mouseMoveCoalescer.reset();
+    m_resolutionRecovery.reset();
     if (m_mouseMoveTimerActive) {
         KillTimer(kMouseMoveTimerId);
         m_mouseMoveTimerActive = false;
@@ -386,6 +387,7 @@ void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
     m_pressedMouseButtons = 0;
     m_hasLastPointerPoint = false;
     m_mouseMoveCoalescer.reset();
+    m_resolutionRecovery.reset();
     m_resumeRecovery.reset();
     if (showDisconnectedOverlay)
         showOverlay(L"Disconnected - Click to Reconnect");
@@ -412,6 +414,7 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
         m_pressedMouseButtons = 0;
         m_hasLastPointerPoint = false;
         m_resizeBurstTracker.reset();
+        m_resolutionRecovery.reset();
         KillTimer(kResumeRecoveryTimerId);
         m_resumeRecovery.reset();
         updateCursorFromProcess();
@@ -430,6 +433,7 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
         m_frameGateRemaining = 0;
         KillTimer(kResizeTimerId);
         KillTimer(kResumeRecoveryTimerId);
+        m_resolutionRecovery.reset();
         m_resumeRecovery.reset();
         {
             CString overlayText = L"Disconnected";
@@ -497,6 +501,8 @@ void CRdpSessionView::beginResolutionUpdate()
     m_resolutionUpdatePending = true;
     m_frameGateActive = true;
     m_frameGateRemaining = kInitialFrameDiscardWithCodec;
+    m_resolutionRecovery.begin(m_connected);
+    syncRecoveryTimer();
     beginFrameCapture(L"resize");
     showOverlay(L"Reconnecting...");
 }
@@ -509,7 +515,7 @@ void CRdpSessionView::beginResumeRecovery()
     beginFrameCapture(L"resume");
     showOverlay(L"Resuming session...");
     m_process->requestRefresh();
-    SetTimer(kResumeRecoveryTimerId, kResumeRecoveryTimeoutMs, nullptr);
+    syncRecoveryTimer();
 }
 
 void CRdpSessionView::requestDeferredResumeRefreshIfNeeded()
@@ -524,6 +530,14 @@ void CRdpSessionView::requestDeferredResumeRefreshIfNeeded()
     }
 
     beginResumeRecovery();
+}
+
+void CRdpSessionView::syncRecoveryTimer()
+{
+    if (m_resumeRecovery.awaitingFrame() || m_resolutionRecovery.active())
+        SetTimer(kResumeRecoveryTimerId, kResumeRecoveryTimeoutMs, nullptr);
+    else
+        KillTimer(kResumeRecoveryTimerId);
 }
 
 SizeI CRdpSessionView::currentViewSize() const
@@ -606,8 +620,10 @@ void CRdpSessionView::OnTimer(UINT_PTR timerId)
 
     if (timerId == kResumeRecoveryTimerId) {
         KillTimer(kResumeRecoveryTimerId);
-        if (m_resumeRecovery.onTimeout() == RdpResumeRecovery::Action::Reconnect)
+        if (m_resolutionRecovery.onTimeout()
+            || m_resumeRecovery.onTimeout() == RdpResumeRecovery::Action::Reconnect) {
             reconnect();
+        }
         return;
     }
 

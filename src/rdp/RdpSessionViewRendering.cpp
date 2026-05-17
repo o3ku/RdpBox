@@ -185,7 +185,6 @@ void CRdpSessionView::OnPaint()
         if (m_process->consumeFrameIfNewer(m_cachedFrameGeneration, nextFrame)) {
             if (m_resumeRecovery.awaitingFrame()) {
                 m_resumeRecovery.onFrameArrived();
-                KillTimer(kResumeRecoveryTimerId);
                 if (m_overlayText == L"Resuming session...")
                     hideOverlayAfterFramePresent = true;
             }
@@ -217,6 +216,11 @@ void CRdpSessionView::OnPaint()
             if (shouldRenderFrame) {
                 m_cachedFrame = std::move(nextFrame);
             }
+
+            if (m_resolutionRecovery.active())
+                m_resolutionRecovery.onFrameProgress(!m_resolutionUpdatePending && !m_frameGateActive);
+
+            syncRecoveryTimer();
         }
 
         const bool hasCachedFrame = !m_cachedFrame.empty();

@@ -100,6 +100,17 @@ target_include_directories(RdpReconnectInteractionTests PRIVATE
 
 add_test(NAME RdpReconnectInteractionTests COMMAND RdpReconnectInteractionTests)
 
+add_executable(RdpResolutionRecoveryTests
+    rdp/RdpResolutionRecoveryTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/rdp/RdpResolutionRecovery.cpp
+)
+
+target_include_directories(RdpResolutionRecoveryTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME RdpResolutionRecoveryTests COMMAND RdpResolutionRecoveryTests)
+
 add_executable(RdpReservedShortcutTrackerTests
     rdp/RdpReservedShortcutTrackerTests.cpp
     ${CMAKE_SOURCE_DIR}/src/rdp/RdpReservedShortcutTracker.cpp
