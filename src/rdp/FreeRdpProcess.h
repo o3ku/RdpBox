@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "common/NativeTypes.h"
+#include "rdp/RdpInputEventUtil.h"
 
 #include <cstdint>
 #include <functional>
@@ -63,6 +64,7 @@ public:
     void resolveCertificateChallenge(bool accept);
 
     void sendFocusIn();
+    void sendKey(const KeyIdentifier &key, bool down, bool wasDown = false);
     void sendKeyMessage(std::uint32_t message, std::uintptr_t wParam, std::intptr_t lParam);
     void sendMouseMove(PointI pos, SizeI viewSize);
     void sendMouseButton(MouseButton button, bool down, PointI pos, SizeI viewSize);

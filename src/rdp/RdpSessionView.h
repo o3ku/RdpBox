@@ -5,14 +5,17 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <optional>
 #include <mutex>
+#include <optional>
 #include <string>
+#include <vector>
 
 #include "profiles/Profile.h"
 #include "rdp/FreeRdpProcess.h"
+#include "rdp/RdpInputEventUtil.h"
 #include "rdp/RdpModifierSyncTracker.h"
 #include "rdp/RdpMouseMoveCoalescer.h"
+#include "rdp/RdpReservedShortcutTracker.h"
 #include "rdp/RdpResumeRecovery.h"
 #include "rdp/RdpResizeBurstTracker.h"
 
@@ -45,6 +48,7 @@ public:
     void handleBecameVisible();
 
     bool canCaptureSystemKeys() const;
+    void noteConsumedLocalShortcutKey(unsigned int virtualKey);
     void forwardNativeKeyMessage(std::uint32_t message, std::uintptr_t wParam, std::intptr_t lParam);
 
 protected:
@@ -54,6 +58,8 @@ protected:
     afx_msg void OnTimer(UINT_PTR timerId);
     afx_msg void OnSetFocus(CWnd *oldWnd);
     afx_msg void OnKillFocus(CWnd *newWnd);
+    afx_msg void OnCancelMode();
+    afx_msg void OnCaptureChanged(CWnd *wnd);
     afx_msg void OnMouseMove(UINT flags, CPoint point);
     afx_msg void OnLButtonDown(UINT flags, CPoint point);
     afx_msg void OnLButtonDblClk(UINT flags, CPoint point);
@@ -100,6 +106,17 @@ private:
     void releaseCursorHandle();
     void drawOverlay(CDC &dc, const CRect &rect);
     void flushPendingMouseMove();
+    void sendTrackedKey(const KeyIdentifier &key, bool down, bool wasDown = false);
+    bool hasTrackedKey(const KeyIdentifier &key) const;
+    void trackKeyState(const KeyIdentifier &key, bool down);
+    void rememberReservedShortcutKey(unsigned int virtualKey);
+    bool consumeReservedShortcutKey(unsigned int virtualKey);
+    void sendSynchronizedModifier(unsigned int virtualKey, bool down);
+    void sendTrackedMouseButton(MouseButton button, bool down, PointI point);
+    void releasePressedMouseButtons();
+    void releaseAllPressedKeys();
+    void updatePointerPosition(PointI point);
+    PointI currentPointerPosition() const;
 
     std::unique_ptr<FreeRdpProcess> m_process;
     std::uintptr_t m_processGeneration = 0;
@@ -130,6 +147,11 @@ private:
     bool m_ownsCursorHandle = false;
     bool m_connected = false;
     bool m_created = false;
+    std::vector<KeyIdentifier> m_pressedKeys;
+    RdpReservedShortcutTracker m_reservedShortcutTracker;
+    unsigned int m_pressedMouseButtons = 0;
+    PointI m_lastPointerPoint{};
+    bool m_hasLastPointerPoint = false;
 
     mutable std::mutex m_certMutex;
     std::optional<FreeRdpProcess::CertificateChallenge> m_pendingCert;

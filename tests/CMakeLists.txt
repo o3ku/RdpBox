@@ -52,6 +52,17 @@ target_include_directories(RdpInputModifiersTests PRIVATE
 
 add_test(NAME RdpInputModifiersTests COMMAND RdpInputModifiersTests)
 
+add_executable(RdpInputEventUtilTests
+    rdp/RdpInputEventUtilTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/rdp/RdpInputEventUtil.cpp
+)
+
+target_include_directories(RdpInputEventUtilTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME RdpInputEventUtilTests COMMAND RdpInputEventUtilTests)
+
 add_executable(RdpCursorClassifierTests
     rdp/RdpCursorClassifierTests.cpp
     ${CMAKE_SOURCE_DIR}/src/rdp/RdpCursorClassifier.cpp
@@ -78,6 +89,27 @@ target_include_directories(RdpResumeRecoveryTests PRIVATE
 )
 
 add_test(NAME RdpResumeRecoveryTests COMMAND RdpResumeRecoveryTests)
+
+add_executable(RdpReconnectInteractionTests
+    rdp/RdpReconnectInteractionTests.cpp
+)
+
+target_include_directories(RdpReconnectInteractionTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME RdpReconnectInteractionTests COMMAND RdpReconnectInteractionTests)
+
+add_executable(RdpReservedShortcutTrackerTests
+    rdp/RdpReservedShortcutTrackerTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/rdp/RdpReservedShortcutTracker.cpp
+)
+
+target_include_directories(RdpReservedShortcutTrackerTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME RdpReservedShortcutTrackerTests COMMAND RdpReservedShortcutTrackerTests)
 
 add_executable(ProfileRepositoryTests
     profiles/ProfileRepositoryTests.cpp

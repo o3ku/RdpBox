@@ -48,42 +48,10 @@ bool shouldCaptureLowLevelKey(const KBDLLHOOKSTRUCT *info)
     if (!info)
         return false;
 
-    if (ui::isReservedMainWindowShortcut(
-            (::GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0,
-            isAltKey(info->vkCode) || ((info->flags & LLKHF_ALTDOWN) != 0),
-            static_cast<unsigned int>(info->vkCode))) {
-        return false;
-    }
-
     return isSystemKey(info->vkCode)
         || isAltKey(info->vkCode)
         || isCtrlEscapeSequence(info->vkCode)
         || (info->vkCode == VK_TAB && (info->flags & LLKHF_ALTDOWN));
-}
-
-void dispatchReservedMainWindowShortcut(CRdpSessionView *target, ui::MainWindowShortcutAction action)
-{
-    if (!target)
-        return;
-
-    UINT command = 0;
-    switch (action) {
-    case ui::MainWindowShortcutAction::NewConnection:
-        command = ID_MAIN_NEW;
-        break;
-    case ui::MainWindowShortcutAction::OpenConnections:
-        command = ID_MAIN_CONNECTIONS;
-        break;
-    case ui::MainWindowShortcutAction::None:
-    default:
-        return;
-    }
-
-    HWND root = ::GetAncestor(target->GetSafeHwnd(), GA_ROOT);
-    if (!root)
-        return;
-
-    ::PostMessageW(root, WM_COMMAND, command, 0);
 }
 
 LRESULT CALLBACK keyboardHookProc(int code, WPARAM wParam, LPARAM lParam)
@@ -92,17 +60,6 @@ LRESULT CALLBACK keyboardHookProc(int code, WPARAM wParam, LPARAM lParam)
         return CallNextHookEx(g_keyboardHook, code, wParam, lParam);
 
     auto *info = reinterpret_cast<KBDLLHOOKSTRUCT *>(lParam);
-    const auto shortcutAction = ui::shortcutActionForKey(
-        WM_SYSKEYDOWN,
-        (::GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0,
-        isAltKey(info->vkCode) || ((info->flags & LLKHF_ALTDOWN) != 0),
-        static_cast<unsigned int>(info->vkCode));
-    if (shortcutAction != ui::MainWindowShortcutAction::None) {
-        if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN)
-            dispatchReservedMainWindowShortcut(g_systemKeyTarget, shortcutAction);
-        return 1;
-    }
-
     if (!shouldCaptureLowLevelKey(info) || !g_systemKeyTarget->canCaptureSystemKeys())
         return CallNextHookEx(g_keyboardHook, code, wParam, lParam);
 
@@ -147,6 +104,8 @@ BEGIN_MESSAGE_MAP(CRdpSessionView, CWnd)
     ON_WM_TIMER()
     ON_WM_SETFOCUS()
     ON_WM_KILLFOCUS()
+    ON_WM_CANCELMODE()
+    ON_WM_CAPTURECHANGED()
     ON_WM_MOUSEMOVE()
     ON_WM_LBUTTONDOWN()
     ON_WM_LBUTTONDBLCLK()
@@ -365,6 +324,10 @@ void CRdpSessionView::startProcess()
     }
     m_resizeBurstTracker.reset();
     m_modifierTracker.reset();
+    m_pressedKeys.clear();
+    m_reservedShortcutTracker.reset();
+    m_pressedMouseButtons = 0;
+    m_hasLastPointerPoint = false;
     m_mouseMoveCoalescer.reset();
     if (m_mouseMoveTimerActive) {
         KillTimer(kMouseMoveTimerId);
@@ -418,6 +381,10 @@ void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
     }
     m_resizeBurstTracker.reset();
     m_modifierTracker.reset();
+    m_pressedKeys.clear();
+    m_reservedShortcutTracker.reset();
+    m_pressedMouseButtons = 0;
+    m_hasLastPointerPoint = false;
     m_mouseMoveCoalescer.reset();
     m_resumeRecovery.reset();
     if (showDisconnectedOverlay)
@@ -440,6 +407,10 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
         if (!m_resolutionUpdatePending && !m_waitingForFirstContentFrame && !m_frameGateActive)
             clearOverlay();
         m_modifierTracker.reset();
+        m_pressedKeys.clear();
+        m_reservedShortcutTracker.reset();
+        m_pressedMouseButtons = 0;
+        m_hasLastPointerPoint = false;
         m_resizeBurstTracker.reset();
         KillTimer(kResumeRecoveryTimerId);
         m_resumeRecovery.reset();
@@ -672,7 +643,159 @@ void CRdpSessionView::OnKillFocus(CWnd *newWnd)
 {
     CWnd::OnKillFocus(newWnd);
     flushPendingMouseMove();
+    releasePressedMouseButtons();
+    releaseAllPressedKeys();
     if (g_systemKeyTarget == this)
         g_systemKeyTarget = nullptr;
     releaseKeyboardHookIfUnused();
+}
+
+void CRdpSessionView::noteConsumedLocalShortcutKey(unsigned int virtualKey)
+{
+    rememberReservedShortcutKey(virtualKey);
+}
+
+void CRdpSessionView::OnCancelMode()
+{
+    CWnd::OnCancelMode();
+    releasePressedMouseButtons();
+}
+
+void CRdpSessionView::OnCaptureChanged(CWnd *wnd)
+{
+    CWnd::OnCaptureChanged(wnd);
+    releasePressedMouseButtons();
+}
+
+void CRdpSessionView::sendTrackedKey(const KeyIdentifier &key, bool down, bool wasDown)
+{
+    if (!m_process)
+        return;
+
+    m_process->sendKey(key, down, wasDown);
+    trackKeyState(key, down);
+}
+
+bool CRdpSessionView::hasTrackedKey(const KeyIdentifier &key) const
+{
+    return std::find(m_pressedKeys.begin(), m_pressedKeys.end(), key) != m_pressedKeys.end();
+}
+
+void CRdpSessionView::trackKeyState(const KeyIdentifier &key, bool down)
+{
+    const auto it = std::find(m_pressedKeys.begin(), m_pressedKeys.end(), key);
+    if (down) {
+        if (it == m_pressedKeys.end())
+            m_pressedKeys.push_back(key);
+        return;
+    }
+
+    if (it != m_pressedKeys.end())
+        m_pressedKeys.erase(it);
+}
+
+void CRdpSessionView::rememberReservedShortcutKey(unsigned int virtualKey)
+{
+    m_reservedShortcutTracker.noteHandledKeyDown(virtualKey);
+}
+
+bool CRdpSessionView::consumeReservedShortcutKey(unsigned int virtualKey)
+{
+    return m_reservedShortcutTracker.consumeHandledKeyUp(virtualKey);
+}
+
+void CRdpSessionView::sendSynchronizedModifier(unsigned int virtualKey, bool down)
+{
+    const auto key = keyIdentifierFromVirtualKey(virtualKey);
+    if (!key)
+        return;
+
+    const bool wasDown = down && hasTrackedKey(*key);
+    sendTrackedKey(*key, down, wasDown);
+}
+
+void CRdpSessionView::sendTrackedMouseButton(MouseButton button, bool down, PointI point)
+{
+    if (!m_process)
+        return;
+
+    m_process->sendMouseButton(button, down, point, currentViewSize());
+
+    unsigned int bit = 0;
+    switch (button) {
+    case MouseButton::Left:
+        bit = 1u << 0;
+        break;
+    case MouseButton::Right:
+        bit = 1u << 1;
+        break;
+    case MouseButton::Middle:
+        bit = 1u << 2;
+        break;
+    default:
+        break;
+    }
+
+    if (bit == 0)
+        return;
+
+    if (down)
+        m_pressedMouseButtons |= bit;
+    else
+        m_pressedMouseButtons &= ~bit;
+}
+
+void CRdpSessionView::releasePressedMouseButtons()
+{
+    const unsigned int pressedButtons = m_pressedMouseButtons;
+    m_pressedMouseButtons = 0;
+
+    if (GetCapture() == this)
+        ReleaseCapture();
+
+    if (pressedButtons == 0)
+        return;
+
+    if (!m_process || m_process->state() != FreeRdpProcess::State::Running)
+        return;
+
+    const PointI point = currentPointerPosition();
+    if (pressedButtons & (1u << 0))
+        sendTrackedMouseButton(MouseButton::Left, false, point);
+    if (pressedButtons & (1u << 1))
+        sendTrackedMouseButton(MouseButton::Right, false, point);
+    if (pressedButtons & (1u << 2))
+        sendTrackedMouseButton(MouseButton::Middle, false, point);
+}
+
+void CRdpSessionView::releaseAllPressedKeys()
+{
+    m_modifierTracker.reset();
+
+    if (!m_process || m_process->state() != FreeRdpProcess::State::Running) {
+        m_pressedKeys.clear();
+        m_reservedShortcutTracker.reset();
+        return;
+    }
+
+    const std::vector<KeyIdentifier> pressedKeys = m_pressedKeys;
+    for (const auto &key : pressedKeys)
+        sendTrackedKey(key, false, true);
+
+    m_pressedKeys.clear();
+    m_reservedShortcutTracker.reset();
+}
+
+void CRdpSessionView::updatePointerPosition(PointI point)
+{
+    m_lastPointerPoint = point;
+    m_hasLastPointerPoint = true;
+}
+
+PointI CRdpSessionView::currentPointerPosition() const
+{
+    if (m_hasLastPointerPoint)
+        return m_lastPointerPoint;
+
+    return PointI{};
 }

@@ -61,8 +61,13 @@ set(RDPBOX_SOURCES
     rdp/FreeRdpProcessNative.cpp
     rdp/RdpCursorClassifier.h
     rdp/RdpCursorClassifier.cpp
+    rdp/RdpInputEventUtil.h
+    rdp/RdpInputEventUtil.cpp
     rdp/RdpInputModifiers.h
     rdp/RdpInputModifiers.cpp
+    rdp/RdpReconnectInteraction.h
+    rdp/RdpReservedShortcutTracker.h
+    rdp/RdpReservedShortcutTracker.cpp
     rdp/RdpModifierSyncTracker.h
     rdp/RdpModifierSyncTracker.cpp
     rdp/RdpMouseMoveCoalescer.h
