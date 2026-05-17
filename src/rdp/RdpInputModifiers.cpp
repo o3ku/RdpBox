@@ -6,7 +6,7 @@ namespace rdp
 {
 unsigned int mouseInputModifiers(UINT mouseFlags, unsigned int keyboardModifiers)
 {
-    unsigned int modifiers = keyboardModifiers & ModifierAlt;
+    unsigned int modifiers = keyboardModifiers;
     if ((mouseFlags & MK_CONTROL) != 0)
         modifiers |= ModifierControl;
     if ((mouseFlags & MK_SHIFT) != 0)

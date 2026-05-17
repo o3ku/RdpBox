@@ -1,5 +1,6 @@
 #include "RdpSessionView.h"
 
+#include "rdp/RdpInputEventUtil.h"
 #include "ui/MainWindowShortcuts.h"
 
 #include <utility>
@@ -100,21 +101,23 @@ LRESULT CRdpSessionView::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
     }
 
     if (message == WM_KEYDOWN || message == WM_KEYUP || message == WM_SYSKEYDOWN || message == WM_SYSKEYUP) {
+        const bool down = (message == WM_KEYDOWN || message == WM_SYSKEYDOWN);
         const bool controlDown = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
         const bool altDown = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
-        if ((message == WM_KEYDOWN || message == WM_SYSKEYDOWN)
-            && ui::isReservedMainWindowShortcut(controlDown,
-                                                altDown,
-                                                static_cast<unsigned int>(wParam))) {
+        if (down && ui::isReservedMainWindowShortcut(controlDown,
+                                                     altDown,
+                                                     static_cast<unsigned int>(wParam))) {
+            rememberReservedShortcutKey(static_cast<unsigned int>(wParam));
             return CWnd::WindowProc(message, wParam, lParam);
         }
+
+        if (!down && consumeReservedShortcutKey(static_cast<unsigned int>(wParam)))
+            return CWnd::WindowProc(message, wParam, lParam);
 
         forwardNativeKeyMessage(static_cast<std::uint32_t>(message),
                                 static_cast<std::uintptr_t>(wParam),
                                 static_cast<std::intptr_t>(lParam));
 
-        const bool down = (message == WM_KEYDOWN || message == WM_SYSKEYDOWN);
-        m_modifierTracker.recordKeyState(static_cast<unsigned int>(wParam), down);
         return 0;
     }
 
@@ -137,5 +140,10 @@ void CRdpSessionView::forwardNativeKeyMessage(std::uint32_t message,
     if (!m_process)
         return;
 
-    m_process->sendKeyMessage(message, wParam, lParam);
+    const auto event = keyEventInfoFromMessage(message, wParam, lParam);
+    if (!event)
+        return;
+
+    sendTrackedKey(event->key, event->down, event->wasDown);
+    m_modifierTracker.recordKeyState(static_cast<unsigned int>(wParam), event->down);
 }

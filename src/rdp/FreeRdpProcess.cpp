@@ -3,6 +3,7 @@
 #include "common/Win32String.h"
 #include "rdp/FrameBufferMemory.h"
 #include "rdp/FreeRdpProcessNative.h"
+#include "rdp/RdpInputEventUtil.h"
 #include "RdpClipboardBridge.h"
 
 #include <algorithm>
@@ -347,47 +348,33 @@ void FreeRdpProcess::sendFocusIn()
     freerdp_input_send_focus_in_event(m_d->context->input, currentToggleState());
 }
 
-void FreeRdpProcess::sendKeyMessage(std::uint32_t message, std::uintptr_t wParam, std::intptr_t lParam)
+void FreeRdpProcess::sendKey(const KeyIdentifier &key, bool down, bool wasDown)
 {
-    if (!m_d->context || !m_d->context->input)
+    if (!m_d->context || !m_d->context->input || key.scanCode == 0)
         return;
 
-    switch (message) {
-    case WM_KEYDOWN:
-    case WM_SYSKEYDOWN:
-    case WM_KEYUP:
-    case WM_SYSKEYUP:
-        break;
-    default:
-        return;
-    }
-
-    UINT32 scanCode = (static_cast<UINT32>(lParam) >> 16) & 0xFFU;
-    const bool extended = (static_cast<UINT32>(lParam) & 0x01000000U) != 0;
-    const bool wasDown = (static_cast<UINT32>(lParam) & 0x40000000U) != 0;
-    const bool isRelease = (static_cast<UINT32>(lParam) & 0x80000000U) != 0;
-
-    if (scanCode == 0) {
-        const UINT mapped = MapVirtualKeyW(static_cast<UINT>(wParam), MAPVK_VK_TO_VSC);
-        scanCode = mapped & 0xFFU;
-    }
-
-    if (scanCode == 0)
-        return;
-
-    UINT32 rdpScancode = MAKE_RDP_SCANCODE(static_cast<BYTE>(scanCode), extended);
+    UINT32 rdpScancode = MAKE_RDP_SCANCODE(static_cast<BYTE>(key.scanCode), key.extended);
 
     if (rdpScancode == RDP_SCANCODE_NUMLOCK_EXTENDED) {
         rdpScancode = RDP_SCANCODE_NUMLOCK;
     } else if (rdpScancode == RDP_SCANCODE_NUMLOCK) {
-        if (!isRelease)
+        if (down)
             freerdp_input_send_keyboard_pause_event(m_d->context->input);
         return;
     } else if (rdpScancode == RDP_SCANCODE_RSHIFT_EXTENDED) {
         rdpScancode = RDP_SCANCODE_RSHIFT;
     }
 
-    freerdp_input_send_keyboard_event_ex(m_d->context->input, !isRelease, wasDown, rdpScancode);
+    freerdp_input_send_keyboard_event_ex(m_d->context->input, down, wasDown, rdpScancode);
+}
+
+void FreeRdpProcess::sendKeyMessage(std::uint32_t message, std::uintptr_t wParam, std::intptr_t lParam)
+{
+    const auto event = keyEventInfoFromMessage(message, wParam, lParam);
+    if (!event)
+        return;
+
+    sendKey(event->key, event->down, event->wasDown);
 }
 
 void FreeRdpProcess::sendMouseMove(PointI pos, SizeI viewSize)

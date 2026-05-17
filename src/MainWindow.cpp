@@ -2,6 +2,7 @@
 
 #include "common/Win32String.h"
 #include "profiles/ProfileRepository.h"
+#include "rdp/RdpSessionView.h"
 #include "session/SessionManager.h"
 #include "ui/AboutDialog.h"
 #include "ui/MainWindowActivation.h"
@@ -127,9 +128,13 @@ BOOL MainWindow::PreTranslateMessage(MSG *msg)
             static_cast<unsigned int>(msg->wParam));
         switch (shortcutAction) {
         case ui::MainWindowShortcutAction::NewConnection:
+                if (auto *sessionView = DYNAMIC_DOWNCAST(CRdpSessionView, GetFocus()))
+                    sessionView->noteConsumedLocalShortcutKey(static_cast<unsigned int>(msg->wParam));
                 SendMessage(WM_COMMAND, ID_MAIN_NEW, 0);
                 return TRUE;
         case ui::MainWindowShortcutAction::OpenConnections:
+                if (auto *sessionView = DYNAMIC_DOWNCAST(CRdpSessionView, GetFocus()))
+                    sessionView->noteConsumedLocalShortcutKey(static_cast<unsigned int>(msg->wParam));
                 openConnectionDialog();
                 return TRUE;
         case ui::MainWindowShortcutAction::None:
