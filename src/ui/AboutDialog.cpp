@@ -9,6 +9,25 @@
 
 IMPLEMENT_DYNAMIC(AboutDialog, CDialogEx)
 
+namespace
+{
+CString wideFromBuildDate(const char *buildDate)
+{
+    if (!buildDate || !*buildDate)
+        return {};
+
+    const int length = ::MultiByteToWideChar(CP_ACP, 0, buildDate, -1, nullptr, 0);
+    if (length <= 1)
+        return {};
+
+    CString result;
+    wchar_t *buffer = result.GetBuffer(length - 1);
+    ::MultiByteToWideChar(CP_ACP, 0, buildDate, -1, buffer, length);
+    result.ReleaseBuffer();
+    return result;
+}
+}
+
 BEGIN_MESSAGE_MAP(AboutDialog, CDialogEx)
     ON_WM_CTLCOLOR()
     ON_STN_CLICKED(IDC_ABOUT_REPO_VALUE, &AboutDialog::OnRepoClicked)
@@ -62,7 +81,7 @@ BOOL AboutDialog::OnInitDialog()
     }
 
     m_titleText.Format(L"RdpBox %s", RDPBOX_VERSION);
-    m_releaseDateText = L"2026-04-29";
+    m_releaseDateText = wideFromBuildDate(__DATE__);
     m_repoUrlText = RDPBOX_GITHUB_URL;
     UpdateData(FALSE);
     return TRUE;
