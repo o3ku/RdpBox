@@ -61,6 +61,8 @@ set(RDPBOX_SOURCES
     rdp/FreeRdpProcessNative.cpp
     rdp/RdpCursorClassifier.h
     rdp/RdpCursorClassifier.cpp
+    rdp/RdpFocusNotification.h
+    rdp/RdpFocusNotification.cpp
     rdp/RdpInputEventUtil.h
     rdp/RdpInputEventUtil.cpp
     rdp/RdpInputModifiers.h

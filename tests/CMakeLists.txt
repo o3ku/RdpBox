@@ -41,6 +41,17 @@ target_include_directories(RdpModifierSyncTrackerTests PRIVATE
 
 add_test(NAME RdpModifierSyncTrackerTests COMMAND RdpModifierSyncTrackerTests)
 
+add_executable(RdpFocusNotificationTests
+    rdp/RdpFocusNotificationTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/rdp/RdpFocusNotification.cpp
+)
+
+target_include_directories(RdpFocusNotificationTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME RdpFocusNotificationTests COMMAND RdpFocusNotificationTests)
+
 add_executable(RdpInputModifiersTests
     rdp/RdpInputModifiersTests.cpp
     ${CMAKE_SOURCE_DIR}/src/rdp/RdpInputModifiers.cpp
