@@ -3,6 +3,7 @@
 #include "common/Win32String.h"
 #include "rdp/FrameBufferMemory.h"
 #include "rdp/RdpCursorClassifier.h"
+#include "rdp/RdpFocusNotification.h"
 #include "resources/resource.h"
 #include "ui/MainWindowShortcuts.h"
 #include "ui/ParentResizeForwarder.h"
@@ -474,12 +475,20 @@ void CRdpSessionView::setFocusToFreeRdp()
     if (!m_process || !GetSafeHwnd())
         return;
 
-    if (::GetFocus() != GetSafeHwnd())
-        SetFocus();
+    const bool hadWindowFocus = (::GetFocus() == GetSafeHwnd());
+    const bool hadSystemKeyTarget = (g_systemKeyTarget == this);
 
     g_systemKeyTarget = this;
     ensureKeyboardHook();
-    m_process->sendFocusIn();
+
+    if (!hadWindowFocus)
+        SetFocus();
+
+    if (rdp::shouldSendFocusIn(hadWindowFocus,
+                               hadSystemKeyTarget,
+                               ::GetFocus() == GetSafeHwnd())) {
+        m_process->sendFocusIn();
+    }
 }
 
 void CRdpSessionView::showOverlay(const CString &text)
