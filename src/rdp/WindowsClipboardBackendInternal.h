@@ -1,5 +1,8 @@
 #pragma once
 
+#define CINTERFACE
+#define COBJMACROS
+
 #include "WindowsClipboardBackend.h"
 
 #include <atomic>
@@ -68,8 +71,8 @@ struct ClipboardContext
 };
 
 struct CliprdrEnumFORMATETC
-    : IEnumFORMATETC
 {
+    IEnumFORMATETC iface;
     LONG refCount = 1;
     LONG index = 0;
     LONG count = 0;
@@ -77,8 +80,8 @@ struct CliprdrEnumFORMATETC
 };
 
 struct CliprdrStream
-    : IStream
 {
+    IStream iface;
     LONG refCount = 1;
     ULONG listIndex = 0;
     ULARGE_INTEGER size = {};
@@ -88,8 +91,8 @@ struct CliprdrStream
 };
 
 struct CliprdrDataObject
-    : IDataObject
 {
+    IDataObject iface;
     LONG refCount = 1;
     FORMATETC *formats = nullptr;
     STGMEDIUM *mediums = nullptr;
