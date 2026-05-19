@@ -595,6 +595,15 @@ void MainWindow::OnPaint()
     CRect clientRect;
     GetClientRect(&clientRect);
     CRect captionRect(0, 0, clientRect.right, kCaptionHeight);
+    const WindowFrameMetrics metrics = calculateWindowFrameMetrics(isMaximized(), m_isFullScreen);
+
+    // Paint the full client area first so newly exposed edge pixels after live resize
+    // do not depend on a separate erase pass to restore the accent border background.
+    HBRUSH backgroundBrush = ::CreateSolidBrush(metrics.backgroundColor);
+    if (backgroundBrush) {
+        ::FillRect(hdc, &clientRect, backgroundBrush);
+        ::DeleteObject(backgroundBrush);
+    }
 
     HDC bufferedDc = nullptr;
     HPAINTBUFFER buffer = ::BeginBufferedPaint(hdc, &captionRect, BPBF_TOPDOWNDIB, nullptr, &bufferedDc);
@@ -603,7 +612,6 @@ void MainWindow::OnPaint()
         CDC dc;
         dc.Attach(targetDc);
 
-        const WindowFrameMetrics metrics = calculateWindowFrameMetrics(isMaximized(), m_isFullScreen);
         dc.FillSolidRect(captionRect, Win10Theme::kCaptionBg);
 
         if (m_logoHovered) {

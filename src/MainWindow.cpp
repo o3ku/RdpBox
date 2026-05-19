@@ -80,7 +80,7 @@ void MainWindow::OnSize(UINT type, int cx, int cy)
     refreshDwmFrame();
     layoutChildren();
     invalidateCaptionButtons();
-    RedrawWindow(nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_FRAME | RDW_ALLCHILDREN);
+    RedrawWindow(nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_FRAME | RDW_ALLCHILDREN | RDW_ERASE);
 
     if (ui::shouldPersistWindowStateOnSize(type, m_inMoveOrSizeLoop))
         saveWindowState();
