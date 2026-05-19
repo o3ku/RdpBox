@@ -325,7 +325,6 @@ void CRdpSessionView::startProcess()
     m_captureDirectory.shrink_to_fit();
     m_captureFramesRemaining = 0;
     m_captureFrameIndex = 0;
-    m_processBinding.reset();
     m_resizeBurstTracker.reset();
     m_modifierTracker.reset();
     m_pressedKeys.clear();
