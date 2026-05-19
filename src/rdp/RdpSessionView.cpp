@@ -242,33 +242,42 @@ void CRdpSessionView::bindProcessCallbacks(std::uintptr_t generation)
     if (!m_process)
         return;
 
-    m_process->setStateChangedCallback([this, generation](FreeRdpProcess::State state) {
-        if (const HWND hwnd = GetSafeHwnd(); hwnd && ::IsWindow(hwnd))
-            ::PostMessageW(hwnd, WM_APP_RDP_STATE, static_cast<WPARAM>(state), static_cast<LPARAM>(generation));
+    const HWND hwnd = GetSafeHwnd();
+    if (!hwnd)
+        return;
+
+    auto binding = std::make_shared<ProcessBinding>();
+    binding->hwnd = hwnd;
+    binding->generation = generation;
+    m_processBinding = binding;
+
+    m_process->setStateChangedCallback([binding](FreeRdpProcess::State state) {
+        if (binding->hwnd && ::IsWindow(binding->hwnd))
+            ::PostMessageW(binding->hwnd, WM_APP_RDP_STATE, static_cast<WPARAM>(state), static_cast<LPARAM>(binding->generation));
     });
 
-    m_process->setFrameUpdatedCallback([this, generation]() {
-        if (const HWND hwnd = GetSafeHwnd(); hwnd && ::IsWindow(hwnd))
-            ::PostMessageW(hwnd, WM_APP_RDP_FRAME, 0, static_cast<LPARAM>(generation));
+    m_process->setFrameUpdatedCallback([binding]() {
+        if (binding->hwnd && ::IsWindow(binding->hwnd))
+            ::PostMessageW(binding->hwnd, WM_APP_RDP_FRAME, 0, static_cast<LPARAM>(binding->generation));
     });
 
-    m_process->setDesktopResizedCallback([this, generation](const SizeI &) {
-        if (const HWND hwnd = GetSafeHwnd(); hwnd && ::IsWindow(hwnd))
-            ::PostMessageW(hwnd, WM_APP_RDP_FRAME, 0, static_cast<LPARAM>(generation));
+    m_process->setDesktopResizedCallback([binding](const SizeI &) {
+        if (binding->hwnd && ::IsWindow(binding->hwnd))
+            ::PostMessageW(binding->hwnd, WM_APP_RDP_FRAME, 0, static_cast<LPARAM>(binding->generation));
     });
 
-    m_process->setCursorUpdatedCallback([this, generation]() {
-        if (const HWND hwnd = GetSafeHwnd(); hwnd && ::IsWindow(hwnd))
-            ::PostMessageW(hwnd, WM_APP_RDP_CURSOR, 0, static_cast<LPARAM>(generation));
+    m_process->setCursorUpdatedCallback([binding]() {
+        if (binding->hwnd && ::IsWindow(binding->hwnd))
+            ::PostMessageW(binding->hwnd, WM_APP_RDP_CURSOR, 0, static_cast<LPARAM>(binding->generation));
     });
 
-    m_process->setCertificateChallengeCallback([this, generation](const FreeRdpProcess::CertificateChallenge &challenge) {
+    m_process->setCertificateChallengeCallback([binding](const FreeRdpProcess::CertificateChallenge &challenge) {
         {
-            std::scoped_lock lock(m_certMutex);
-            m_pendingCert = PendingCertificateRequest{ generation, challenge };
+            std::scoped_lock lock(binding->certMutex);
+            binding->pendingCert = PendingCertificateRequest{ binding->generation, challenge };
         }
-        if (const HWND hwnd = GetSafeHwnd(); hwnd && ::IsWindow(hwnd))
-            ::PostMessageW(hwnd, WM_APP_RDP_CERT, 0, static_cast<LPARAM>(generation));
+        if (binding->hwnd && ::IsWindow(binding->hwnd))
+            ::PostMessageW(binding->hwnd, WM_APP_RDP_CERT, 0, static_cast<LPARAM>(binding->generation));
     });
 }
 
@@ -316,10 +325,7 @@ void CRdpSessionView::startProcess()
     m_captureDirectory.shrink_to_fit();
     m_captureFramesRemaining = 0;
     m_captureFrameIndex = 0;
-    {
-        std::scoped_lock lock(m_certMutex);
-        m_pendingCert.reset();
-    }
+    m_processBinding.reset();
     m_resizeBurstTracker.reset();
     m_modifierTracker.reset();
     m_pressedKeys.clear();
@@ -381,10 +387,7 @@ void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
     m_captureDirectory.shrink_to_fit();
     m_captureFramesRemaining = 0;
     m_captureFrameIndex = 0;
-    {
-        std::scoped_lock lock(m_certMutex);
-        m_pendingCert.reset();
-    }
+    m_processBinding.reset();
     m_resizeBurstTracker.reset();
     m_modifierTracker.reset();
     m_pressedKeys.clear();
