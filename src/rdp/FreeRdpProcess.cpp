@@ -197,15 +197,16 @@ void FreeRdpProcess::start(const std::wstring &host,
         freerdp_abort_connect_context(context);
         freerdp_disconnect(instance);
 
+        std::string disconnectError;
+        const UINT32 lastError = freerdp_get_last_error(context);
+        if (lastError != FREERDP_ERROR_SUCCESS) {
+            const char *errorStr = freerdp_get_last_error_string(lastError);
+            if (errorStr && *errorStr)
+                disconnectError = errorStr;
+        }
         {
             std::scoped_lock lock(m_d->mutex);
-            m_d->lastDisconnectError.clear();
-            const UINT32 lastError = freerdp_get_last_error(context);
-            if (lastError != FREERDP_ERROR_SUCCESS) {
-                const char *errorStr = freerdp_get_last_error_string(lastError);
-                if (errorStr && *errorStr)
-                    m_d->lastDisconnectError = errorStr;
-            }
+            m_d->lastDisconnectError = std::move(disconnectError);
         }
 
         updateStateFromBackend(State::Finished);
