@@ -512,15 +512,15 @@ static SSIZE_T buildFileDescriptorList(ClipboardContext *clipboard, BYTE **data)
     format.dwAspect = DVASPECT_CONTENT;
     format.lindex = -1;
 
-    if (FAILED(dataObject->GetData(&format, &medium))) {
-        dataObject->Release();
+    if (FAILED(IDataObject_GetData(dataObject, &format, &medium))) {
+        IDataObject_Release(dataObject);
         return -1;
     }
 
     auto *dropFiles = static_cast<DROPFILES*>(GlobalLock(STGMEDIUM_HGLOBAL(medium)));
     if (!dropFiles) {
         ReleaseStgMedium(&medium);
-        dataObject->Release();
+        IDataObject_Release(dataObject);
         return -1;
     }
 
@@ -533,7 +533,7 @@ static SSIZE_T buildFileDescriptorList(ClipboardContext *clipboard, BYTE **data)
             if (!processClipboardFilename(clipboard, fileName, wcslen(fileName))) {
                 GlobalUnlock(STGMEDIUM_HGLOBAL(medium));
                 ReleaseStgMedium(&medium);
-                dataObject->Release();
+                IDataObject_Release(dataObject);
                 return -1;
             }
         }
@@ -547,7 +547,7 @@ static SSIZE_T buildFileDescriptorList(ClipboardContext *clipboard, BYTE **data)
                     free(wideName);
                     GlobalUnlock(STGMEDIUM_HGLOBAL(medium));
                     ReleaseStgMedium(&medium);
-                    dataObject->Release();
+                    IDataObject_Release(dataObject);
                     return -1;
                 }
                 free(wideName);
@@ -561,7 +561,7 @@ static SSIZE_T buildFileDescriptorList(ClipboardContext *clipboard, BYTE **data)
     const size_t size = 4ull + clipboard->fileCount * sizeof(FILEDESCRIPTORW);
     auto *group = static_cast<FILEGROUPDESCRIPTORW*>(calloc(size, 1));
     if (!group) {
-        dataObject->Release();
+        IDataObject_Release(dataObject);
         return -1;
     }
 
@@ -572,7 +572,7 @@ static SSIZE_T buildFileDescriptorList(ClipboardContext *clipboard, BYTE **data)
     }
 
     *data = reinterpret_cast<BYTE*>(group);
-    dataObject->Release();
+    IDataObject_Release(dataObject);
     return static_cast<SSIZE_T>(size);
 }
 
@@ -785,11 +785,11 @@ static UINT CALLBACK onServerFileContentsRequest(CliprdrClientContext *context,
         format.lindex = request->listIndex;
 
         STGMEDIUM medium = {};
-        const HRESULT result = dataObject->GetData(&format, &medium);
+        const HRESULT result = IDataObject_GetData(dataObject, &format, &medium);
         if (SUCCEEDED(result) && medium.tymed == TYMED_ISTREAM && STGMEDIUM_PSTM(medium)) {
             if (request->dwFlags == FILECONTENTS_SIZE) {
                 STATSTG stat = {};
-                if (SUCCEEDED(STGMEDIUM_PSTM(medium)->Stat(&stat, STATFLAG_NONAME))) {
+                if (SUCCEEDED(IStream_Stat(STGMEDIUM_PSTM(medium), &stat, STATFLAG_NONAME))) {
                     *reinterpret_cast<UINT64*>(data) = stat.cbSize.QuadPart;
                     actualSize = requestedSize;
                     rc = CHANNEL_RC_OK;
@@ -798,9 +798,9 @@ static UINT CALLBACK onServerFileContentsRequest(CliprdrClientContext *context,
                 LARGE_INTEGER offset = {};
                 offset.QuadPart = (static_cast<UINT64>(request->nPositionHigh) << 32) | request->nPositionLow;
                 ULARGE_INTEGER newPosition = {};
-                if (SUCCEEDED(STGMEDIUM_PSTM(medium)->Seek(offset, STREAM_SEEK_SET, &newPosition))) {
+                if (SUCCEEDED(IStream_Seek(STGMEDIUM_PSTM(medium), offset, STREAM_SEEK_SET, &newPosition))) {
                     ULONG bytesRead = 0;
-                    if (SUCCEEDED(STGMEDIUM_PSTM(medium)->Read(data, requestedSize, &bytesRead))) {
+                    if (SUCCEEDED(IStream_Read(STGMEDIUM_PSTM(medium), data, requestedSize, &bytesRead))) {
                         actualSize = bytesRead;
                         rc = CHANNEL_RC_OK;
                     }
@@ -809,7 +809,7 @@ static UINT CALLBACK onServerFileContentsRequest(CliprdrClientContext *context,
             ReleaseStgMedium(&medium);
         }
 
-        dataObject->Release();
+        IDataObject_Release(dataObject);
     }
 
     if (rc != CHANNEL_RC_OK) {
