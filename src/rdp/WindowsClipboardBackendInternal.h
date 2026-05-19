@@ -1,9 +1,8 @@
 #pragma once
 
-#define CINTERFACE
-#define COBJMACROS
-
 #include "WindowsClipboardBackend.h"
+
+#include <atomic>
 
 #include <freerdp/client/cliprdr.h>
 #include <freerdp/channels/cliprdr.h>
@@ -46,7 +45,10 @@ struct ClipboardContext
     HANDLE responseDataEvent = nullptr;
     HANDLE requestFileEvent = nullptr;
     HANDLE abortEvent = nullptr;
+    HANDLE readyEvent = nullptr;
     HANDLE thread = nullptr;
+    DWORD threadId = 0;
+    std::atomic_bool windowReady = false;
 
     IDataObject *dataObject = nullptr;
     ULONG requestFileSize = 0;
@@ -66,8 +68,8 @@ struct ClipboardContext
 };
 
 struct CliprdrEnumFORMATETC
+    : IEnumFORMATETC
 {
-    IEnumFORMATETC iface;
     LONG refCount = 1;
     LONG index = 0;
     LONG count = 0;
@@ -75,8 +77,8 @@ struct CliprdrEnumFORMATETC
 };
 
 struct CliprdrStream
+    : IStream
 {
-    IStream iface;
     LONG refCount = 1;
     ULONG listIndex = 0;
     ULARGE_INTEGER size = {};
@@ -86,8 +88,8 @@ struct CliprdrStream
 };
 
 struct CliprdrDataObject
+    : IDataObject
 {
-    IDataObject iface;
     LONG refCount = 1;
     FORMATETC *formats = nullptr;
     STGMEDIUM *mediums = nullptr;

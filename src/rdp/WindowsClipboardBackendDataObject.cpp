@@ -21,7 +21,6 @@ void deleteEnumFormatEtc(CliprdrEnumFORMATETC *instance)
     if (!instance)
         return;
 
-    free(instance->iface.lpVtbl);
     if (instance->formats) {
         for (LONG i = 0; i < instance->count; ++i) {
             if (instance->formats[i].ptd)
@@ -38,7 +37,7 @@ HRESULT STDMETHODCALLTYPE enumFormatEtcQueryInterface(IEnumFORMATETC *self, REFI
         return E_INVALIDARG;
 
     if (InlineIsEqualGUID(riid, IID_IEnumFORMATETC) || InlineIsEqualGUID(riid, IID_IUnknown)) {
-        IEnumFORMATETC_AddRef(self);
+        self->AddRef();
         *object = self;
         return S_OK;
     }
@@ -110,22 +109,6 @@ CliprdrEnumFORMATETC *newEnumFormatEtc(ULONG count, FORMATETC *formats)
     auto *instance = static_cast<CliprdrEnumFORMATETC*>(calloc(1, sizeof(CliprdrEnumFORMATETC)));
     if (!instance)
         return nullptr;
-
-    auto *vtable = static_cast<IEnumFORMATETCVtbl*>(calloc(1, sizeof(IEnumFORMATETCVtbl)));
-    if (!vtable) {
-        free(instance);
-        return nullptr;
-    }
-
-    vtable->QueryInterface = enumFormatEtcQueryInterface;
-    vtable->AddRef = enumFormatEtcAddRef;
-    vtable->Release = enumFormatEtcRelease;
-    vtable->Next = enumFormatEtcNext;
-    vtable->Skip = enumFormatEtcSkip;
-    vtable->Reset = enumFormatEtcReset;
-    vtable->Clone = enumFormatEtcClone;
-
-    instance->iface.lpVtbl = vtable;
     instance->refCount = 1;
     instance->index = 0;
     instance->count = static_cast<LONG>(count);
@@ -154,7 +137,7 @@ HRESULT STDMETHODCALLTYPE enumFormatEtcClone(IEnumFORMATETC *self, IEnumFORMATET
         return E_OUTOFMEMORY;
 
     copy->index = instance->index;
-    *clone = &copy->iface;
+    *clone = copy;
     return S_OK;
 }
 
@@ -162,7 +145,6 @@ void deleteStream(CliprdrStream *instance)
 {
     if (!instance)
         return;
-    free(instance->iface.lpVtbl);
     free(instance);
 }
 
@@ -172,7 +154,7 @@ HRESULT STDMETHODCALLTYPE streamQueryInterface(IStream *self, REFIID riid, void 
         return E_INVALIDARG;
 
     if (InlineIsEqualGUID(riid, IID_IStream) || InlineIsEqualGUID(riid, IID_IUnknown)) {
-        IStream_AddRef(self);
+        self->AddRef();
         *object = self;
         return S_OK;
     }
@@ -298,29 +280,6 @@ CliprdrStream *newStream(ULONG index, ClipboardContext *clipboard, const FILEDES
     auto *instance = static_cast<CliprdrStream*>(calloc(1, sizeof(CliprdrStream)));
     if (!instance)
         return nullptr;
-
-    auto *vtable = static_cast<IStreamVtbl*>(calloc(1, sizeof(IStreamVtbl)));
-    if (!vtable) {
-        free(instance);
-        return nullptr;
-    }
-
-    vtable->QueryInterface = streamQueryInterface;
-    vtable->AddRef = streamAddRef;
-    vtable->Release = streamRelease;
-    vtable->Read = streamRead;
-    vtable->Write = streamWrite;
-    vtable->Seek = streamSeek;
-    vtable->SetSize = streamSetSize;
-    vtable->CopyTo = streamCopyTo;
-    vtable->Commit = streamCommit;
-    vtable->Revert = streamRevert;
-    vtable->LockRegion = streamLockRegion;
-    vtable->UnlockRegion = streamUnlockRegion;
-    vtable->Stat = streamStat;
-    vtable->Clone = streamClone;
-
-    instance->iface.lpVtbl = vtable;
     instance->refCount = 1;
     instance->listIndex = index;
     instance->clipboard = clipboard;
@@ -373,14 +332,13 @@ void deleteDataObject(CliprdrDataObject *instance)
     if (!instance)
         return;
 
-    free(instance->iface.lpVtbl);
     free(instance->formats);
     free(instance->mediums);
 
     if (instance->streams) {
         for (ULONG i = 0; i < instance->streamCount; ++i) {
             if (instance->streams[i])
-                IStream_Release(instance->streams[i]);
+                instance->streams[i]->Release();
         }
         free(instance->streams);
     }
@@ -394,7 +352,7 @@ HRESULT STDMETHODCALLTYPE dataObjectQueryInterface(IDataObject *self, REFIID rii
         return E_INVALIDARG;
 
     if (InlineIsEqualGUID(riid, IID_IDataObject) || InlineIsEqualGUID(riid, IID_IUnknown)) {
-        IDataObject_AddRef(self);
+        self->AddRef();
         *object = self;
         return S_OK;
     }
@@ -470,7 +428,7 @@ HRESULT STDMETHODCALLTYPE dataObjectGetData(IDataObject *self, FORMATETC *format
             return E_INVALIDARG;
 
         STGMEDIUM_PSTM((*medium)) = instance->streams[format->lindex];
-        IStream_AddRef(instance->streams[format->lindex]);
+        instance->streams[format->lindex]->AddRef();
     } else {
         return E_UNEXPECTED;
     }
@@ -516,7 +474,7 @@ HRESULT STDMETHODCALLTYPE dataObjectEnumFormatEtc(IDataObject *self, DWORD direc
     auto *value = newEnumFormatEtc(instance->formatCount, instance->formats);
     if (!value)
         return E_OUTOFMEMORY;
-    *enumerator = &value->iface;
+    *enumerator = value;
     return S_OK;
 }
 
@@ -541,27 +499,6 @@ CliprdrDataObject *newDataObject(FORMATETC *formats, STGMEDIUM *mediums, ULONG c
     auto *instance = static_cast<CliprdrDataObject*>(calloc(1, sizeof(CliprdrDataObject)));
     if (!instance)
         return nullptr;
-
-    auto *vtable = static_cast<IDataObjectVtbl*>(calloc(1, sizeof(IDataObjectVtbl)));
-    if (!vtable) {
-        free(instance);
-        return nullptr;
-    }
-
-    vtable->QueryInterface = dataObjectQueryInterface;
-    vtable->AddRef = dataObjectAddRef;
-    vtable->Release = dataObjectRelease;
-    vtable->GetData = dataObjectGetData;
-    vtable->GetDataHere = dataObjectGetDataHere;
-    vtable->QueryGetData = dataObjectQueryGetData;
-    vtable->GetCanonicalFormatEtc = dataObjectGetCanonicalFormatEtc;
-    vtable->SetData = dataObjectSetData;
-    vtable->EnumFormatEtc = dataObjectEnumFormatEtc;
-    vtable->DAdvise = dataObjectDAdvise;
-    vtable->DUnadvise = dataObjectDUnadvise;
-    vtable->EnumDAdvise = dataObjectEnumDAdvise;
-
-    instance->iface.lpVtbl = vtable;
     instance->refCount = 1;
     instance->clipboard = clipboard;
     instance->formatCount = count;
@@ -605,12 +542,12 @@ BOOL createFileDataObject(ClipboardContext *clipboard, IDataObject **dataObject)
     if (!instance)
         return FALSE;
 
-    *dataObject = &instance->iface;
+    *dataObject = instance;
     return TRUE;
 }
 
 void destroyFileDataObject(IDataObject *instance)
 {
     if (instance)
-        IDataObject_Release(instance);
+        instance->Release();
 }

@@ -18,6 +18,7 @@
 #include <freerdp3/freerdp/codecs.h>
 #include <freerdp3/freerdp/constants.h>
 #include <freerdp3/freerdp/input.h>
+#include <freerdp3/freerdp/settings_types.h>
 #include <freerdp3/freerdp/update.h>
 
 #include <windows.h>

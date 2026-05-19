@@ -52,6 +52,16 @@ target_include_directories(RdpFocusNotificationTests PRIVATE
 
 add_test(NAME RdpFocusNotificationTests COMMAND RdpFocusNotificationTests)
 
+add_executable(ClipboardWindowReadyTests
+    rdp/ClipboardWindowReadyTests.cpp
+)
+
+target_include_directories(ClipboardWindowReadyTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME ClipboardWindowReadyTests COMMAND ClipboardWindowReadyTests)
+
 add_executable(RdpInputModifiersTests
     rdp/RdpInputModifiersTests.cpp
     ${CMAKE_SOURCE_DIR}/src/rdp/RdpInputModifiers.cpp

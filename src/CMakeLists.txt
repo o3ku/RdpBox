@@ -83,6 +83,7 @@ set(RDPBOX_SOURCES
     rdp/FrameBufferMemory.h
     rdp/RdpClipboardBridge.h
     rdp/RdpClipboardBridge.cpp
+    rdp/ClipboardWindowReady.h
     rdp/PlatformClipboardBackend.h
     rdp/RdpSessionView.h
     rdp/RdpSessionView.cpp
