@@ -1,4 +1,5 @@
 #include "WindowsClipboardBackend.h"
+#include "ClipboardWindowReady.h"
 #include "WindowsClipboardBackendInternal.h"
 
 #include <winpr/assert.h>
@@ -18,6 +19,10 @@ namespace
 constexpr DWORD kClipboardRequestTimeoutMs = 30000;
 constexpr size_t kMaxClipboardFileCount = 10000;
 constexpr int kMaxClipboardDirectoryDepth = 32;
+
+constexpr UINT32 kCliprdrGeneralCapabilityPayloadSize = sizeof(UINT32) + CB_CAPSTYPE_GENERAL_LEN;
+constexpr UINT32 kCliprdrFormatDataRequestPayloadSize = sizeof(UINT32);
+constexpr UINT32 kCliprdrFileContentsResponseBasePayloadSize = sizeof(UINT32) + sizeof(UINT32);
 
 static UINT32 getLocalFormatIdByName(ClipboardContext *clipboard, const TCHAR *formatName)
 {
@@ -47,6 +52,21 @@ static UINT32 getLocalFormatIdByName(ClipboardContext *clipboard, const TCHAR *f
 static BOOL fileTransferring(ClipboardContext *clipboard)
 {
     return getLocalFormatIdByName(clipboard, CFSTR_FILEDESCRIPTORW) ? TRUE : FALSE;
+}
+
+static bool waitForClipboardWindowReady(ClipboardContext *clipboard)
+{
+    if (!clipboard)
+        return false;
+
+    if (clipboard->windowReady.load(std::memory_order_acquire))
+        return true;
+
+    if (!clipboard->readyEvent)
+        return false;
+
+    const DWORD waitResult = WaitForSingleObject(clipboard->readyEvent, rdp::kClipboardWindowReadyTimeoutMs);
+    return rdp::didClipboardWindowInitialize(waitResult, clipboard->windowReady.load(std::memory_order_acquire));
 }
 
 }
@@ -113,17 +133,6 @@ static BOOL clearFormatMap(ClipboardContext *clipboard)
     return TRUE;
 }
 
-static UINT sendTempDirectory(ClipboardContext *clipboard)
-{
-    if (!clipboard || !clipboard->context || !clipboard->context->TempDirectory)
-        return ERROR_INTERNAL_ERROR;
-
-    CLIPRDR_TEMP_DIRECTORY tempDirectory = {};
-    if (GetEnvironmentVariableA("TEMP", tempDirectory.szTempDir, ARRAYSIZE(tempDirectory.szTempDir)) == 0)
-        return ERROR_INTERNAL_ERROR;
-    return clipboard->context->TempDirectory(clipboard->context, &tempDirectory);
-}
-
 UINT clipboardSendFormatList(ClipboardContext *clipboard)
 {
     if (!clipboard || !clipboard->context || !clipboard->context->ClientFormatList)
@@ -135,7 +144,8 @@ UINT clipboardSendFormatList(ClipboardContext *clipboard)
 
     if (clipboardTryOpenClipboard(clipboard->hwnd)) {
         const int count = CountClipboardFormats();
-        numFormats = static_cast<UINT32>(count);
+        const bool hasFileDrop = IsClipboardFormatAvailable(CF_HDROP) != FALSE;
+        numFormats = hasFileDrop ? 2u : static_cast<UINT32>(count);
         formats = static_cast<CLIPRDR_FORMAT*>(calloc(numFormats ? numFormats : 1, sizeof(CLIPRDR_FORMAT)));
         if (!formats) {
             CloseClipboard();
@@ -143,7 +153,7 @@ UINT clipboardSendFormatList(ClipboardContext *clipboard)
         }
 
         UINT32 index = 0;
-        if (IsClipboardFormatAvailable(CF_HDROP)) {
+        if (hasFileDrop) {
             formats[index++].formatId = RegisterClipboardFormat(CFSTR_FILEDESCRIPTORW);
             formats[index++].formatId = RegisterClipboardFormat(CFSTR_FILECONTENTS);
         } else {
@@ -182,6 +192,8 @@ UINT clipboardSendDataRequest(ClipboardContext *clipboard, UINT32 formatId)
         return ERROR_INTERNAL_ERROR;
 
     CLIPRDR_FORMAT_DATA_REQUEST request = {};
+    request.common.msgType = CB_FORMAT_DATA_REQUEST;
+    request.common.dataLen = kCliprdrFormatDataRequestPayloadSize;
     request.requestedFormatId = clipboardGetRemoteFormatId(clipboard, formatId);
 
     if (!ResetEvent(clipboard->responseDataEvent))
@@ -200,6 +212,8 @@ UINT clipboardSendFileContentsRequest(ClipboardContext *clipboard, const void *s
         return ERROR_INTERNAL_ERROR;
 
     CLIPRDR_FILE_CONTENTS_REQUEST request = {};
+    request.common.msgType = CB_FILECONTENTS_REQUEST;
+    request.common.dataLen = 28;
     request.streamId = static_cast<UINT32>(reinterpret_cast<ULONG_PTR>(streamId));
     request.listIndex = index;
     request.dwFlags = flags;
@@ -224,10 +238,12 @@ static UINT sendFileContentsResponse(ClipboardContext *clipboard, UINT32 streamI
         return ERROR_INTERNAL_ERROR;
 
     CLIPRDR_FILE_CONTENTS_RESPONSE response = {};
+    response.common.msgType = CB_FILECONTENTS_RESPONSE;
+    response.common.msgFlags = CB_RESPONSE_OK;
+    response.common.dataLen = kCliprdrFileContentsResponseBasePayloadSize + size;
     response.streamId = streamId;
     response.cbRequested = size;
     response.requestedData = data;
-    response.common.msgFlags = CB_RESPONSE_OK;
     return clipboard->context->ClientFileContentsResponse(clipboard->context, &response);
 }
 
@@ -496,15 +512,15 @@ static SSIZE_T buildFileDescriptorList(ClipboardContext *clipboard, BYTE **data)
     format.dwAspect = DVASPECT_CONTENT;
     format.lindex = -1;
 
-    if (FAILED(IDataObject_GetData(dataObject, &format, &medium))) {
-        IDataObject_Release(dataObject);
+    if (FAILED(dataObject->GetData(&format, &medium))) {
+        dataObject->Release();
         return -1;
     }
 
     auto *dropFiles = static_cast<DROPFILES*>(GlobalLock(STGMEDIUM_HGLOBAL(medium)));
     if (!dropFiles) {
         ReleaseStgMedium(&medium);
-        IDataObject_Release(dataObject);
+        dataObject->Release();
         return -1;
     }
 
@@ -517,7 +533,7 @@ static SSIZE_T buildFileDescriptorList(ClipboardContext *clipboard, BYTE **data)
             if (!processClipboardFilename(clipboard, fileName, wcslen(fileName))) {
                 GlobalUnlock(STGMEDIUM_HGLOBAL(medium));
                 ReleaseStgMedium(&medium);
-                IDataObject_Release(dataObject);
+                dataObject->Release();
                 return -1;
             }
         }
@@ -531,7 +547,7 @@ static SSIZE_T buildFileDescriptorList(ClipboardContext *clipboard, BYTE **data)
                     free(wideName);
                     GlobalUnlock(STGMEDIUM_HGLOBAL(medium));
                     ReleaseStgMedium(&medium);
-                    IDataObject_Release(dataObject);
+                    dataObject->Release();
                     return -1;
                 }
                 free(wideName);
@@ -545,7 +561,7 @@ static SSIZE_T buildFileDescriptorList(ClipboardContext *clipboard, BYTE **data)
     const size_t size = 4ull + clipboard->fileCount * sizeof(FILEDESCRIPTORW);
     auto *group = static_cast<FILEGROUPDESCRIPTORW*>(calloc(size, 1));
     if (!group) {
-        IDataObject_Release(dataObject);
+        dataObject->Release();
         return -1;
     }
 
@@ -556,7 +572,7 @@ static SSIZE_T buildFileDescriptorList(ClipboardContext *clipboard, BYTE **data)
     }
 
     *data = reinterpret_cast<BYTE*>(group);
-    IDataObject_Release(dataObject);
+    dataObject->Release();
     return static_cast<SSIZE_T>(size);
 }
 
@@ -572,6 +588,8 @@ static UINT sendClientCapabilities(ClipboardContext *clipboard)
     general.generalFlags = CB_USE_LONG_FORMAT_NAMES | CB_STREAM_FILECLIP_ENABLED | CB_FILECLIP_NO_FILE_PATHS;
 
     CLIPRDR_CAPABILITIES capabilities = {};
+    capabilities.common.msgType = CB_CLIP_CAPS;
+    capabilities.common.dataLen = kCliprdrGeneralCapabilityPayloadSize;
     capabilities.cCapabilitiesSets = 1;
     capabilities.capabilitySets = reinterpret_cast<CLIPRDR_CAPABILITY_SET*>(&general);
     return clipboard->context->ClientCapabilities(clipboard->context, &capabilities);
@@ -585,13 +603,11 @@ static UINT CALLBACK onMonitorReady(CliprdrClientContext *context, const CLIPRDR
     auto *clipboard = static_cast<ClipboardContext*>(context->custom);
     if (!clipboard)
         return ERROR_INTERNAL_ERROR;
+    if (!waitForClipboardWindowReady(clipboard))
+        return ERROR_INTERNAL_ERROR;
     clipboard->sync = true;
 
     UINT rc = sendClientCapabilities(clipboard);
-    if (rc != CHANNEL_RC_OK)
-        return rc;
-
-    rc = sendTempDirectory(clipboard);
     if (rc != CHANNEL_RC_OK)
         return rc;
 
@@ -613,6 +629,8 @@ static UINT CALLBACK onServerFormatList(CliprdrClientContext *context, const CLI
     auto *clipboard = static_cast<ClipboardContext*>(context->custom);
     if (!clipboard)
         return ERROR_INTERNAL_ERROR;
+    if (!waitForClipboardWindowReady(clipboard))
+        return ERROR_INTERNAL_ERROR;
     clearFormatMap(clipboard);
 
     for (UINT32 i = 0; i < formatList->numFormats; ++i) {
@@ -631,24 +649,23 @@ static UINT CALLBACK onServerFormatList(CliprdrClientContext *context, const CLI
         ++clipboard->mapSize;
     }
 
+    UINT rc = CHANNEL_RC_OK;
     if (fileTransferring(clipboard)) {
-        return PostMessage(clipboard->hwnd, WM_USER + 156, 1, 0)
+        rc = PostMessage(clipboard->hwnd, WM_USER + 156, 1, 0)
             ? CHANNEL_RC_OK
             : ERROR_INTERNAL_ERROR;
+    } else if (clipboardTryOpenClipboard(clipboard->hwnd)) {
+        rc = ERROR_INTERNAL_ERROR;
+        if (EmptyClipboard()) {
+            for (size_t i = 0; i < clipboard->mapSize; ++i)
+                SetClipboardData(clipboard->formatMappings[i].localFormatId, nullptr);
+            rc = CHANNEL_RC_OK;
+        }
+
+        if (!CloseClipboard() && GetLastError())
+            return ERROR_INTERNAL_ERROR;
     }
 
-    if (!clipboardTryOpenClipboard(clipboard->hwnd))
-        return CHANNEL_RC_OK;
-
-    UINT rc = ERROR_INTERNAL_ERROR;
-    if (EmptyClipboard()) {
-        for (size_t i = 0; i < clipboard->mapSize; ++i)
-            SetClipboardData(clipboard->formatMappings[i].localFormatId, nullptr);
-        rc = CHANNEL_RC_OK;
-    }
-
-    if (!CloseClipboard() && GetLastError())
-        return ERROR_INTERNAL_ERROR;
     return rc;
 }
 
@@ -768,11 +785,11 @@ static UINT CALLBACK onServerFileContentsRequest(CliprdrClientContext *context,
         format.lindex = request->listIndex;
 
         STGMEDIUM medium = {};
-        const HRESULT result = IDataObject_GetData(dataObject, &format, &medium);
+        const HRESULT result = dataObject->GetData(&format, &medium);
         if (SUCCEEDED(result) && medium.tymed == TYMED_ISTREAM && STGMEDIUM_PSTM(medium)) {
             if (request->dwFlags == FILECONTENTS_SIZE) {
                 STATSTG stat = {};
-                if (SUCCEEDED(IStream_Stat(STGMEDIUM_PSTM(medium), &stat, STATFLAG_NONAME))) {
+                if (SUCCEEDED(STGMEDIUM_PSTM(medium)->Stat(&stat, STATFLAG_NONAME))) {
                     *reinterpret_cast<UINT64*>(data) = stat.cbSize.QuadPart;
                     actualSize = requestedSize;
                     rc = CHANNEL_RC_OK;
@@ -781,9 +798,9 @@ static UINT CALLBACK onServerFileContentsRequest(CliprdrClientContext *context,
                 LARGE_INTEGER offset = {};
                 offset.QuadPart = (static_cast<UINT64>(request->nPositionHigh) << 32) | request->nPositionLow;
                 ULARGE_INTEGER newPosition = {};
-                if (SUCCEEDED(IStream_Seek(STGMEDIUM_PSTM(medium), offset, STREAM_SEEK_SET, &newPosition))) {
+                if (SUCCEEDED(STGMEDIUM_PSTM(medium)->Seek(offset, STREAM_SEEK_SET, &newPosition))) {
                     ULONG bytesRead = 0;
-                    if (SUCCEEDED(IStream_Read(STGMEDIUM_PSTM(medium), data, requestedSize, &bytesRead))) {
+                    if (SUCCEEDED(STGMEDIUM_PSTM(medium)->Read(data, requestedSize, &bytesRead))) {
                         actualSize = bytesRead;
                         rc = CHANNEL_RC_OK;
                     }
@@ -792,7 +809,7 @@ static UINT CALLBACK onServerFileContentsRequest(CliprdrClientContext *context,
             ReleaseStgMedium(&medium);
         }
 
-        IDataObject_Release(dataObject);
+        dataObject->Release();
     }
 
     if (rc != CHANNEL_RC_OK) {
@@ -912,13 +929,9 @@ bool WindowsClipboardBackend::attach(CliprdrClientContext *context)
     clipboard->responseDataEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
     clipboard->requestFileEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
     clipboard->abortEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
-    if (!clipboard->responseDataEvent || !clipboard->requestFileEvent || !clipboard->abortEvent) {
-        detach();
-        return false;
-    }
-
-    clipboard->thread = CreateThread(nullptr, 0, clipboardThreadProc, clipboard.get(), 0, nullptr);
-    if (!clipboard->thread) {
+    clipboard->readyEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
+    if (!clipboard->responseDataEvent || !clipboard->requestFileEvent || !clipboard->abortEvent ||
+        !clipboard->readyEvent) {
         detach();
         return false;
     }
@@ -935,6 +948,18 @@ bool WindowsClipboardBackend::attach(CliprdrClientContext *context)
     context->ServerFileContentsResponse = onServerFileContentsResponse;
     context->custom = clipboard.get();
 
+    clipboard->thread = CreateThread(nullptr, 0, clipboardThreadProc, clipboard.get(), 0, &clipboard->threadId);
+    if (!clipboard->thread) {
+        detach();
+        return false;
+    }
+
+    const DWORD readyResult = WaitForSingleObject(clipboard->readyEvent, rdp::kClipboardWindowReadyTimeoutMs);
+    if (!rdp::didClipboardWindowInitialize(readyResult, clipboard->windowReady.load(std::memory_order_acquire))) {
+        detach();
+        return false;
+    }
+
     return true;
 }
 
@@ -944,14 +969,27 @@ void WindowsClipboardBackend::detach()
         return;
 
     auto &clipboard = m_d->clipboard;
-    if (clipboard->context)
+    if (clipboard->context) {
+        clipboard->context->MonitorReady = nullptr;
+        clipboard->context->ServerCapabilities = nullptr;
+        clipboard->context->ServerFormatList = nullptr;
+        clipboard->context->ServerFormatListResponse = nullptr;
+        clipboard->context->ServerLockClipboardData = nullptr;
+        clipboard->context->ServerUnlockClipboardData = nullptr;
+        clipboard->context->ServerFormatDataRequest = nullptr;
+        clipboard->context->ServerFormatDataResponse = nullptr;
+        clipboard->context->ServerFileContentsRequest = nullptr;
+        clipboard->context->ServerFileContentsResponse = nullptr;
         clipboard->context->custom = nullptr;
+    }
 
     if (clipboard->abortEvent)
         SetEvent(clipboard->abortEvent);
 
     if (clipboard->hwnd)
         PostMessage(clipboard->hwnd, WM_QUIT, 0, 0);
+    else if (clipboard->threadId != 0)
+        PostThreadMessage(clipboard->threadId, WM_QUIT, 0, 0);
 
     if (clipboard->thread) {
         WaitForSingleObject(clipboard->thread, INFINITE);
@@ -964,6 +1002,8 @@ void WindowsClipboardBackend::detach()
         CloseHandle(clipboard->requestFileEvent);
     if (clipboard->abortEvent)
         CloseHandle(clipboard->abortEvent);
+    if (clipboard->readyEvent)
+        CloseHandle(clipboard->readyEvent);
     if (clipboard->responseData)
         GlobalFree(clipboard->responseData);
     if (clipboard->requestFileData)

@@ -1,5 +1,7 @@
 #include "WindowsClipboardBackendInternal.h"
 
+#include <atomic>
+
 namespace
 {
 constexpr UINT WM_CLIPRDR_MESSAGE = WM_USER + 156;
@@ -120,9 +122,15 @@ DWORD WINAPI clipboardThreadProc(LPVOID argument)
     OleInitialize(nullptr);
 
     if (createClipboardWindow(clipboard) != 0) {
+        if (clipboard && clipboard->readyEvent)
+            SetEvent(clipboard->readyEvent);
         OleUninitialize();
         return 0;
     }
+
+    clipboard->windowReady.store(true, std::memory_order_release);
+    if (clipboard->readyEvent)
+        SetEvent(clipboard->readyEvent);
 
     MSG message = {};
     while (GetMessage(&message, nullptr, 0, 0) > 0) {
