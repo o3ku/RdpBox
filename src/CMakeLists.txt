@@ -97,6 +97,7 @@ set(RDPBOX_SOURCES
     rdp/WindowsClipboardBackend.cpp
     session/SessionManager.h
     session/SessionManager.cpp
+    session/SessionResumePolicy.h
     ui/AboutDialog.h
     ui/AboutDialog.cpp
     ui/ProfileEditDialog.h
