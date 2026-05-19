@@ -89,6 +89,14 @@ private:
         FreeRdpProcess::CertificateChallenge challenge;
     };
 
+    struct ProcessBinding
+    {
+        HWND hwnd = nullptr;
+        std::uintptr_t generation = 0;
+        std::mutex certMutex;
+        std::optional<PendingCertificateRequest> pendingCert;
+    };
+
     void bindProcessCallbacks(std::uintptr_t generation);
     void clearProcessCallbacks();
     bool isCurrentGeneration(std::uintptr_t generation) const;
@@ -126,6 +134,7 @@ private:
     PointI currentPointerPosition() const;
 
     std::shared_ptr<FreeRdpProcess> m_process;
+    std::shared_ptr<ProcessBinding> m_processBinding;
     std::uintptr_t m_processGeneration = 0;
     bool m_resizeSuppressed = false;
     SizeI m_pendingResize;
@@ -160,7 +169,4 @@ private:
     unsigned int m_pressedMouseButtons = 0;
     PointI m_lastPointerPoint{};
     bool m_hasLastPointerPoint = false;
-
-    mutable std::mutex m_certMutex;
-    std::optional<PendingCertificateRequest> m_pendingCert;
 };

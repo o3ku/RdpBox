@@ -44,21 +44,24 @@ LRESULT CRdpSessionView::OnRdpCursorUpdated(WPARAM, LPARAM generation)
 LRESULT CRdpSessionView::OnRdpCertRequest(WPARAM, LPARAM generation)
 {
     const std::uintptr_t requestGeneration = static_cast<std::uintptr_t>(generation);
-    if (!isCurrentGeneration(requestGeneration) || !m_process) {
-        std::scoped_lock lock(m_certMutex);
-        if (m_pendingCert && m_pendingCert->generation == requestGeneration)
-            m_pendingCert.reset();
+    const std::shared_ptr<ProcessBinding> binding = m_processBinding;
+    const std::shared_ptr<FreeRdpProcess> process = m_process;
+    if (!isCurrentGeneration(requestGeneration) || !binding || !process) {
+        if (binding) {
+            std::scoped_lock lock(binding->certMutex);
+            if (binding->pendingCert && binding->pendingCert->generation == requestGeneration)
+                binding->pendingCert.reset();
+        }
         return 0;
     }
 
-    const std::shared_ptr<FreeRdpProcess> process = m_process;
     std::optional<FreeRdpProcess::CertificateChallenge> challenge;
     {
-        std::scoped_lock lock(m_certMutex);
-        if (!m_pendingCert || m_pendingCert->generation != requestGeneration)
+        std::scoped_lock lock(binding->certMutex);
+        if (!binding->pendingCert || binding->pendingCert->generation != requestGeneration)
             return 0;
-        challenge = std::move(m_pendingCert->challenge);
-        m_pendingCert.reset();
+        challenge = std::move(binding->pendingCert->challenge);
+        binding->pendingCert.reset();
     }
 
     bool accept = false;
