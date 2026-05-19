@@ -5,6 +5,7 @@
 #include "common/Win32String.h"
 #include "profiles/ProfileRepository.h"
 #include "rdp/RdpSessionView.h"
+#include "session/SessionResumePolicy.h"
 #include "ui/BrowserTabBar.h"
 
 #include <algorithm>
@@ -49,7 +50,6 @@ std::string SessionManager::openSession(const Profile &profile)
                 m_sessionConnectedCallback(sessionId, profile);
         }
     });
-    session.view->connectToHost(profile);
 
     const std::wstring title = profile.name.empty() ? L"(unnamed)" : profile.name;
     const int index = m_tabBar->insertTab(title);
@@ -61,6 +61,7 @@ std::string SessionManager::openSession(const Profile &profile)
     m_sessions.push_back(std::move(session));
     m_tabBar->setSelectedIndex(index);
     showSessionAtIndex(index);
+    m_sessions[static_cast<size_t>(index)].view->connectToHost(profile);
     return m_sessions[static_cast<size_t>(index)].id;
 }
 
@@ -153,9 +154,13 @@ void SessionManager::flushPendingResize()
 
 void SessionManager::handleHostResume()
 {
-    for (auto &session : m_sessions) {
+    const int activeTabIndex = m_tabBar ? m_tabBar->selectedIndex() : -1;
+    for (size_t index = 0; index < m_sessions.size(); ++index) {
+        auto &session = m_sessions[index];
         if (session.view && session.view->GetSafeHwnd())
-            session.view->handleHostResume();
+            session.view->handleHostResume(
+                sessionResumeActionForTab(static_cast<int>(index), activeTabIndex)
+                == SessionResumeAction::AutoReconnect);
     }
 }
 

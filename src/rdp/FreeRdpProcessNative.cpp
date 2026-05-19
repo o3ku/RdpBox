@@ -416,7 +416,7 @@ BOOL nativefreerdp_authenticate_ex(freerdp *instance, char **username, char **pa
 {
     static_cast<void>(reason);
 
-    if (!instance || !instance->context || !instance->context->settings)
+    if (!instance || !instance->context || !instance->context->settings || !username || !password || !domain)
         return FALSE;
 
     const char *settingUser = freerdp_settings_get_string(instance->context->settings, FreeRDP_Username);
@@ -429,11 +429,24 @@ BOOL nativefreerdp_authenticate_ex(freerdp *instance, char **username, char **pa
     free(*password);
     free(*domain);
 
+    *username = nullptr;
+    *password = nullptr;
+    *domain = nullptr;
+
     *username = _strdup(settingUser);
     *password = _strdup(settingPassword);
     *domain = settingDomain ? _strdup(settingDomain) : _strdup("");
 
-    return *username && *password && *domain;
+    if (*username && *password && *domain)
+        return TRUE;
+
+    free(*username);
+    free(*password);
+    free(*domain);
+    *username = nullptr;
+    *password = nullptr;
+    *domain = nullptr;
+    return FALSE;
 }
 
 DWORD nativefreerdp_verify_certificate_ex(freerdp *instance, const char *host, UINT16 port,

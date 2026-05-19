@@ -10,7 +10,6 @@
 #include "ui/Win10Theme.h"
 
 #include <algorithm>
-
 #include <imm.h>
 
 namespace
@@ -94,6 +93,7 @@ void releaseKeyboardHookIfUnused()
         g_keyboardHook = nullptr;
     }
 }
+
 }
 
 IMPLEMENT_DYNAMIC(CRdpSessionView, CWnd)
@@ -163,7 +163,7 @@ void CRdpSessionView::connectToHost(const Profile &profile)
     m_profile = profile;
     stopProcess(false);
 
-    m_process = std::make_unique<FreeRdpProcess>();
+    m_process = std::make_shared<FreeRdpProcess>();
     bindProcessCallbacks(++m_processGeneration);
     startProcess();
 }
@@ -219,16 +219,17 @@ void CRdpSessionView::flushPendingResize()
     m_process->requestResize(m_pendingResize);
 }
 
-void CRdpSessionView::handleHostResume()
+void CRdpSessionView::handleHostResume(bool autoReconnect)
 {
-    if (!m_process)
+    if (!m_profile.isValid())
         return;
 
-    const auto action = m_resumeRecovery.onResume(
-        m_connected && m_process->state() == FreeRdpProcess::State::Running,
-        IsWindowVisible() != FALSE);
-    if (action == RdpResumeRecovery::Action::RequestRefresh)
-        beginResumeRecovery();
+    if (autoReconnect) {
+        reconnect();
+        return;
+    }
+
+    stopProcess(true);
 }
 
 void CRdpSessionView::handleBecameVisible()
@@ -242,27 +243,32 @@ void CRdpSessionView::bindProcessCallbacks(std::uintptr_t generation)
         return;
 
     m_process->setStateChangedCallback([this, generation](FreeRdpProcess::State state) {
-        postProcessMessage(WM_APP_RDP_STATE, static_cast<WPARAM>(state), generation);
+        if (const HWND hwnd = GetSafeHwnd(); hwnd && ::IsWindow(hwnd))
+            ::PostMessageW(hwnd, WM_APP_RDP_STATE, static_cast<WPARAM>(state), static_cast<LPARAM>(generation));
     });
 
     m_process->setFrameUpdatedCallback([this, generation]() {
-        postProcessMessage(WM_APP_RDP_FRAME, 0, generation);
+        if (const HWND hwnd = GetSafeHwnd(); hwnd && ::IsWindow(hwnd))
+            ::PostMessageW(hwnd, WM_APP_RDP_FRAME, 0, static_cast<LPARAM>(generation));
     });
 
     m_process->setDesktopResizedCallback([this, generation](const SizeI &) {
-        postProcessMessage(WM_APP_RDP_FRAME, 0, generation);
+        if (const HWND hwnd = GetSafeHwnd(); hwnd && ::IsWindow(hwnd))
+            ::PostMessageW(hwnd, WM_APP_RDP_FRAME, 0, static_cast<LPARAM>(generation));
     });
 
     m_process->setCursorUpdatedCallback([this, generation]() {
-        postProcessMessage(WM_APP_RDP_CURSOR, 0, generation);
+        if (const HWND hwnd = GetSafeHwnd(); hwnd && ::IsWindow(hwnd))
+            ::PostMessageW(hwnd, WM_APP_RDP_CURSOR, 0, static_cast<LPARAM>(generation));
     });
 
     m_process->setCertificateChallengeCallback([this, generation](const FreeRdpProcess::CertificateChallenge &challenge) {
         {
             std::scoped_lock lock(m_certMutex);
-            m_pendingCert = challenge;
+            m_pendingCert = PendingCertificateRequest{ generation, challenge };
         }
-        postProcessMessage(WM_APP_RDP_CERT, 0, generation);
+        if (const HWND hwnd = GetSafeHwnd(); hwnd && ::IsWindow(hwnd))
+            ::PostMessageW(hwnd, WM_APP_RDP_CERT, 0, static_cast<LPARAM>(generation));
     });
 }
 
@@ -276,15 +282,6 @@ void CRdpSessionView::clearProcessCallbacks()
     m_process->setDesktopResizedCallback({});
     m_process->setCursorUpdatedCallback({});
     m_process->setCertificateChallengeCallback({});
-}
-
-bool CRdpSessionView::postProcessMessage(UINT message, WPARAM wParam, std::uintptr_t generation) const
-{
-    const HWND hwnd = GetSafeHwnd();
-    if (!hwnd || !::IsWindow(hwnd))
-        return false;
-
-    return ::PostMessageW(hwnd, message, wParam, static_cast<LPARAM>(generation)) != FALSE;
 }
 
 bool CRdpSessionView::isCurrentGeneration(std::uintptr_t generation) const
@@ -356,10 +353,17 @@ void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
         KillTimer(kMouseMoveTimerId);
         m_mouseMoveTimerActive = false;
     }
+
+    if (m_process) {
+        flushPendingMouseMove();
+        releasePressedMouseButtons();
+        releaseAllPressedKeys();
+        clearProcessCallbacks();
+    }
+
     ++m_processGeneration;
 
     if (m_process) {
-        clearProcessCallbacks();
         m_process->stop();
         m_process.reset();
     }

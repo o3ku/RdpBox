@@ -45,7 +45,7 @@ public:
 
     void setResizeSuppressed(bool suppressed);
     void flushPendingResize();
-    void handleHostResume();
+    void handleHostResume(bool autoReconnect);
     void handleBecameVisible();
 
     bool canCaptureSystemKeys() const;
@@ -83,9 +83,14 @@ protected:
     LRESULT WindowProc(UINT message, WPARAM wParam, LPARAM lParam) override;
 
 private:
+    struct PendingCertificateRequest
+    {
+        std::uintptr_t generation = 0;
+        FreeRdpProcess::CertificateChallenge challenge;
+    };
+
     void bindProcessCallbacks(std::uintptr_t generation);
     void clearProcessCallbacks();
-    bool postProcessMessage(UINT message, WPARAM wParam, std::uintptr_t generation) const;
     bool isCurrentGeneration(std::uintptr_t generation) const;
     void disableLocalIme() const;
     void startProcess();
@@ -120,7 +125,7 @@ private:
     void updatePointerPosition(PointI point);
     PointI currentPointerPosition() const;
 
-    std::unique_ptr<FreeRdpProcess> m_process;
+    std::shared_ptr<FreeRdpProcess> m_process;
     std::uintptr_t m_processGeneration = 0;
     bool m_resizeSuppressed = false;
     SizeI m_pendingResize;
@@ -157,5 +162,5 @@ private:
     bool m_hasLastPointerPoint = false;
 
     mutable std::mutex m_certMutex;
-    std::optional<FreeRdpProcess::CertificateChallenge> m_pendingCert;
+    std::optional<PendingCertificateRequest> m_pendingCert;
 };

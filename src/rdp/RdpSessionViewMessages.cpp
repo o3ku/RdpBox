@@ -43,13 +43,22 @@ LRESULT CRdpSessionView::OnRdpCursorUpdated(WPARAM, LPARAM generation)
 
 LRESULT CRdpSessionView::OnRdpCertRequest(WPARAM, LPARAM generation)
 {
-    if (!isCurrentGeneration(static_cast<std::uintptr_t>(generation)) || !m_process)
+    const std::uintptr_t requestGeneration = static_cast<std::uintptr_t>(generation);
+    if (!isCurrentGeneration(requestGeneration) || !m_process) {
+        std::scoped_lock lock(m_certMutex);
+        if (m_pendingCert && m_pendingCert->generation == requestGeneration)
+            m_pendingCert.reset();
         return 0;
+    }
 
+    const std::shared_ptr<FreeRdpProcess> process = m_process;
     std::optional<FreeRdpProcess::CertificateChallenge> challenge;
     {
         std::scoped_lock lock(m_certMutex);
-        challenge = std::move(m_pendingCert);
+        if (!m_pendingCert || m_pendingCert->generation != requestGeneration)
+            return 0;
+        challenge = std::move(m_pendingCert->challenge);
+        m_pendingCert.reset();
     }
 
     bool accept = false;
@@ -68,7 +77,7 @@ LRESULT CRdpSessionView::OnRdpCertRequest(WPARAM, LPARAM generation)
         accept = MessageBox(message, L"Verify Certificate", MB_YESNO | icon | MB_DEFBUTTON2) == IDYES;
     }
 
-    m_process->resolveCertificateChallenge(accept);
+    process->resolveCertificateChallenge(accept);
     return 0;
 }
 
