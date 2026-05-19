@@ -143,6 +143,16 @@ target_include_directories(RdpReservedShortcutTrackerTests PRIVATE
 
 add_test(NAME RdpReservedShortcutTrackerTests COMMAND RdpReservedShortcutTrackerTests)
 
+add_executable(SessionResumePolicyTests
+    session/SessionResumePolicyTests.cpp
+)
+
+target_include_directories(SessionResumePolicyTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME SessionResumePolicyTests COMMAND SessionResumePolicyTests)
+
 add_executable(ProfileRepositoryTests
     profiles/ProfileRepositoryTests.cpp
     ${CMAKE_SOURCE_DIR}/src/common/AppPaths.cpp
