@@ -9,6 +9,7 @@ constexpr COLORREF kAccentDark = RGB(0, 90, 158);
 constexpr COLORREF kAccentLight = RGB(229, 241, 251);
 constexpr COLORREF kAccentPressed = RGB(204, 228, 247);
 constexpr COLORREF kBrandAccent = RGB(203, 131, 6);
+constexpr COLORREF kBrandAccentDark = RGB(112, 70, 0);
 constexpr COLORREF kSurface = RGB(255, 255, 255);
 constexpr COLORREF kSurfaceMuted = RGB(243, 243, 243);
 constexpr COLORREF kSurfaceSubtle = RGB(248, 248, 248);

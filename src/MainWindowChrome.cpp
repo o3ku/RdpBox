@@ -628,6 +628,12 @@ void MainWindow::OnPaint()
         drawCaptionButton(dc, captionButtonRectFor(HTMAXBUTTON), HTMAXBUTTON);
         drawCaptionButton(dc, captionButtonRectFor(HTCLOSE), HTCLOSE);
 
+        CPen captionBottomBorderPen(PS_SOLID, 1, Win10Theme::kBrandAccentDark);
+        CPen *oldCaptionBottomBorderPen = dc.SelectObject(&captionBottomBorderPen);
+        dc.MoveTo(0, kCaptionHeight - 1);
+        dc.LineTo(clientRect.right, kCaptionHeight - 1);
+        dc.SelectObject(oldCaptionBottomBorderPen);
+
         if (metrics.drawAccentBorder) {
             CPen borderPen(PS_SOLID, 1, Win10Theme::kBrandAccent);
             CPen *oldPen = dc.SelectObject(&borderPen);
@@ -674,7 +680,7 @@ void MainWindow::layoutChildren()
 
     if (m_tabBar.GetSafeHwnd()) {
         m_tabBar.SetWindowPos(nullptr, tabLeft, inset,
-                              std::max(0, tabRight - tabLeft), kCaptionHeight - inset,
+                              std::max(0, tabRight - tabLeft), std::max(0, kCaptionHeight - inset - 1),
                               SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
