@@ -20,5 +20,11 @@ int main()
     tracker.reset();
     assert(!tracker.consumeHandledKeyUp('N'));
 
+    tracker.noteHandledKeyDown('A');
+    tracker.noteHandledKeyDown('B');
+    assert(tracker.consumeHandledKeyUp('A'));
+    assert(tracker.consumeHandledKeyUp('B'));
+    assert(!tracker.consumeHandledKeyUp('A'));
+
     return 0;
 }

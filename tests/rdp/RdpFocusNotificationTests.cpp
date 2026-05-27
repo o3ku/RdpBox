@@ -11,6 +11,9 @@ int main()
     assert(shouldSendFocusIn(true, false, true) == true);
     assert(shouldSendFocusIn(false, true, true) == true);
     assert(shouldSendFocusIn(false, false, false) == false);
+    assert(shouldSendFocusIn(true, false, false) == false);
+    assert(shouldSendFocusIn(false, true, false) == false);
+    assert(shouldSendFocusIn(true, true, false) == false);
 
     return 0;
 }

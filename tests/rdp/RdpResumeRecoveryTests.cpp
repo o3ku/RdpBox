@@ -45,5 +45,33 @@ int main()
         assert(!recovery.awaitingFrame());
     }
 
+    {
+        RdpResumeRecovery recovery;
+        assert(recovery.onResume(true, false) == RdpResumeRecovery::Action::None);
+        assert(recovery.onBecameVisible(true) == RdpResumeRecovery::Action::RequestRefresh);
+        assert(recovery.awaitingFrame());
+        assert(recovery.onBecameVisible(true) == RdpResumeRecovery::Action::None);
+        assert(recovery.awaitingFrame());
+        recovery.onFrameArrived();
+        assert(recovery.onBecameVisible(true) == RdpResumeRecovery::Action::None);
+    }
+
+    {
+        RdpResumeRecovery recovery;
+        assert(recovery.onResume(true, true) == RdpResumeRecovery::Action::RequestRefresh);
+        recovery.reset();
+        assert(!recovery.awaitingFrame());
+        assert(recovery.onTimeout() == RdpResumeRecovery::Action::None);
+        assert(recovery.onBecameVisible(true) == RdpResumeRecovery::Action::None);
+    }
+
+    {
+        RdpResumeRecovery recovery;
+        assert(recovery.onResume(true, false) == RdpResumeRecovery::Action::None);
+        recovery.onFrameArrived();
+        assert(recovery.onBecameVisible(true) == RdpResumeRecovery::Action::None);
+        assert(!recovery.awaitingFrame());
+    }
+
     return 0;
 }

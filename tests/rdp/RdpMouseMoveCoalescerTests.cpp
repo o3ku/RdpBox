@@ -32,10 +32,15 @@ int main()
     expectPoint(coalescer.onMouseMove(PointI{50, 60}), 50, 60);
     assert(!coalescer.onMouseMove(PointI{50, 60}).has_value());
     assert(!coalescer.onTimer().has_value());
+    expectPoint(coalescer.onMouseMove(PointI{70, 80}), 70, 80);
+    assert(!coalescer.flush().has_value());
+    expectPoint(coalescer.onMouseMove(PointI{71, 81}), 71, 81);
 
     coalescer.reset();
     expectPoint(coalescer.onMouseMove(PointI{1, 2}), 1, 2);
     assert(!coalescer.flush().has_value());
+    expectPoint(coalescer.onMouseMove(PointI{3, 4}), 3, 4);
+    assert(!coalescer.onTimer().has_value());
 
     return 0;
 }
