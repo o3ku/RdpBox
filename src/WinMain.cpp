@@ -1,4 +1,6 @@
+#include "RdpBoxApp.h"
 #include "common/AppPaths.h"
+#include "common/ConnectionLaunchArgs.h"
 
 #include <afxwin.h>
 #include <shellapi.h>
@@ -25,12 +27,21 @@ extern "C" int WINAPI WinMain(HINSTANCE hInstance,
     int argc = 0;
     LPWSTR *argv = ::CommandLineToArgvW(::GetCommandLineW(), &argc);
     if (argv) {
+        std::vector<std::wstring> startupConnectionNames;
         for (int i = 1; i < argc; ++i) {
             if (argv[i] && wcscmp(argv[i], L"--portable") == 0) {
                 AppPaths::enablePortableMode();
-                break;
+                continue;
             }
+
+            if (!argv[i])
+                continue;
+
+            std::vector<std::wstring> parsedNames;
+            if (launch::tryParseConnectionsArgument(argv[i], parsedNames))
+                startupConnectionNames = std::move(parsedNames);
         }
+        theApp.setStartupConnectionNames(std::move(startupConnectionNames));
         ::LocalFree(argv);
     }
 

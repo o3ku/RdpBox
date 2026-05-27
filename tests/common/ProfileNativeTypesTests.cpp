@@ -7,13 +7,13 @@ int main()
 {
     {
         Profile profile = Profile::create();
-        assert(!profile.id.empty());
         assert(!profile.isValid());
 
+        profile.name = L"server";
         profile.host = L"10.0.0.20";
         assert(profile.isValid());
 
-        profile.id.clear();
+        profile.name.clear();
         assert(!profile.isValid());
     }
 

@@ -214,4 +214,15 @@ std::wstring frameCaptureRootPath()
     ensureDirectoryExists(path);
     return path;
 }
+
+std::wstring updatesDirectoryPath()
+{
+    const std::wstring root = dataRootPath();
+    if (root.empty())
+        return {};
+
+    const std::wstring path = root + L"\\updates";
+    ensureDirectoryExists(path);
+    return path;
+}
 }

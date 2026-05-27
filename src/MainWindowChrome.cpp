@@ -19,7 +19,6 @@ constexpr int kLogoSize = 22;
 constexpr int kLogoLeftPadding = 8;
 constexpr int kLogoRightPadding = 8;
 constexpr int kCaptionButtonWidth = 46;
-constexpr int kSystemButtonReserve = kCaptionButtonWidth * 3;
 constexpr int kResizeBorderTop = 6;
 constexpr DWORD kDwmwaBorderColor = 34;
 constexpr DWORD kDwmwaWindowCornerPreference = 33;
@@ -307,6 +306,19 @@ void MainWindow::OnLButtonDown(UINT flags, CPoint point)
     }
 
     const int hit = captionButtonHitTest(point);
+    if (hit == kUpdateCaptionButtonHit) {
+        if (m_updateButtonState == UpdateButtonState::Available)
+            startBackgroundUpdateDownload();
+        else if (m_updateButtonState == UpdateButtonState::Downloaded) {
+            if (launchDownloadedUpdate()) {
+                PostMessage(WM_CLOSE);
+            } else {
+                MessageBox(L"Failed to launch downloaded update.", L"Update Launch Failed", MB_OK | MB_ICONERROR);
+            }
+        }
+        return;
+    }
+
     if (hit != 0) {
         UINT command = SC_CLOSE;
         if (hit == HTMINBUTTON)
@@ -342,6 +354,13 @@ void MainWindow::OnMouseMove(UINT flags, CPoint point)
     if (hit != m_hoverCaptionButton) {
         m_hoverCaptionButton = hit;
         invalidateCaptionButtons();
+        if (m_captionTooltip.GetSafeHwnd()) {
+            if (hit == kUpdateCaptionButtonHit)
+                updateCaptionTooltip();
+            else
+                m_captionTooltip.UpdateTipText(L"", this);
+            m_captionTooltip.Pop();
+        }
     }
 
     const bool logoHovered = logoHitTest(point);
@@ -368,6 +387,10 @@ void MainWindow::OnMouseLeave()
     if (m_hoverCaptionButton != 0) {
         m_hoverCaptionButton = 0;
         invalidateCaptionButtons();
+    }
+    if (m_captionTooltip.GetSafeHwnd()) {
+        m_captionTooltip.UpdateTipText(L"", this);
+        m_captionTooltip.Pop();
     }
     if (m_logoHovered) {
         m_logoHovered = false;
@@ -475,6 +498,9 @@ CRect MainWindow::captionButtonRectFor(int hitCode) const
     CRect clientRect;
     const_cast<MainWindow *>(this)->GetClientRect(&clientRect);
 
+    if (hitCode == kUpdateCaptionButtonHit && shouldShowUpdateButton())
+        return updateButtonRect();
+
     int order = -1;
     if (hitCode == HTCLOSE)
         order = 0;
@@ -496,6 +522,8 @@ int MainWindow::captionButtonHitTest(CPoint clientPoint) const
     if (clientPoint.y < 0 || clientPoint.y >= kCaptionHeight)
         return 0;
 
+    if (shouldShowUpdateButton() && updateButtonRect().PtInRect(clientPoint))
+        return kUpdateCaptionButtonHit;
     if (captionButtonRectFor(HTCLOSE).PtInRect(clientPoint))
         return HTCLOSE;
     if (captionButtonRectFor(HTMAXBUTTON).PtInRect(clientPoint))
@@ -507,7 +535,9 @@ int MainWindow::captionButtonHitTest(CPoint clientPoint) const
 
 void MainWindow::invalidateCaptionButtons()
 {
-    CRect rect = captionButtonRectFor(HTMINBUTTON);
+    CRect rect = shouldShowUpdateButton()
+        ? captionButtonRectFor(kUpdateCaptionButtonHit)
+        : captionButtonRectFor(HTMINBUTTON);
     rect.right = captionButtonRectFor(HTCLOSE).right;
     if (!rect.IsRectEmpty())
         InvalidateRect(rect, FALSE);
@@ -539,6 +569,12 @@ void MainWindow::drawCaptionButton(CDC &dc, const CRect &rect, int hitCode) cons
     if (hitCode == HTMINBUTTON) {
         dc.MoveTo(cx - kGlyph, cy);
         dc.LineTo(cx + kGlyph + 1, cy);
+    } else if (hitCode == kUpdateCaptionButtonHit) {
+        dc.MoveTo(cx, cy - kGlyph);
+        dc.LineTo(cx, cy + kGlyph - 1);
+        dc.MoveTo(cx - kGlyph + 1, cy + 1);
+        dc.LineTo(cx, cy + kGlyph - 1);
+        dc.LineTo(cx + kGlyph - 1, cy + 1);
     } else if (hitCode == HTMAXBUTTON) {
         CBrush hollow;
         hollow.CreateStockObject(NULL_BRUSH);
@@ -624,6 +660,8 @@ void MainWindow::OnPaint()
             ::DrawIconEx(targetDc, kLogoLeftPadding, logoY, m_logoIcon, kLogoSize, kLogoSize, 0, nullptr, DI_NORMAL);
         }
 
+        if (shouldShowUpdateButton())
+            drawCaptionButton(dc, captionButtonRectFor(kUpdateCaptionButtonHit), kUpdateCaptionButtonHit);
         drawCaptionButton(dc, captionButtonRectFor(HTMINBUTTON), HTMINBUTTON);
         drawCaptionButton(dc, captionButtonRectFor(HTMAXBUTTON), HTMAXBUTTON);
         drawCaptionButton(dc, captionButtonRectFor(HTCLOSE), HTCLOSE);
@@ -676,7 +714,7 @@ void MainWindow::layoutChildren()
     const WindowFrameMetrics metrics = calculateWindowFrameMetrics(isMaximized(), false);
     const int inset = metrics.clientEdgeInset;
     const int tabLeft = kLogoLeftPadding + kLogoSize + kLogoRightPadding;
-    const int tabRight = std::max(tabLeft, static_cast<int>(clientRect.right) - kSystemButtonReserve);
+    const int tabRight = std::max(tabLeft, static_cast<int>(clientRect.right) - captionButtonReserveWidth());
 
     if (m_tabBar.GetSafeHwnd()) {
         m_tabBar.SetWindowPos(nullptr, tabLeft, inset,

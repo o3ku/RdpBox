@@ -15,6 +15,7 @@ public:
     using SelectionChangedCallback = std::function<void(int)>;
     using CloseRequestedCallback = std::function<void(int)>;
     using TooltipCallback = std::function<std::wstring(int tabIndex)>;
+    using TabReorderedCallback = std::function<void(int fromIndex, int toIndex)>;
 
     enum class TabStatus { Inactive, ConnectedGood, ConnectedWarn, ConnectedBad };
 
@@ -38,6 +39,7 @@ public:
 
     void setSelectionChangedCallback(SelectionChangedCallback callback);
     void setCloseRequestedCallback(CloseRequestedCallback callback);
+    void setTabReorderedCallback(TabReorderedCallback callback);
 
     void setTooltipCallback(TooltipCallback callback);
 
@@ -49,6 +51,7 @@ public:
     afx_msg void OnPaint();
     afx_msg BOOL OnEraseBkgnd(CDC *dc);
     afx_msg void OnLButtonDown(UINT flags, CPoint point);
+    afx_msg void OnLButtonUp(UINT flags, CPoint point);
     afx_msg void OnLButtonDblClk(UINT flags, CPoint point);
     afx_msg void OnMButtonUp(UINT flags, CPoint point);
     afx_msg void OnMouseMove(UINT flags, CPoint point);
@@ -74,6 +77,8 @@ private:
     int hitTestClose(CPoint clientPoint) const;
     void invalidateTab(int index);
     void ensureMouseTracking();
+    bool moveTab(int fromIndex, int toIndex);
+    void updateDraggedTabPosition(CPoint point);
 
     std::vector<TabItem> m_tabs;
     int m_selectedIndex = -1;
@@ -83,7 +88,13 @@ private:
     CToolTipCtrl m_tooltip;
     TooltipCallback m_tooltipCallback;
     CFont m_tabFontBold;
+    int m_pressedTabIndex = -1;
+    int m_draggingTabIndex = -1;
+    int m_dropInsertIndex = -1;
+    CPoint m_dragStartPoint{};
+    bool m_leftButtonDown = false;
 
     SelectionChangedCallback m_selectionChanged;
     CloseRequestedCallback m_closeRequested;
+    TabReorderedCallback m_tabReordered;
 };
