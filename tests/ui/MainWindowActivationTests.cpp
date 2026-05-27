@@ -10,6 +10,8 @@ int main()
     assert(!shouldFocusActiveSessionOnActivate(WA_ACTIVE, true));
     assert(shouldFocusActiveSessionOnActivate(WA_ACTIVE, false));
     assert(shouldFocusActiveSessionOnActivate(WA_CLICKACTIVE, false));
+    assert(!shouldFocusActiveSessionOnActivate(42, false));
+    assert(!shouldFocusActiveSessionOnActivate(WA_CLICKACTIVE, true));
 
     return 0;
 }

@@ -29,5 +29,13 @@ int main()
         assert(metrics.backgroundColor == Win10Theme::kCaptionBg);
     }
 
+    {
+        const WindowFrameMetrics metrics = calculateWindowFrameMetrics(true, true);
+        assert(metrics.dwmTopInset == 0);
+        assert(metrics.clientEdgeInset == 0);
+        assert(!metrics.drawAccentBorder);
+        assert(metrics.backgroundColor == Win10Theme::kCaptionBg);
+    }
+
     return 0;
 }

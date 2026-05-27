@@ -192,6 +192,29 @@ FrameBuffer makeMagnifierCursorFrame()
 
 int main()
 {
+    {
+        const CursorInfo hidden{CursorKind::Hidden, nullptr, false};
+        assert(RdpCursorClassifier::cursorHandleFromInfo(hidden) == nullptr);
+    }
+
+    {
+        const CursorInfo fallback{CursorKind::Arrow, nullptr, false};
+        assert(RdpCursorClassifier::cursorHandleFromInfo(fallback) != nullptr);
+    }
+
+    {
+        FrameBuffer invalidFrame;
+        invalidFrame.width = 16;
+        invalidFrame.height = 16;
+        invalidFrame.stride = 8;
+        invalidFrame.pixels.resize(16u);
+
+        const CursorInfo invalidCursor = RdpCursorClassifier::createCursor(invalidFrame, PointI{0, 0});
+        assert(invalidCursor.kind == CursorKind::Custom);
+        assert(invalidCursor.handle == nullptr);
+        assert(!invalidCursor.ownsHandle);
+    }
+
     const FrameBuffer frame = cursorFrameFromHandle(LoadCursor(nullptr, IDC_IBEAM));
     assert(!frame.empty());
 

@@ -62,6 +62,16 @@ target_include_directories(ClipboardWindowReadyTests PRIVATE
 
 add_test(NAME ClipboardWindowReadyTests COMMAND ClipboardWindowReadyTests)
 
+add_executable(FrameBufferMemoryTests
+    rdp/FrameBufferMemoryTests.cpp
+)
+
+target_include_directories(FrameBufferMemoryTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME FrameBufferMemoryTests COMMAND FrameBufferMemoryTests)
+
 add_executable(RdpInputModifiersTests
     rdp/RdpInputModifiersTests.cpp
     ${CMAKE_SOURCE_DIR}/src/rdp/RdpInputModifiers.cpp
@@ -174,6 +184,84 @@ target_link_libraries(ProfileRepositoryTests PRIVATE
 
 add_test(NAME ProfileRepositoryTests COMMAND ProfileRepositoryTests)
 
+add_executable(Win32StringTests
+    common/Win32StringTests.cpp
+)
+
+target_include_directories(Win32StringTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(Win32StringTests PRIVATE
+    Ole32
+)
+
+add_test(NAME Win32StringTests COMMAND Win32StringTests)
+
+add_executable(PasswordProtectionTests
+    common/PasswordProtectionTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/PasswordProtection.cpp
+)
+
+target_include_directories(PasswordProtectionTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(PasswordProtectionTests PRIVATE
+    Bcrypt
+    Crypt32
+)
+
+add_test(NAME PasswordProtectionTests COMMAND PasswordProtectionTests)
+
+add_executable(ProfileNativeTypesTests
+    common/ProfileNativeTypesTests.cpp
+)
+
+target_include_directories(ProfileNativeTypesTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME ProfileNativeTypesTests COMMAND ProfileNativeTypesTests)
+
+add_executable(AppPathsTests
+    common/AppPathsTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/AppPaths.cpp
+)
+
+target_include_directories(AppPathsTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(AppPathsTests PRIVATE
+    nlohmann_json::nlohmann_json
+    Shell32
+)
+
+add_test(NAME AppPathsTests COMMAND AppPathsTests)
+
+add_executable(AppPersistenceSmokeTests
+    smoke/AppPersistenceSmokeTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/AppPaths.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/PasswordProtection.cpp
+    ${CMAKE_SOURCE_DIR}/src/profiles/ProfileRepository.cpp
+)
+
+target_include_directories(AppPersistenceSmokeTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(AppPersistenceSmokeTests PRIVATE
+    nlohmann_json::nlohmann_json
+    cjson
+    Bcrypt
+    Crypt32
+    Ole32
+    Shell32
+)
+
+add_test(NAME AppPersistenceSmokeTests COMMAND AppPersistenceSmokeTests)
+
 add_executable(WindowFrameMetricsTests
     ui/WindowFrameMetricsTests.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/WindowFrameMetrics.cpp
@@ -195,6 +283,16 @@ target_include_directories(WindowStateScalingTests PRIVATE
 )
 
 add_test(NAME WindowStateScalingTests COMMAND WindowStateScalingTests)
+
+add_executable(Win10ThemeTests
+    ui/Win10ThemeTests.cpp
+)
+
+target_include_directories(Win10ThemeTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME Win10ThemeTests COMMAND Win10ThemeTests)
 
 add_executable(MainWindowActivationTests
     ui/MainWindowActivationTests.cpp
@@ -225,3 +323,39 @@ target_include_directories(MainWindowStatePersistenceTests PRIVATE
 )
 
 add_test(NAME MainWindowStatePersistenceTests COMMAND MainWindowStatePersistenceTests)
+
+add_executable(BrowserTabBarTests
+    ui/BrowserTabBarTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/BrowserTabBar.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/ParentResizeForwarder.cpp
+)
+
+target_include_directories(BrowserTabBarTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_compile_definitions(BrowserTabBarTests PRIVATE
+    _AFXDLL
+)
+
+target_link_libraries(BrowserTabBarTests PRIVATE
+    Comctl32
+    UxTheme
+)
+
+add_test(NAME BrowserTabBarTests COMMAND BrowserTabBarTests)
+
+add_executable(ParentResizeForwarderTests
+    ui/ParentResizeForwarderTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/ParentResizeForwarder.cpp
+)
+
+target_include_directories(ParentResizeForwarderTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_compile_definitions(ParentResizeForwarderTests PRIVATE
+    _AFXDLL
+)
+
+add_test(NAME ParentResizeForwarderTests COMMAND ParentResizeForwarderTests)
