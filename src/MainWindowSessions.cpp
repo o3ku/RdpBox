@@ -50,6 +50,12 @@ int MainWindow::OnCreate(LPCREATESTRUCT createStruct)
         refreshTabStatuses();
     });
 
+    m_tabBar.setTabReorderedCallback([this](int fromIndex, int toIndex) {
+        if (!m_sessionManager)
+            return;
+        m_sessionManager->moveSession(fromIndex, toIndex);
+    });
+
     m_tabBar.setTooltipCallback([this](int tabIndex) -> std::wstring {
         if (!m_sessionManager)
             return {};
@@ -80,11 +86,20 @@ int MainWindow::OnCreate(LPCREATESTRUCT createStruct)
     layoutChildren();
     refreshDwmFrame();
     SetTimer(kTabStatusTimerId, 2000, nullptr);
+    if (!m_captionTooltip.GetSafeHwnd()) {
+        m_captionTooltip.Create(this, TTS_NOPREFIX | TTS_ALWAYSTIP);
+        m_captionTooltip.SetMaxTipWidth(500);
+        m_captionTooltip.AddTool(this, L"");
+        m_captionTooltip.Activate(TRUE);
+    }
+    SetTimer(kUpdateCheckTimerId, 24 * 60 * 60 * 1000u, nullptr);
+    startBackgroundUpdateCheck();
     return 0;
 }
 
 void MainWindow::OnDestroy()
 {
+    KillTimer(kUpdateCheckTimerId);
     if (m_sessionManager) {
         m_sessionManager->closeAllSessions();
         m_sessionManager.reset();
@@ -109,8 +124,14 @@ void MainWindow::OnMainNew()
     if (dialog.DoModal() != IDOK)
         return;
 
-    m_profileRepository->addProfile(dialog.profile());
-    openProfileSession(m_sessionManager.get(), m_profileRepository->profileById(dialog.profile().id));
+    if (!m_profileRepository->addProfile(dialog.profile())) {
+        CString message;
+        message.Format(L"Connection name \"%s\" already exists.", dialog.profile().name.c_str());
+        MessageBox(message, L"Duplicate Connection Name", MB_OK | MB_ICONWARNING);
+        return;
+    }
+
+    openProfileSession(m_sessionManager.get(), m_profileRepository->profileByName(dialog.profile().name));
 }
 
 void MainWindow::OnContextMenu(CWnd *window, CPoint point)
@@ -178,6 +199,12 @@ LRESULT MainWindow::OnOpenConnectionsMessage(WPARAM, LPARAM)
     return 0;
 }
 
+LRESULT MainWindow::OnOpenStartupConnectionsMessage(WPARAM, LPARAM)
+{
+    openConnectionsByName(m_startupConnectionNames);
+    return 0;
+}
+
 LRESULT MainWindow::OnPowerBroadcast(WPARAM wParam, LPARAM)
 {
     if ((wParam == PBT_APMRESUMEAUTOMATIC || wParam == PBT_APMRESUMESUSPEND) && m_sessionManager)
@@ -192,16 +219,24 @@ void MainWindow::openConnectionDialog()
         return;
 
     const auto connectedIds = m_sessionManager
-        ? m_sessionManager->connectedProfileIds()
-        : std::vector<std::string>{};
+        ? m_sessionManager->connectedProfileNames()
+        : std::vector<std::wstring>{};
 
     ConnectionListDialog dialog(m_profileRepository.get(), connectedIds, this);
     if (dialog.DoModal() != IDOK)
         return;
 
-    const std::vector<std::string> profileIds = dialog.selectedProfileIds();
-    for (const std::string &profileId : profileIds)
-        openProfileSession(m_sessionManager.get(), m_profileRepository->profileById(profileId));
+    const std::vector<std::wstring> profileNames = dialog.selectedProfileNames();
+    openConnectionsByName(profileNames);
+}
+
+void MainWindow::openConnectionsByName(const std::vector<std::wstring> &connectionNames)
+{
+    if (!m_profileRepository)
+        return;
+
+    for (const std::wstring &connectionName : connectionNames)
+        openProfileSession(m_sessionManager.get(), m_profileRepository->profileByName(connectionName));
 }
 
 void MainWindow::refreshTabStatuses()
@@ -234,6 +269,10 @@ void MainWindow::OnTimer(UINT_PTR timerId)
 {
     if (timerId == kTabStatusTimerId) {
         refreshTabStatuses();
+        return;
+    }
+    if (timerId == kUpdateCheckTimerId) {
+        startBackgroundUpdateCheck();
         return;
     }
 

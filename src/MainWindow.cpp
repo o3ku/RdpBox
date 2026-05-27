@@ -38,6 +38,9 @@ BEGIN_MESSAGE_MAP(MainWindow, CFrameWnd)
     ON_MESSAGE(WM_NCPAINT, &MainWindow::OnNcPaint)
     ON_MESSAGE(WM_EXITSIZEMOVE, &MainWindow::OnExitSizeMove)
     ON_MESSAGE(WM_APP_OPEN_CONNECTIONS, &MainWindow::OnOpenConnectionsMessage)
+    ON_MESSAGE(WM_APP_OPEN_STARTUP_CONNECTIONS, &MainWindow::OnOpenStartupConnectionsMessage)
+    ON_MESSAGE(WM_APP_UPDATE_CHECK_COMPLETED, &MainWindow::OnUpdateCheckCompleted)
+    ON_MESSAGE(WM_APP_UPDATE_DOWNLOAD_COMPLETED, &MainWindow::OnUpdateDownloadCompleted)
     ON_MESSAGE(WM_DWMCOMPOSITIONCHANGED, &MainWindow::OnDwmCompositionChanged)
     ON_MESSAGE(WM_DPICHANGED, &MainWindow::OnDpiChanged)
     ON_MESSAGE(WM_POWERBROADCAST, &MainWindow::OnPowerBroadcast)
@@ -46,6 +49,11 @@ END_MESSAGE_MAP()
 MainWindow::MainWindow() = default;
 
 MainWindow::~MainWindow() = default;
+
+void MainWindow::setStartupConnectionNames(std::vector<std::wstring> connectionNames)
+{
+    m_startupConnectionNames = std::move(connectionNames);
+}
 
 bool MainWindow::createShell()
 {
@@ -112,6 +120,9 @@ void MainWindow::OnMainAbout()
 
 BOOL MainWindow::PreTranslateMessage(MSG *msg)
 {
+    if (msg && m_captionTooltip.GetSafeHwnd())
+        m_captionTooltip.RelayEvent(msg);
+
     if (msg && (msg->message == WM_KEYDOWN || msg->message == WM_SYSKEYDOWN)) {
         if (msg->wParam == VK_F11) {
             toggleFullScreen();

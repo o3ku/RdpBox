@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(RdpBox VERSION 1.9.2 LANGUAGES CXX RC)
+project(RdpBox VERSION 1.10.0 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -46,10 +46,15 @@ set(RDPBOX_SOURCES
     MainWindow.cpp
     MainWindowChrome.cpp
     MainWindowSessions.cpp
+    MainWindowUpdate.cpp
     common/AppPaths.h
     common/AppPaths.cpp
+    common/ConnectionLaunchArgs.h
+    common/ConnectionLaunchArgs.cpp
     common/PasswordProtection.h
     common/PasswordProtection.cpp
+    common/UpdateClient.h
+    common/UpdateClient.cpp
     common/NativeTypes.h
     common/Win32String.h
     profiles/Profile.h

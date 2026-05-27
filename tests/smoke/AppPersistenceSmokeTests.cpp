@@ -77,7 +77,7 @@ int main()
     profile.host = L"127.0.0.1";
     profile.username = L"tester";
     profile.password = L"portable-secret";
-    repository.addProfile(profile);
+    assert(repository.addProfile(profile));
 
     WindowState state;
     state.leftRatio = 0.1;

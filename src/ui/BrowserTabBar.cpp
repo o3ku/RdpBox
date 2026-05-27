@@ -6,6 +6,7 @@
 #include "Win10Theme.h"
 
 #include <algorithm>
+#include <cstdlib>
 
 #include <uxtheme.h>
 
@@ -18,6 +19,8 @@ constexpr int kCloseButtonSize = 16;
 constexpr int kCloseButtonMargin = 6;
 constexpr int kStatusDotWidth = 8;
 constexpr int kStatusDotHeight = 8;
+constexpr int kDragThreshold = 4;
+constexpr int kDropIndicatorWidth = 3;
 HFONT createTabFont(int pixelHeight, int weight)
 {
     LOGFONTW lf = {};
@@ -44,6 +47,7 @@ BEGIN_MESSAGE_MAP(BrowserTabBar, CWnd)
     ON_WM_PAINT()
     ON_WM_ERASEBKGND()
     ON_WM_LBUTTONDOWN()
+    ON_WM_LBUTTONUP()
     ON_WM_LBUTTONDBLCLK()
     ON_WM_MBUTTONUP()
     ON_WM_MOUSEMOVE()
@@ -117,6 +121,12 @@ void BrowserTabBar::removeTab(int index)
         m_hoverTabIndex = -1;
     if (m_hoverCloseIndex >= static_cast<int>(m_tabs.size()))
         m_hoverCloseIndex = -1;
+    if (m_pressedTabIndex >= static_cast<int>(m_tabs.size()))
+        m_pressedTabIndex = -1;
+    if (m_draggingTabIndex >= static_cast<int>(m_tabs.size()))
+        m_draggingTabIndex = -1;
+    if (m_dropInsertIndex > static_cast<int>(m_tabs.size()))
+        m_dropInsertIndex = -1;
 
     recomputeLayout();
     Invalidate(FALSE);
@@ -128,6 +138,10 @@ void BrowserTabBar::clearTabs()
     m_selectedIndex = -1;
     m_hoverTabIndex = -1;
     m_hoverCloseIndex = -1;
+    m_pressedTabIndex = -1;
+    m_draggingTabIndex = -1;
+    m_dropInsertIndex = -1;
+    m_leftButtonDown = false;
     Invalidate(FALSE);
 }
 
@@ -159,6 +173,11 @@ void BrowserTabBar::setSelectionChangedCallback(SelectionChangedCallback callbac
 void BrowserTabBar::setCloseRequestedCallback(CloseRequestedCallback callback)
 {
     m_closeRequested = std::move(callback);
+}
+
+void BrowserTabBar::setTabReorderedCallback(TabReorderedCallback callback)
+{
+    m_tabReordered = std::move(callback);
 }
 
 void BrowserTabBar::setTooltipCallback(TooltipCallback callback)
@@ -288,6 +307,7 @@ void BrowserTabBar::OnPaint()
         const TabItem &item = m_tabs[i];
         const bool selected = (static_cast<int>(i) == m_selectedIndex);
         const bool hovered = (static_cast<int>(i) == m_hoverTabIndex) || (static_cast<int>(i) == m_hoverCloseIndex);
+        const bool dragging = (static_cast<int>(i) == m_draggingTabIndex);
 
         COLORREF textColor;
         if (selected) {
@@ -298,6 +318,11 @@ void BrowserTabBar::OnPaint()
             textColor = Win10Theme::kCaptionText;
         } else {
             textColor = Win10Theme::kCaptionTextSubtle;
+        }
+        if (dragging) {
+            memDc.FillSolidRect(item.rect, Win10Theme::kCaptionTabHover);
+            CRect dragOutline(item.rect);
+            memDc.Draw3dRect(dragOutline, RGB(0, 120, 215), RGB(0, 120, 215));
         }
 
         const bool hasNext = static_cast<int>(i) + 1 < static_cast<int>(m_tabs.size());
@@ -369,6 +394,23 @@ void BrowserTabBar::OnPaint()
         memDc.SelectObject(oldPen);
     }
 
+    if (m_draggingTabIndex >= 0 && m_dropInsertIndex >= 0) {
+        int x = clientRect.left;
+        if (!m_tabs.empty()) {
+            if (m_dropInsertIndex <= 0) {
+                x = m_tabs.front().rect.left;
+            } else if (m_dropInsertIndex >= static_cast<int>(m_tabs.size())) {
+                x = m_tabs.back().rect.right;
+            } else {
+                x = m_tabs[static_cast<size_t>(m_dropInsertIndex)].rect.left;
+            }
+        }
+
+        CRect indicator(x - kDropIndicatorWidth / 2, 5,
+                        x + (kDropIndicatorWidth + 1) / 2, clientRect.bottom - 5);
+        memDc.FillSolidRect(indicator, RGB(0, 120, 215));
+    }
+
     ::SelectObject(memDc.GetSafeHdc(), oldFont);
     memDc.Detach();
 
@@ -396,6 +438,10 @@ void BrowserTabBar::OnLButtonDown(UINT flags, CPoint point)
 
     const int tabIndex = hitTestTab(point);
     if (tabIndex >= 0) {
+        m_leftButtonDown = true;
+        m_pressedTabIndex = tabIndex;
+        m_dragStartPoint = point;
+        SetCapture();
         if (tabIndex != m_selectedIndex) {
             m_selectedIndex = tabIndex;
             Invalidate(FALSE);
@@ -414,6 +460,38 @@ void BrowserTabBar::OnLButtonDown(UINT flags, CPoint point)
     }
 
     CWnd::OnLButtonDown(flags, point);
+}
+
+void BrowserTabBar::OnLButtonUp(UINT flags, CPoint point)
+{
+    const bool wasDragging = m_draggingTabIndex >= 0;
+    const int sourceIndex = m_draggingTabIndex;
+    const int dropInsertIndex = m_dropInsertIndex;
+    if (GetCapture() == this)
+        ReleaseCapture();
+
+    m_leftButtonDown = false;
+    m_pressedTabIndex = -1;
+
+    if (wasDragging) {
+        if (sourceIndex >= 0 && dropInsertIndex >= 0) {
+            int targetIndex = dropInsertIndex;
+            if (targetIndex > sourceIndex)
+                --targetIndex;
+            if (targetIndex >= static_cast<int>(m_tabs.size()))
+                targetIndex = static_cast<int>(m_tabs.size()) - 1;
+            if (targetIndex >= 0 && moveTab(sourceIndex, targetIndex) && m_tabReordered)
+                m_tabReordered(sourceIndex, targetIndex);
+        }
+        m_draggingTabIndex = -1;
+        m_dropInsertIndex = -1;
+        Invalidate(FALSE);
+        return;
+    }
+
+    m_draggingTabIndex = -1;
+    m_dropInsertIndex = -1;
+    CWnd::OnLButtonUp(flags, point);
 }
 
 void BrowserTabBar::OnLButtonDblClk(UINT flags, CPoint point)
@@ -444,6 +522,18 @@ void BrowserTabBar::OnMButtonUp(UINT flags, CPoint point)
 void BrowserTabBar::OnMouseMove(UINT flags, CPoint point)
 {
     ensureMouseTracking();
+
+    if (m_leftButtonDown && m_pressedTabIndex >= 0) {
+        const bool movedEnough =
+            std::abs(point.x - m_dragStartPoint.x) >= kDragThreshold
+            || std::abs(point.y - m_dragStartPoint.y) >= kDragThreshold;
+        if (m_draggingTabIndex < 0 && movedEnough)
+            m_draggingTabIndex = m_pressedTabIndex;
+        if (m_draggingTabIndex >= 0) {
+            ::SetCursor(::LoadCursor(nullptr, IDC_SIZEALL));
+            updateDraggedTabPosition(point);
+        }
+    }
 
     CPoint screenPoint(point);
     ClientToScreen(&screenPoint);
@@ -508,4 +598,45 @@ void BrowserTabBar::OnSize(UINT type, int cx, int cy)
 void BrowserTabBar::OnGetDispInfo(NMHDR *nmhdr, LRESULT *result)
 {
     *result = 0;
+}
+
+bool BrowserTabBar::moveTab(int fromIndex, int toIndex)
+{
+    if (fromIndex < 0 || toIndex < 0)
+        return false;
+    if (fromIndex >= static_cast<int>(m_tabs.size()) || toIndex >= static_cast<int>(m_tabs.size()))
+        return false;
+    if (fromIndex == toIndex)
+        return false;
+
+    TabItem moved = std::move(m_tabs[static_cast<size_t>(fromIndex)]);
+    m_tabs.erase(m_tabs.begin() + fromIndex);
+    m_tabs.insert(m_tabs.begin() + toIndex, std::move(moved));
+
+    if (m_selectedIndex == fromIndex) {
+        m_selectedIndex = toIndex;
+    } else if (fromIndex < m_selectedIndex && toIndex >= m_selectedIndex) {
+        --m_selectedIndex;
+    } else if (fromIndex > m_selectedIndex && toIndex <= m_selectedIndex) {
+        ++m_selectedIndex;
+    }
+
+    recomputeLayout();
+    Invalidate(FALSE);
+    return true;
+}
+
+void BrowserTabBar::updateDraggedTabPosition(CPoint point)
+{
+    const int hoverIndex = hitTestTab(point);
+    if (hoverIndex < 0) {
+        m_dropInsertIndex = -1;
+        Invalidate(FALSE);
+        return;
+    }
+
+    const CRect hoverRect = m_tabs[static_cast<size_t>(hoverIndex)].rect;
+    const bool insertAfter = point.x >= hoverRect.CenterPoint().x;
+    m_dropInsertIndex = insertAfter ? hoverIndex + 1 : hoverIndex;
+    Invalidate(FALSE);
 }

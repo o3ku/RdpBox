@@ -225,6 +225,34 @@ target_include_directories(ProfileNativeTypesTests PRIVATE
 
 add_test(NAME ProfileNativeTypesTests COMMAND ProfileNativeTypesTests)
 
+add_executable(ConnectionLaunchArgsTests
+    common/ConnectionLaunchArgsTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/ConnectionLaunchArgs.cpp
+)
+
+target_include_directories(ConnectionLaunchArgsTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME ConnectionLaunchArgsTests COMMAND ConnectionLaunchArgsTests)
+
+add_executable(UpdateClientTests
+    common/UpdateClientTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/AppPaths.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/UpdateClient.cpp
+)
+
+target_include_directories(UpdateClientTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(UpdateClientTests PRIVATE
+    nlohmann_json::nlohmann_json
+    Shell32
+)
+
+add_test(NAME UpdateClientTests COMMAND UpdateClientTests)
+
 add_executable(AppPathsTests
     common/AppPathsTests.cpp
     ${CMAKE_SOURCE_DIR}/src/common/AppPaths.cpp

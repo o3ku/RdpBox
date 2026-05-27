@@ -90,8 +90,14 @@ int main()
 
     int selectedIndexFromCallback = -1;
     int closedIndexFromCallback = -1;
+    int reorderedFromIndex = -1;
+    int reorderedToIndex = -1;
     tabBar.setSelectionChangedCallback([&](int index) { selectedIndexFromCallback = index; });
     tabBar.setCloseRequestedCallback([&](int index) { closedIndexFromCallback = index; });
+    tabBar.setTabReorderedCallback([&](int fromIndex, int toIndex) {
+        reorderedFromIndex = fromIndex;
+        reorderedToIndex = toIndex;
+    });
 
     assert(tabBar.insertTab(L"one") == 0);
     assert(tabBar.insertTab(L"two") == 1);
@@ -115,6 +121,19 @@ int main()
     const CPoint thirdTab = tabCenter(2, kTabWidth, kHeight);
     tabBar.OnMButtonUp(0, thirdTab);
     assert(closedIndexFromCallback == 2);
+
+    reorderedFromIndex = -1;
+    reorderedToIndex = -1;
+    const CPoint firstTab = tabCenter(0, kTabWidth, kHeight);
+    tabBar.OnLButtonDown(0, firstTab);
+    tabBar.OnMouseMove(0, thirdTab);
+    assert(reorderedFromIndex == -1);
+    assert(reorderedToIndex == -1);
+    assert(tabBar.selectedIndex() == 0);
+    tabBar.OnLButtonUp(0, thirdTab);
+    assert(reorderedFromIndex == 0);
+    assert(reorderedToIndex == 2);
+    assert(tabBar.selectedIndex() == 2);
 
     CPoint secondTabScreen = secondTab;
     tabBar.ClientToScreen(&secondTabScreen);

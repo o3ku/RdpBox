@@ -8,6 +8,7 @@ bool isPortableMode();
 std::wstring dataRootPath();
 std::wstring profilesFilePath();
 std::wstring frameCaptureRootPath();
+std::wstring updatesDirectoryPath();
 bool enablePortableMode();
 
 std::string readFileContent(const std::wstring &filePath);

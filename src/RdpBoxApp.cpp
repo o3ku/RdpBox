@@ -23,6 +23,16 @@ END_MESSAGE_MAP()
 
 CRdpBoxApp theApp;
 
+void CRdpBoxApp::setStartupConnectionNames(std::vector<std::wstring> connectionNames)
+{
+    m_startupConnectionNames = std::move(connectionNames);
+}
+
+const std::vector<std::wstring> &CRdpBoxApp::startupConnectionNames() const
+{
+    return m_startupConnectionNames;
+}
+
 bool CRdpBoxApp::ensurePasswordProtectionReady()
 {
     PasswordProtection::setMode(
@@ -76,11 +86,16 @@ BOOL CRdpBoxApp::InitInstance()
         cleanupSubsystems();
         return FALSE;
     }
+    frame->setStartupConnectionNames(m_startupConnectionNames);
 
     m_pMainWnd = frame;
     frame->ShowWindow(SW_SHOW);
     frame->UpdateWindow();
-    frame->PostMessage(MainWindow::WM_APP_OPEN_CONNECTIONS, FALSE, 0);
+    frame->PostMessage(m_startupConnectionNames.empty()
+                           ? MainWindow::WM_APP_OPEN_CONNECTIONS
+                           : MainWindow::WM_APP_OPEN_STARTUP_CONNECTIONS,
+                       FALSE,
+                       0);
     return TRUE;
 }
 

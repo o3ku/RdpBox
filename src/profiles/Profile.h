@@ -2,11 +2,8 @@
 
 #include <string>
 
-#include "common/Win32String.h"
-
 struct Profile
 {
-    std::string id;
     std::wstring name;
     std::wstring host;
     int port = 3389;
@@ -20,13 +17,11 @@ struct Profile
 
     static Profile create()
     {
-        Profile profile;
-        profile.id = createGuidString();
-        return profile;
+        return {};
     }
 
     bool isValid() const
     {
-        return !id.empty() && !host.empty();
+        return !name.empty() && !host.empty();
     }
 };

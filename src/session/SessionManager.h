@@ -32,19 +32,21 @@ public:
     void flushPendingResize();
     void handleHostResume();
     void setSessionConnectedCallback(SessionConnectedCallback callback);
+    bool moveSession(int fromIndex, int toIndex);
 
     std::string sessionIdByTabIndex(int index) const;
     bool hasOpenSessions() const;
 
     FreeRdpProcess::ConnectionInfo connectionInfoForTab(int index) const;
     bool isTabConnected(int index) const;
-    std::vector<std::string> connectedProfileIds() const;
+    std::vector<std::wstring> connectedProfileNames() const;
+    std::vector<std::wstring> openProfileNames() const;
 
 private:
     struct Session
     {
         std::string id;
-        std::string profileId;
+        std::wstring profileName;
         std::unique_ptr<CRdpSessionView> view;
     };
 

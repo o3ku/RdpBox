@@ -5,11 +5,14 @@
 
 #include <memory>
 
+#include "common/UpdateClient.h"
 #include "ui/BrowserTabBar.h"
 #include "ui/MainWindowStatePersistence.h"
 #include "ui/SessionHostWnd.h"
 
+#include <cstdint>
 #include <string>
+#include <vector>
 
 class ProfileRepository;
 class SessionManager;
@@ -22,11 +25,15 @@ class MainWindow : public CFrameWnd
 
 public:
     static constexpr UINT WM_APP_OPEN_CONNECTIONS = WM_APP + 1;
+    static constexpr UINT WM_APP_OPEN_STARTUP_CONNECTIONS = WM_APP + 2;
+    static constexpr UINT WM_APP_UPDATE_CHECK_COMPLETED = WM_APP + 3;
+    static constexpr UINT WM_APP_UPDATE_DOWNLOAD_COMPLETED = WM_APP + 4;
 
     MainWindow();
     ~MainWindow() override;
 
     bool createShell();
+    void setStartupConnectionNames(std::vector<std::wstring> connectionNames);
 
     BOOL PreTranslateMessage(MSG *msg) override;
 
@@ -50,6 +57,9 @@ protected:
     afx_msg LRESULT OnNcPaint(WPARAM, LPARAM);
     afx_msg LRESULT OnExitSizeMove(WPARAM, LPARAM);
     afx_msg LRESULT OnOpenConnectionsMessage(WPARAM, LPARAM);
+    afx_msg LRESULT OnOpenStartupConnectionsMessage(WPARAM, LPARAM);
+    afx_msg LRESULT OnUpdateCheckCompleted(WPARAM, LPARAM);
+    afx_msg LRESULT OnUpdateDownloadCompleted(WPARAM, LPARAM);
     afx_msg LRESULT OnDwmCompositionChanged(WPARAM, LPARAM);
     afx_msg LRESULT OnDpiChanged(WPARAM, LPARAM);
     afx_msg LRESULT OnPowerBroadcast(WPARAM, LPARAM);
@@ -69,6 +79,7 @@ private:
     void refreshTabStatuses();
     int captionButtonHitTest(CPoint clientPoint) const;
     CRect captionButtonRectFor(int hitCode) const;
+    int captionButtonReserveWidth() const;
     void invalidateCaptionButtons();
     void drawCaptionButton(CDC &dc, const CRect &rect, int hitCode) const;
     CRect logoRect() const;
@@ -78,6 +89,26 @@ private:
     bool isMaximized() const;
     void saveWindowState() const;
     bool restoreWindowState();
+    void openConnectionsByName(const std::vector<std::wstring> &connectionNames);
+    bool shouldShowUpdateButton() const;
+    CRect updateButtonRect() const;
+    void invalidateUpdateButton();
+    CString updateTooltipText() const;
+    void updateCaptionTooltip();
+    void startBackgroundUpdateCheck();
+    void startBackgroundUpdateDownload();
+    std::wstring downloadedUpdatePath() const;
+    bool launchDownloadedUpdate() const;
+
+    enum class UpdateButtonState
+    {
+        Hidden,
+        Available,
+        Downloading,
+        Downloaded,
+    };
+
+    static constexpr int kUpdateCaptionButtonHit = 0x4001;
 
     BrowserTabBar m_tabBar;
     HICON m_logoIcon = nullptr;
@@ -94,4 +125,14 @@ private:
     bool m_trackingMouse = false;
     bool m_logoHovered = false;
     bool m_inMoveOrSizeLoop = false;
+    std::vector<std::wstring> m_startupConnectionNames;
+    CToolTipCtrl m_captionTooltip;
+    CString m_captionTooltipText;
+    UpdateButtonState m_updateButtonState = UpdateButtonState::Hidden;
+    updater::ReleaseAsset m_updateRelease;
+    bool m_updateCheckInFlight = false;
+    bool m_updateDownloadInFlight = false;
+    std::uint64_t m_updateCheckGeneration = 0;
+    std::uint64_t m_updateDownloadGeneration = 0;
+    static constexpr UINT_PTR kUpdateCheckTimerId = 2;
 };

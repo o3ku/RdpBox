@@ -30,7 +30,7 @@ std::string SessionManager::openSession(const Profile &profile)
 
     Session session;
     session.id = createGuidString();
-    session.profileId = profile.id;
+    session.profileName = profile.name;
     session.view = std::make_unique<CRdpSessionView>();
 
     CRect hostRect;
@@ -196,15 +196,24 @@ bool SessionManager::isTabConnected(int index) const
         && m_sessions[static_cast<size_t>(index)].view->isConnected();
 }
 
-std::vector<std::string> SessionManager::connectedProfileIds() const
+std::vector<std::wstring> SessionManager::connectedProfileNames() const
 {
-    std::vector<std::string> ids;
-    ids.reserve(m_sessions.size());
+    std::vector<std::wstring> names;
+    names.reserve(m_sessions.size());
     for (const auto &session : m_sessions) {
         if (session.view && session.view->isConnected())
-            ids.push_back(session.profileId);
+            names.push_back(session.profileName);
     }
-    return ids;
+    return names;
+}
+
+std::vector<std::wstring> SessionManager::openProfileNames() const
+{
+    std::vector<std::wstring> names;
+    names.reserve(m_sessions.size());
+    for (const auto &session : m_sessions)
+        names.push_back(session.profileName);
+    return names;
 }
 
 int SessionManager::indexOfSession(const std::string &sessionId) const
@@ -244,15 +253,33 @@ void SessionManager::touchLastConnectedAt(const std::string &sessionId)
     if (index < 0)
         return;
 
-    Profile profile = m_repository->profileById(m_sessions[static_cast<size_t>(index)].profileId);
+    Profile profile = m_repository->profileByName(m_sessions[static_cast<size_t>(index)].profileName);
     if (!profile.isValid())
         return;
 
     profile.lastConnectedAt = currentUtcIso8601();
-    m_repository->updateProfile(profile);
+    m_repository->updateProfile(profile.name, profile);
 }
 
 void SessionManager::setSessionConnectedCallback(SessionConnectedCallback callback)
 {
     m_sessionConnectedCallback = std::move(callback);
+}
+
+bool SessionManager::moveSession(int fromIndex, int toIndex)
+{
+    if (!m_tabBar)
+        return false;
+    if (fromIndex < 0 || toIndex < 0)
+        return false;
+    if (fromIndex >= static_cast<int>(m_sessions.size()) || toIndex >= static_cast<int>(m_sessions.size()))
+        return false;
+    if (fromIndex == toIndex)
+        return false;
+
+    Session moved = std::move(m_sessions[static_cast<size_t>(fromIndex)]);
+    m_sessions.erase(m_sessions.begin() + fromIndex);
+    m_sessions.insert(m_sessions.begin() + toIndex, std::move(moved));
+    showSessionAtIndex(m_tabBar->selectedIndex());
+    return true;
 }
