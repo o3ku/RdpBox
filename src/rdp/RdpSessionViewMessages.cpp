@@ -2,6 +2,7 @@
 
 #include "rdp/RdpInputEventUtil.h"
 #include "rdp/RdpInputModifiers.h"
+#include "rdp/RdpSystemChordTrace.h"
 #include "ui/MainWindowShortcuts.h"
 
 #include <utility>
@@ -143,7 +144,12 @@ bool CRdpSessionView::canCaptureSystemKeys() const
         && m_process->state() == FreeRdpProcess::State::Running
         && GetSafeHwnd()
         && IsWindowVisible()
-        && ::GetFocus() == GetSafeHwnd();
+        && (::GetFocus() == GetSafeHwnd() || m_captureSystemKeysWithoutFocus);
+}
+
+unsigned int CRdpSessionView::activeKeyboardModifiers() const
+{
+    return m_keyboardModifiers;
 }
 
 void CRdpSessionView::forwardNativeKeyMessage(std::uint32_t message,
@@ -154,6 +160,17 @@ void CRdpSessionView::forwardNativeKeyMessage(std::uint32_t message,
         return;
 
     const unsigned int virtualKey = static_cast<unsigned int>(wParam);
+    if (rdp::trace::shouldTraceSystemChordVirtualKey(virtualKey)) {
+        rdp::trace::logSystemChordEvent(L"forward-key",
+                                        virtualKey,
+                                        message,
+                                        lParam,
+                                        0,
+                                        m_keyboardModifiers,
+                                        ::GetFocus() == GetSafeHwnd(),
+                                        m_captureSystemKeysWithoutFocus,
+                                        m_pressedKeys.size());
+    }
     const unsigned int messageModifiers = keyboardModifiersForMessage(message, virtualKey);
     if (!rdp::isKeyboardModifierVirtualKey(virtualKey)) {
         const unsigned int desiredModifiers =
@@ -161,6 +178,20 @@ void CRdpSessionView::forwardNativeKeyMessage(std::uint32_t message,
         const std::vector<RdpModifierSyncTracker::KeyAction> actions =
             m_modifierTracker.synchronize(desiredModifiers);
         for (const auto &action : actions) {
+            if (rdp::trace::shouldTraceSystemChordVirtualKey(virtualKey)
+                || rdp::trace::shouldTraceSystemChordVirtualKey(action.virtualKey)) {
+                rdp::trace::logSystemChordSyncAction(
+                    L"sync-action",
+                    virtualKey,
+                    action.virtualKey,
+                    action.message == static_cast<std::uint32_t>(WM_KEYDOWN)
+                        || action.message == static_cast<std::uint32_t>(WM_SYSKEYDOWN),
+                    desiredModifiers,
+                    m_keyboardModifiers,
+                    ::GetFocus() == GetSafeHwnd(),
+                    m_captureSystemKeysWithoutFocus,
+                    m_pressedKeys.size());
+            }
             sendSynchronizedModifier(action.virtualKey,
                                      action.message == static_cast<std::uint32_t>(WM_KEYDOWN)
                                      || action.message == static_cast<std::uint32_t>(WM_SYSKEYDOWN));
@@ -174,4 +205,5 @@ void CRdpSessionView::forwardNativeKeyMessage(std::uint32_t message,
     sendTrackedKey(event->key, event->down, event->wasDown);
     m_modifierTracker.recordKeyState(virtualKey, event->down);
     updateKeyboardModifierState(message, virtualKey);
+    refreshSystemKeyCaptureState();
 }

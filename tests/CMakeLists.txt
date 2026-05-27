@@ -33,6 +33,7 @@ add_test(NAME RdpMouseMoveCoalescerTests COMMAND RdpMouseMoveCoalescerTests)
 add_executable(RdpModifierSyncTrackerTests
     rdp/RdpModifierSyncTrackerTests.cpp
     ${CMAKE_SOURCE_DIR}/src/rdp/RdpModifierSyncTracker.cpp
+    ${CMAKE_SOURCE_DIR}/src/rdp/RdpInputModifiers.cpp
 )
 
 target_include_directories(RdpModifierSyncTrackerTests PRIVATE

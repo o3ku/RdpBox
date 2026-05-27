@@ -8,6 +8,10 @@ namespace rdp
 unsigned int mouseInputModifiers(UINT mouseFlags, unsigned int keyboardModifiers);
 bool isKeyboardModifierVirtualKey(unsigned int virtualKey);
 bool isToggleModifierVirtualKey(unsigned int virtualKey);
+bool shouldDeferKeyReleaseOnFocusLoss(unsigned int keyboardModifiers);
+bool shouldCaptureTabForSystemChord(unsigned int virtualKey,
+                                    unsigned int lowLevelFlags,
+                                    unsigned int keyboardModifiers);
 unsigned int keyboardInputModifiersForKeyMessage(std::uint32_t message,
                                                  unsigned int virtualKey,
                                                  unsigned int keyboardModifiers);
