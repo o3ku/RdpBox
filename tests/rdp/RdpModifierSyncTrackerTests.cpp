@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include "common/NativeTypes.h"
+#include "rdp/RdpInputModifiers.h"
 #include "rdp/RdpModifierSyncTracker.h"
 
 int main()
@@ -63,6 +64,30 @@ int main()
         assert(actions[2].virtualKey == static_cast<std::uint32_t>(VK_MENU));
         assert(actions[3].message == static_cast<std::uint32_t>(WM_KEYDOWN));
         assert(actions[3].virtualKey == static_cast<std::uint32_t>(VK_LWIN));
+    }
+
+    tracker.reset();
+    tracker.recordKeyState(VK_MENU, true);
+
+    {
+        const std::vector<RdpModifierSyncTracker::KeyAction> actions =
+            tracker.synchronize(rdp::mouseInputModifiers(0, ModifierAlt));
+        assert(actions.empty());
+    }
+
+    tracker.reset();
+    tracker.recordKeyState(VK_MENU, true);
+    tracker.recordKeyState(VK_LWIN, true);
+
+    {
+        const std::vector<RdpModifierSyncTracker::KeyAction> actions =
+            tracker.synchronize(rdp::mouseInputModifiers(MK_CONTROL | MK_SHIFT,
+                                                         ModifierAlt | ModifierWin));
+        assert(actions.size() == 2);
+        assert(actions[0].message == static_cast<std::uint32_t>(WM_KEYDOWN));
+        assert(actions[0].virtualKey == static_cast<std::uint32_t>(VK_CONTROL));
+        assert(actions[1].message == static_cast<std::uint32_t>(WM_KEYDOWN));
+        assert(actions[1].virtualKey == static_cast<std::uint32_t>(VK_SHIFT));
     }
 
     return 0;

@@ -2,6 +2,7 @@
 
 #include "rdp/RdpInputModifiers.h"
 #include "rdp/RdpReconnectInteraction.h"
+#include "rdp/RdpSystemChordTrace.h"
 #include "ui/ParentResizeForwarder.h"
 
 #include <vector>
@@ -17,28 +18,32 @@ void CRdpSessionView::syncMouseModifiers(UINT mouseFlags)
     if (!m_process)
         return;
 
+    const unsigned int desiredModifiers =
+        rdp::mouseInputModifiers(mouseFlags, currentModifiers());
     const std::vector<RdpModifierSyncTracker::KeyAction> actions =
-        m_modifierTracker.synchronize(
-            rdp::mouseInputModifiers(mouseFlags, currentModifiers()));
-    for (const auto &action : actions)
+        m_modifierTracker.synchronize(desiredModifiers);
+    for (const auto &action : actions) {
+        if (rdp::trace::shouldTraceSystemChordVirtualKey(action.virtualKey)) {
+            rdp::trace::logSystemChordSyncAction(
+                L"sync-mouse",
+                0,
+                action.virtualKey,
+                action.message == static_cast<std::uint32_t>(WM_KEYDOWN)
+                    || action.message == static_cast<std::uint32_t>(WM_SYSKEYDOWN),
+                desiredModifiers,
+                m_keyboardModifiers,
+                ::GetFocus() == GetSafeHwnd(),
+                m_captureSystemKeysWithoutFocus,
+                m_pressedKeys.size());
+        }
         sendSynchronizedModifier(action.virtualKey, action.message == static_cast<std::uint32_t>(WM_KEYDOWN)
                                                        || action.message == static_cast<std::uint32_t>(WM_SYSKEYDOWN));
+    }
 }
 
 unsigned int CRdpSessionView::currentModifiers() const
 {
-    unsigned int modifiers = ModifierNone;
-    // System modifiers like Alt/Win may be intercepted by the low-level hook
-    // before they reach this window's message queue, so use physical key state.
-    if (GetAsyncKeyState(VK_CONTROL) & 0x8000)
-        modifiers |= ModifierControl;
-    if (GetAsyncKeyState(VK_SHIFT) & 0x8000)
-        modifiers |= ModifierShift;
-    if (GetAsyncKeyState(VK_MENU) & 0x8000)
-        modifiers |= ModifierAlt;
-    if ((GetAsyncKeyState(VK_LWIN) & 0x8000) || (GetAsyncKeyState(VK_RWIN) & 0x8000))
-        modifiers |= ModifierWin;
-    return modifiers;
+    return m_keyboardModifiers;
 }
 
 void CRdpSessionView::flushPendingMouseMove()

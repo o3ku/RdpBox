@@ -8,6 +8,8 @@ int main()
     using rdp::mouseInputModifiers;
     using rdp::isKeyboardModifierVirtualKey;
     using rdp::isToggleModifierVirtualKey;
+    using rdp::shouldCaptureTabForSystemChord;
+    using rdp::shouldDeferKeyReleaseOnFocusLoss;
     using rdp::keyboardInputModifiersForKeyMessage;
 
     auto applyKeyMessage = [](unsigned int &modifiers, UINT message, unsigned int virtualKey) {
@@ -40,6 +42,20 @@ int main()
     if (!isToggleModifierVirtualKey(VK_CAPITAL))
         return 1;
     if (isToggleModifierVirtualKey(VK_MENU))
+        return 1;
+    if (!shouldDeferKeyReleaseOnFocusLoss(ModifierAlt))
+        return 1;
+    if (!shouldDeferKeyReleaseOnFocusLoss(ModifierWin))
+        return 1;
+    if (shouldDeferKeyReleaseOnFocusLoss(ModifierControl | ModifierShift))
+        return 1;
+    if (!shouldCaptureTabForSystemChord(VK_TAB, LLKHF_ALTDOWN, ModifierNone))
+        return 1;
+    if (!shouldCaptureTabForSystemChord(VK_TAB, 0, ModifierAlt))
+        return 1;
+    if (shouldCaptureTabForSystemChord(VK_TAB, 0, ModifierNone))
+        return 1;
+    if (shouldCaptureTabForSystemChord('A', LLKHF_ALTDOWN, ModifierAlt))
         return 1;
     if (keyboardInputModifiersForKeyMessage(WM_SYSKEYDOWN, VK_MENU, ModifierNone) != ModifierAlt)
         return 1;
@@ -93,6 +109,22 @@ int main()
         if (keyboardInputModifiersForKeyMessage(WM_KEYDOWN, '2', modifiers) != ModifierAlt)
             return 1;
         if (keyboardInputModifiersForKeyMessage(WM_KEYUP, '2', modifiers) != ModifierAlt)
+            return 1;
+        if (applyKeyMessage(modifiers, WM_SYSKEYUP, VK_MENU) != ModifierNone)
+            return 1;
+    }
+
+    {
+        unsigned int modifiers = ModifierNone;
+        if (applyKeyMessage(modifiers, WM_SYSKEYDOWN, VK_MENU) != ModifierAlt)
+            return 1;
+        if (keyboardInputModifiersForKeyMessage(WM_SYSKEYDOWN, VK_TAB, modifiers) != ModifierAlt)
+            return 1;
+        if (modifiers != ModifierAlt)
+            return 1;
+        if (keyboardInputModifiersForKeyMessage(WM_SYSKEYUP, VK_TAB, modifiers) != ModifierAlt)
+            return 1;
+        if (modifiers != ModifierAlt)
             return 1;
         if (applyKeyMessage(modifiers, WM_SYSKEYUP, VK_MENU) != ModifierNone)
             return 1;

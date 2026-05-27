@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(RdpBox VERSION 1.9.1 LANGUAGES CXX RC)
+project(RdpBox VERSION 1.9.2 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -63,6 +63,8 @@ set(RDPBOX_SOURCES
     rdp/RdpCursorClassifier.cpp
     rdp/RdpFocusNotification.h
     rdp/RdpFocusNotification.cpp
+    rdp/RdpSystemChordTrace.h
+    rdp/RdpSystemChordTrace.cpp
     rdp/RdpInputEventUtil.h
     rdp/RdpInputEventUtil.cpp
     rdp/RdpInputModifiers.h

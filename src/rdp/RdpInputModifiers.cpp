@@ -37,6 +37,22 @@ bool isToggleModifierVirtualKey(unsigned int virtualKey)
     }
 }
 
+bool shouldDeferKeyReleaseOnFocusLoss(unsigned int keyboardModifiers)
+{
+    return (keyboardModifiers & (ModifierAlt | ModifierWin)) != 0;
+}
+
+bool shouldCaptureTabForSystemChord(unsigned int virtualKey,
+                                    unsigned int lowLevelFlags,
+                                    unsigned int keyboardModifiers)
+{
+    if (virtualKey != VK_TAB)
+        return false;
+
+    return (lowLevelFlags & LLKHF_ALTDOWN) != 0
+        || (keyboardModifiers & ModifierAlt) != 0;
+}
+
 unsigned int mouseInputModifiers(UINT mouseFlags, unsigned int keyboardModifiers)
 {
     unsigned int modifiers = keyboardModifiers;
