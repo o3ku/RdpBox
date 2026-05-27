@@ -28,12 +28,16 @@ void CRdpSessionView::syncMouseModifiers(UINT mouseFlags)
 unsigned int CRdpSessionView::currentModifiers() const
 {
     unsigned int modifiers = ModifierNone;
-    if (GetKeyState(VK_CONTROL) & 0x8000)
+    // System modifiers like Alt/Win may be intercepted by the low-level hook
+    // before they reach this window's message queue, so use physical key state.
+    if (GetAsyncKeyState(VK_CONTROL) & 0x8000)
         modifiers |= ModifierControl;
-    if (GetKeyState(VK_SHIFT) & 0x8000)
+    if (GetAsyncKeyState(VK_SHIFT) & 0x8000)
         modifiers |= ModifierShift;
-    if (GetKeyState(VK_MENU) & 0x8000)
+    if (GetAsyncKeyState(VK_MENU) & 0x8000)
         modifiers |= ModifierAlt;
+    if ((GetAsyncKeyState(VK_LWIN) & 0x8000) || (GetAsyncKeyState(VK_RWIN) & 0x8000))
+        modifiers |= ModifierWin;
     return modifiers;
 }
 

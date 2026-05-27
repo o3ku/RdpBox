@@ -4,6 +4,39 @@
 
 namespace rdp
 {
+bool isKeyboardModifierVirtualKey(unsigned int virtualKey)
+{
+    switch (virtualKey) {
+    case VK_LCONTROL:
+    case VK_RCONTROL:
+    case VK_CONTROL:
+    case VK_LSHIFT:
+    case VK_RSHIFT:
+    case VK_SHIFT:
+    case VK_LMENU:
+    case VK_RMENU:
+    case VK_MENU:
+    case VK_LWIN:
+    case VK_RWIN:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool isToggleModifierVirtualKey(unsigned int virtualKey)
+{
+    switch (virtualKey) {
+    case VK_CAPITAL:
+    case VK_NUMLOCK:
+    case VK_SCROLL:
+    case VK_KANA:
+        return true;
+    default:
+        return false;
+    }
+}
+
 unsigned int mouseInputModifiers(UINT mouseFlags, unsigned int keyboardModifiers)
 {
     unsigned int modifiers = keyboardModifiers;
@@ -11,6 +44,56 @@ unsigned int mouseInputModifiers(UINT mouseFlags, unsigned int keyboardModifiers
         modifiers |= ModifierControl;
     if ((mouseFlags & MK_SHIFT) != 0)
         modifiers |= ModifierShift;
+    return modifiers;
+}
+
+unsigned int keyboardInputModifiersForKeyMessage(std::uint32_t message,
+                                                 unsigned int virtualKey,
+                                                 unsigned int keyboardModifiers)
+{
+    unsigned int modifiers = keyboardModifiers;
+    const bool down = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
+    const bool up = message == WM_KEYUP || message == WM_SYSKEYUP;
+    const bool sysContext = message == WM_SYSKEYDOWN || message == WM_SYSKEYUP;
+
+    if (!down && !up)
+        return modifiers;
+
+    // WM_SYSKEY* for a non-Alt key means Alt is part of the active chord,
+    // even if GetKeyState/GetAsyncKeyState is transiently out of sync.
+    if (sysContext && virtualKey != VK_LMENU && virtualKey != VK_RMENU && virtualKey != VK_MENU)
+        modifiers |= ModifierAlt;
+
+    unsigned int mask = ModifierNone;
+    switch (virtualKey) {
+    case VK_LCONTROL:
+    case VK_RCONTROL:
+    case VK_CONTROL:
+        mask = ModifierControl;
+        break;
+    case VK_LSHIFT:
+    case VK_RSHIFT:
+    case VK_SHIFT:
+        mask = ModifierShift;
+        break;
+    case VK_LMENU:
+    case VK_RMENU:
+    case VK_MENU:
+        mask = ModifierAlt;
+        break;
+    case VK_LWIN:
+    case VK_RWIN:
+        mask = ModifierWin;
+        break;
+    default:
+        return modifiers;
+    }
+
+    if (down)
+        modifiers |= mask;
+    else
+        modifiers &= ~mask;
+
     return modifiers;
 }
 }

@@ -3,6 +3,7 @@
 #include "common/Win32String.h"
 #include "rdp/FrameBufferMemory.h"
 #include "rdp/RdpCursorClassifier.h"
+#include "rdp/RdpInputModifiers.h"
 #include "rdp/RdpFocusNotification.h"
 #include "resources/resource.h"
 #include "ui/MainWindowShortcuts.h"
@@ -327,6 +328,7 @@ void CRdpSessionView::startProcess()
     m_captureFrameIndex = 0;
     m_resizeBurstTracker.reset();
     m_modifierTracker.reset();
+    m_keyboardModifiers = ModifierNone;
     m_pressedKeys.clear();
     m_reservedShortcutTracker.reset();
     m_pressedMouseButtons = 0;
@@ -389,6 +391,7 @@ void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
     m_processBinding.reset();
     m_resizeBurstTracker.reset();
     m_modifierTracker.reset();
+    m_keyboardModifiers = ModifierNone;
     m_pressedKeys.clear();
     m_reservedShortcutTracker.reset();
     m_pressedMouseButtons = 0;
@@ -416,6 +419,7 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
         if (!m_resolutionUpdatePending && !m_waitingForFirstContentFrame && !m_frameGateActive)
             clearOverlay();
         m_modifierTracker.reset();
+        m_keyboardModifiers = ModifierNone;
         m_pressedKeys.clear();
         m_reservedShortcutTracker.reset();
         m_pressedMouseButtons = 0;
@@ -745,6 +749,19 @@ void CRdpSessionView::sendSynchronizedModifier(unsigned int virtualKey, bool dow
     sendTrackedKey(*key, down, wasDown);
 }
 
+unsigned int CRdpSessionView::keyboardModifiersForMessage(std::uint32_t message, unsigned int virtualKey) const
+{
+    return rdp::keyboardInputModifiersForKeyMessage(message, virtualKey, m_keyboardModifiers);
+}
+
+void CRdpSessionView::updateKeyboardModifierState(std::uint32_t message, unsigned int virtualKey)
+{
+    if (!rdp::isKeyboardModifierVirtualKey(virtualKey))
+        return;
+
+    m_keyboardModifiers = rdp::keyboardInputModifiersForKeyMessage(message, virtualKey, m_keyboardModifiers);
+}
+
 void CRdpSessionView::sendTrackedMouseButton(MouseButton button, bool down, PointI point)
 {
     if (!m_process)
@@ -802,6 +819,7 @@ void CRdpSessionView::releasePressedMouseButtons()
 void CRdpSessionView::releaseAllPressedKeys()
 {
     m_modifierTracker.reset();
+    m_keyboardModifiers = ModifierNone;
 
     if (!m_process || m_process->state() != FreeRdpProcess::State::Running) {
         m_pressedKeys.clear();

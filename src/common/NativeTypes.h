@@ -36,7 +36,8 @@ enum ModifierFlags : unsigned int
     ModifierNone = 0,
     ModifierShift = 1u << 0,
     ModifierControl = 1u << 1,
-    ModifierAlt = 1u << 2
+    ModifierAlt = 1u << 2,
+    ModifierWin = 1u << 3
 };
 
 struct FrameBuffer
