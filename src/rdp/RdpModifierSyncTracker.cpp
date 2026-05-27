@@ -9,6 +9,7 @@ void RdpModifierSyncTracker::reset()
     m_controlDown = false;
     m_shiftDown = false;
     m_altDown = false;
+    m_winDown = false;
 }
 
 void RdpModifierSyncTracker::recordKeyState(unsigned int virtualKey, bool down)
@@ -28,6 +29,10 @@ void RdpModifierSyncTracker::recordKeyState(unsigned int virtualKey, bool down)
     case VK_RMENU:
     case VK_MENU:
         m_altDown = down;
+        break;
+    case VK_LWIN:
+    case VK_RWIN:
+        m_winDown = down;
         break;
     default:
         break;
@@ -59,10 +64,12 @@ RdpModifierSyncTracker::synchronize(unsigned int modifiers)
     const bool controlDown = (modifiers & ModifierControl) != 0;
     const bool shiftDown = (modifiers & ModifierShift) != 0;
     const bool altDown = (modifiers & ModifierAlt) != 0;
+    const bool winDown = (modifiers & ModifierWin) != 0;
 
     syncModifier(actions, m_controlDown, controlDown, WM_KEYDOWN, WM_KEYUP, VK_CONTROL);
     syncModifier(actions, m_shiftDown, shiftDown, WM_KEYDOWN, WM_KEYUP, VK_SHIFT);
     syncModifier(actions, m_altDown, altDown, WM_SYSKEYDOWN, WM_SYSKEYUP, VK_MENU);
+    syncModifier(actions, m_winDown, winDown, WM_KEYDOWN, WM_KEYUP, VK_LWIN);
 
     return actions;
 }

@@ -27,4 +27,5 @@ private:
     bool m_controlDown = false;
     bool m_shiftDown = false;
     bool m_altDown = false;
+    bool m_winDown = false;
 };

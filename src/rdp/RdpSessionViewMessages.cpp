@@ -1,6 +1,7 @@
 #include "RdpSessionView.h"
 
 #include "rdp/RdpInputEventUtil.h"
+#include "rdp/RdpInputModifiers.h"
 #include "ui/MainWindowShortcuts.h"
 
 #include <utility>
@@ -152,10 +153,25 @@ void CRdpSessionView::forwardNativeKeyMessage(std::uint32_t message,
     if (!m_process)
         return;
 
+    const unsigned int virtualKey = static_cast<unsigned int>(wParam);
+    const unsigned int messageModifiers = keyboardModifiersForMessage(message, virtualKey);
+    if (!rdp::isKeyboardModifierVirtualKey(virtualKey)) {
+        const unsigned int desiredModifiers =
+            messageModifiers;
+        const std::vector<RdpModifierSyncTracker::KeyAction> actions =
+            m_modifierTracker.synchronize(desiredModifiers);
+        for (const auto &action : actions) {
+            sendSynchronizedModifier(action.virtualKey,
+                                     action.message == static_cast<std::uint32_t>(WM_KEYDOWN)
+                                     || action.message == static_cast<std::uint32_t>(WM_SYSKEYDOWN));
+        }
+    }
+
     const auto event = keyEventInfoFromMessage(message, wParam, lParam);
     if (!event)
         return;
 
     sendTrackedKey(event->key, event->down, event->wasDown);
-    m_modifierTracker.recordKeyState(static_cast<unsigned int>(wParam), event->down);
+    m_modifierTracker.recordKeyState(virtualKey, event->down);
+    updateKeyboardModifierState(message, virtualKey);
 }

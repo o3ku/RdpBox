@@ -127,6 +127,8 @@ private:
     void rememberReservedShortcutKey(unsigned int virtualKey);
     bool consumeReservedShortcutKey(unsigned int virtualKey);
     void sendSynchronizedModifier(unsigned int virtualKey, bool down);
+    unsigned int keyboardModifiersForMessage(std::uint32_t message, unsigned int virtualKey) const;
+    void updateKeyboardModifierState(std::uint32_t message, unsigned int virtualKey);
     void sendTrackedMouseButton(MouseButton button, bool down, PointI point);
     void releasePressedMouseButtons();
     void releaseAllPressedKeys();
@@ -165,6 +167,7 @@ private:
     bool m_connected = false;
     bool m_created = false;
     std::vector<KeyIdentifier> m_pressedKeys;
+    unsigned int m_keyboardModifiers = ModifierNone;
     RdpReservedShortcutTracker m_reservedShortcutTracker;
     unsigned int m_pressedMouseButtons = 0;
     PointI m_lastPointerPoint{};
