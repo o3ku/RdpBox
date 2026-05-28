@@ -309,13 +309,8 @@ void MainWindow::OnLButtonDown(UINT flags, CPoint point)
     if (hit == kUpdateCaptionButtonHit) {
         if (m_updateButtonState == UpdateButtonState::Available)
             startBackgroundUpdateDownload();
-        else if (m_updateButtonState == UpdateButtonState::Downloaded) {
-            if (launchDownloadedUpdate()) {
-                PostMessage(WM_CLOSE);
-            } else {
-                MessageBox(L"Failed to launch downloaded update.", L"Update Launch Failed", MB_OK | MB_ICONERROR);
-            }
-        }
+        else if (m_updateButtonState == UpdateButtonState::Downloaded)
+            confirmLaunchDownloadedUpdate();
         return;
     }
 
@@ -578,6 +573,12 @@ void MainWindow::drawCaptionButton(CDC &dc, const CRect &rect, int hitCode) cons
             dc.DrawText(progressText, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
             dc.SetTextColor(oldTextColor);
             dc.SetBkMode(oldBkMode);
+        } else if (m_updateButtonState == UpdateButtonState::Downloaded) {
+            dc.MoveTo(cx, cy + kGlyph);
+            dc.LineTo(cx, cy - kGlyph + 1);
+            dc.MoveTo(cx - kGlyph + 1, cy - 1);
+            dc.LineTo(cx, cy - kGlyph + 1);
+            dc.LineTo(cx + kGlyph - 1, cy - 1);
         } else {
             dc.MoveTo(cx, cy - kGlyph);
             dc.LineTo(cx, cy + kGlyph - 1);

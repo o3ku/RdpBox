@@ -100,6 +100,7 @@ private:
     void updateCaptionTooltip();
     void startBackgroundUpdateCheck();
     void startBackgroundUpdateDownload();
+    bool confirmLaunchDownloadedUpdate();
     std::wstring downloadedUpdatePath() const;
     bool launchDownloadedUpdate() const;
 
