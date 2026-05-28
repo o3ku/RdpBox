@@ -19,9 +19,11 @@ find_package(FreeRDP CONFIG REQUIRED)
 find_package(FreeRDP-Client CONFIG REQUIRED)
 find_package(WinPR CONFIG REQUIRED)
 
+set(RDPBOX_VERSION_OVERRIDE "" CACHE STRING "Override the RdpBox display/update version.")
+
 set(RDPBOX_DISPLAY_VERSION "${PROJECT_VERSION}")
 find_package(Git QUIET)
-if(GIT_FOUND)
+if(GIT_FOUND AND RDPBOX_VERSION_OVERRIDE STREQUAL "")
     execute_process(
         COMMAND "${GIT_EXECUTABLE}" describe --tags --exact-match HEAD
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
@@ -34,6 +36,10 @@ if(GIT_FOUND)
         set(RDPBOX_DISPLAY_VERSION "${RDPBOX_GIT_TAG}")
     endif()
 
+endif()
+
+if(NOT RDPBOX_VERSION_OVERRIDE STREQUAL "")
+    set(RDPBOX_DISPLAY_VERSION "${RDPBOX_VERSION_OVERRIDE}")
 endif()
 
 set(RDPBOX_GITHUB_URL_VALUE "https://github.com/o3ku/RdpBox")

@@ -33,6 +33,14 @@ struct UpdateDownloadResult
     std::wstring errorMessage;
 };
 
+struct MessageBoxCenterContext
+{
+    HWND owner = nullptr;
+    HHOOK hook = nullptr;
+};
+
+thread_local MessageBoxCenterContext *g_messageBoxCenterContext = nullptr;
+
 std::wstring releaseFileName(const updater::ReleaseAsset &release)
 {
     if (release.tagName.empty())
@@ -56,6 +64,48 @@ std::wstring quoteForBatchSet(const std::wstring &value)
 bool writeScriptFile(const std::wstring &path, const std::wstring &contents)
 {
     return AppPaths::writeFileContent(path, utf8FromWide(contents));
+}
+
+LRESULT CALLBACK centerMessageBoxHook(int code, WPARAM wParam, LPARAM lParam)
+{
+    if (code != HCBT_ACTIVATE || !g_messageBoxCenterContext || !g_messageBoxCenterContext->owner)
+        return ::CallNextHookEx(g_messageBoxCenterContext ? g_messageBoxCenterContext->hook : nullptr,
+                                code, wParam, lParam);
+
+    HWND dialog = reinterpret_cast<HWND>(wParam);
+    RECT ownerRect = {};
+    RECT dialogRect = {};
+    if (::GetWindowRect(g_messageBoxCenterContext->owner, &ownerRect)
+        && ::GetWindowRect(dialog, &dialogRect)) {
+        const int dialogWidth = dialogRect.right - dialogRect.left;
+        const int dialogHeight = dialogRect.bottom - dialogRect.top;
+        const int x = ownerRect.left + ((ownerRect.right - ownerRect.left) - dialogWidth) / 2;
+        const int y = ownerRect.top + ((ownerRect.bottom - ownerRect.top) - dialogHeight) / 2;
+        ::SetWindowPos(dialog, nullptr, x, y, 0, 0,
+                       SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+    if (g_messageBoxCenterContext->hook) {
+        ::UnhookWindowsHookEx(g_messageBoxCenterContext->hook);
+        g_messageBoxCenterContext->hook = nullptr;
+    }
+    return 0;
+}
+
+int centeredMessageBox(HWND owner, const CString &text, const wchar_t *caption, UINT type)
+{
+    MessageBoxCenterContext context;
+    context.owner = owner;
+    g_messageBoxCenterContext = &context;
+    context.hook = ::SetWindowsHookExW(WH_CBT,
+                                       centerMessageBoxHook,
+                                       nullptr,
+                                       ::GetCurrentThreadId());
+    const int result = ::MessageBoxW(owner, text, caption, type);
+    if (context.hook)
+        ::UnhookWindowsHookEx(context.hook);
+    g_messageBoxCenterContext = nullptr;
+    return result;
 }
 }
 
@@ -265,6 +315,29 @@ bool MainWindow::launchDownloadedUpdate() const
     return true;
 }
 
+bool MainWindow::confirmLaunchDownloadedUpdate()
+{
+    CString prompt;
+    if (m_updateRelease.tagName.empty()) {
+        prompt = L"Update downloaded. Launch new version now?";
+    } else {
+        prompt = L"Update ";
+        prompt += m_updateRelease.tagName.c_str();
+        prompt += L" downloaded. Launch now?";
+    }
+
+    if (centeredMessageBox(GetSafeHwnd(), prompt, L"Update Downloaded", MB_YESNO | MB_ICONQUESTION) != IDYES)
+        return false;
+
+    if (launchDownloadedUpdate()) {
+        PostMessage(WM_CLOSE);
+        return true;
+    }
+
+    MessageBox(L"Failed to launch downloaded update.", L"Update Launch Failed", MB_OK | MB_ICONERROR);
+    return false;
+}
+
 void MainWindow::startBackgroundUpdateCheck()
 {
     if (m_updateCheckInFlight || m_updateDownloadInFlight)
@@ -404,17 +477,6 @@ LRESULT MainWindow::OnUpdateDownloadCompleted(WPARAM, LPARAM lParam)
     layoutChildren();
     invalidateCaptionButtons();
 
-    CString prompt;
-    if (m_updateRelease.tagName.empty()) {
-        prompt = L"Update downloaded. Launch new version now?";
-    } else {
-        prompt = L"Update ";
-        prompt += m_updateRelease.tagName.c_str();
-        prompt += L" downloaded. Launch now?";
-    }
-    if (MessageBox(prompt, L"Update Downloaded", MB_YESNO | MB_ICONQUESTION) == IDYES) {
-        if (launchDownloadedUpdate())
-            PostMessage(WM_CLOSE);
-    }
+    confirmLaunchDownloadedUpdate();
     return 0;
 }
