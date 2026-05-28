@@ -89,9 +89,25 @@ bool parseUrl(const std::wstring &url, ParsedUrl &parsed)
 
 bool readResponseBody(HINTERNET request,
                       std::vector<std::uint8_t> &bytes,
-                      std::wstring &errorMessage)
+                      std::wstring &errorMessage,
+                      const updater::DownloadProgressCallback &progressCallback)
 {
     bytes.clear();
+    std::uint64_t totalBytes = 0;
+    DWORD totalBytesSize = sizeof(totalBytes);
+    if (!::WinHttpQueryHeaders(request,
+                               WINHTTP_QUERY_CONTENT_LENGTH | WINHTTP_QUERY_FLAG_NUMBER,
+                               WINHTTP_HEADER_NAME_BY_INDEX,
+                               &totalBytes,
+                               &totalBytesSize,
+                               WINHTTP_NO_HEADER_INDEX)) {
+        totalBytes = 0;
+    }
+
+    std::uint64_t receivedBytes = 0;
+    if (progressCallback)
+        progressCallback(receivedBytes, totalBytes);
+
     for (;;) {
         DWORD available = 0;
         if (!::WinHttpQueryDataAvailable(request, &available)) {
@@ -109,6 +125,9 @@ bool readResponseBody(HINTERNET request,
             return false;
         }
         bytes.resize(start + read);
+        receivedBytes += read;
+        if (progressCallback)
+            progressCallback(receivedBytes, totalBytes);
         if (read == 0)
             return true;
     }
@@ -117,7 +136,8 @@ bool readResponseBody(HINTERNET request,
 bool sendHttpRequest(const std::wstring &url,
                      const wchar_t *acceptTypes[],
                      std::vector<std::uint8_t> &responseBytes,
-                     std::wstring &errorMessage)
+                     std::wstring &errorMessage,
+                     const updater::DownloadProgressCallback &progressCallback = {})
 {
     ParsedUrl parsed;
     if (!parseUrl(url, parsed)) {
@@ -202,7 +222,7 @@ bool sendHttpRequest(const std::wstring &url,
         return false;
     }
 
-    return readResponseBody(static_cast<HINTERNET>(request.get()), responseBytes, errorMessage);
+    return readResponseBody(static_cast<HINTERNET>(request.get()), responseBytes, errorMessage, progressCallback);
 }
 
 std::wstring downloadTargetPathForAsset(const updater::ReleaseAsset &asset)
@@ -289,11 +309,12 @@ bool fetchLatestRelease(const std::wstring &owner,
 
 bool downloadReleaseAsset(const ReleaseAsset &asset,
                           const std::wstring &targetPath,
-                          std::wstring &errorMessage)
+                          std::wstring &errorMessage,
+                          DownloadProgressCallback progressCallback)
 {
     const wchar_t *acceptTypes[] = { L"*/*", nullptr };
     std::vector<std::uint8_t> bytes;
-    if (!sendHttpRequest(asset.downloadUrl, acceptTypes, bytes, errorMessage))
+    if (!sendHttpRequest(asset.downloadUrl, acceptTypes, bytes, errorMessage, progressCallback))
         return false;
 
     if (!AppPaths::writeFileContent(targetPath,

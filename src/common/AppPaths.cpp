@@ -10,14 +10,19 @@
 
 namespace
 {
-std::wstring executableDirectory()
+std::wstring executableModulePath()
 {
     wchar_t modulePath[MAX_PATH] = {};
     const DWORD length = ::GetModuleFileNameW(nullptr, modulePath, static_cast<DWORD>(std::size(modulePath)));
     if (length == 0 || length >= std::size(modulePath))
         return {};
 
-    std::wstring path(modulePath, length);
+    return std::wstring(modulePath, length);
+}
+
+std::wstring executableDirectory()
+{
+    std::wstring path = executableModulePath();
     const std::wstring::size_type slash = path.find_last_of(L"\\/");
     if (slash == std::wstring::npos)
         return {};
@@ -97,6 +102,11 @@ void ensureDirectoryExists(const std::wstring &path)
 
 namespace AppPaths
 {
+std::wstring executablePath()
+{
+    return executableModulePath();
+}
+
 std::string readFileContent(const std::wstring &filePath)
 {
     std::FILE *file = nullptr;

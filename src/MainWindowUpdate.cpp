@@ -3,17 +3,19 @@
 #include "common/AppPaths.h"
 #include "common/ConnectionLaunchArgs.h"
 #include "common/UpdateClient.h"
+#include "common/Win32String.h"
 #include "session/SessionManager.h"
 
 #include <shellapi.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <memory>
 #include <thread>
 
 namespace
 {
-constexpr int kUpdateButtonWidth = 30;
+constexpr int kUpdateButtonWidth = 38;
 
 struct UpdateCheckResult
 {
@@ -36,6 +38,24 @@ std::wstring releaseFileName(const updater::ReleaseAsset &release)
     if (release.tagName.empty())
         return L"RdpBox.exe";
     return L"RdpBox-" + release.tagName + L".exe";
+}
+
+std::wstring quoteForBatchSet(const std::wstring &value)
+{
+    std::wstring escaped;
+    escaped.reserve(value.size());
+    for (wchar_t ch : value) {
+        if (ch == L'"')
+            escaped += L"\"\"";
+        else
+            escaped.push_back(ch);
+    }
+    return escaped;
+}
+
+bool writeScriptFile(const std::wstring &path, const std::wstring &contents)
+{
+    return AppPaths::writeFileContent(path, utf8FromWide(contents));
 }
 }
 
@@ -74,7 +94,10 @@ CString MainWindow::updateTooltipText() const
             text = L"New version available. Click to download.";
         break;
     case UpdateButtonState::Downloading:
-        text = L"Downloading update...";
+        if (m_updateDownloadProgress >= 0)
+            text.Format(L"Downloading update... %d%%", m_updateDownloadProgress);
+        else
+            text = L"Downloading update...";
         break;
     case UpdateButtonState::Downloaded:
         if (!m_updateRelease.tagName.empty())
@@ -87,6 +110,19 @@ CString MainWindow::updateTooltipText() const
         text.Empty();
         break;
     }
+    return text;
+}
+
+CString MainWindow::updateButtonText() const
+{
+    if (m_updateButtonState != UpdateButtonState::Downloading)
+        return {};
+
+    CString text;
+    if (m_updateDownloadProgress >= 0)
+        text.Format(L"%d%%", m_updateDownloadProgress);
+    else
+        text = L"...";
     return text;
 }
 
@@ -109,8 +145,9 @@ std::wstring MainWindow::downloadedUpdatePath() const
 
 bool MainWindow::launchDownloadedUpdate() const
 {
-    const std::wstring path = downloadedUpdatePath();
-    if (path.empty())
+    const std::wstring downloadedPath = downloadedUpdatePath();
+    const std::wstring currentExePath = AppPaths::executablePath();
+    if (downloadedPath.empty() || currentExePath.empty())
         return false;
 
     std::vector<std::wstring> connectionNames = m_sessionManager
@@ -129,10 +166,103 @@ bool MainWindow::launchDownloadedUpdate() const
         params += L"\"";
     }
 
-    const HINSTANCE result = ::ShellExecuteW(nullptr, L"open", path.c_str(),
-                                             params.empty() ? nullptr : params.c_str(),
-                                             nullptr, SW_SHOWNORMAL);
-    return reinterpret_cast<std::intptr_t>(result) > 32;
+    const std::wstring updatesDir = AppPaths::updatesDirectoryPath();
+    if (updatesDir.empty())
+        return false;
+
+    const std::wstring backupExePath = currentExePath + L".bak";
+    const std::wstring scriptPath = updatesDir + L"\\apply-update-"
+        + std::to_wstring(::GetCurrentProcessId()) + L".ps1";
+    const std::wstring logPath = updatesDir + L"\\update-apply.log";
+
+    std::wstring script;
+    script += L"$ErrorActionPreference = 'Stop'\n";
+    script += L"$pidToWait = " + std::to_wstring(::GetCurrentProcessId()) + L"\n";
+    script += L"$src = '" + quoteForBatchSet(downloadedPath) + L"'\n";
+    script += L"$dst = '" + quoteForBatchSet(currentExePath) + L"'\n";
+    script += L"$bak = '" + quoteForBatchSet(backupExePath) + L"'\n";
+    script += L"$argsLine = '" + quoteForBatchSet(params) + L"'\n";
+    script += L"$log = '" + quoteForBatchSet(logPath) + L"'\n";
+    script += L"function Log($message) { Add-Content -Path $log -Value $message }\n";
+    script += L"Log \"==== $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') ====\"\n";
+    script += L"Log \"PID=$pidToWait\"\n";
+    script += L"Log \"SRC=$src\"\n";
+    script += L"Log \"DST=$dst\"\n";
+    script += L"try {\n";
+    script += L"  try {\n";
+    script += L"    Wait-Process -Id $pidToWait -ErrorAction Stop\n";
+    script += L"    Log 'old process exited'\n";
+    script += L"  } catch {\n";
+    script += L"    Log 'old process already exited'\n";
+    script += L"  }\n";
+    script += L"  for ($i = 0; $i -lt 20; $i++) {\n";
+    script += L"    try {\n";
+    script += L"      if (Test-Path $bak) { Remove-Item -Path $bak -Force -ErrorAction SilentlyContinue }\n";
+    script += L"      if (Test-Path $dst) { Move-Item -Path $dst -Destination $bak -Force }\n";
+    script += L"      Copy-Item -Path $src -Destination $dst -Force\n";
+    script += L"      if (Test-Path $dst) {\n";
+    script += L"        Log 'replacement complete'\n";
+    script += L"        break\n";
+    script += L"      }\n";
+    script += L"    } catch {\n";
+    script += L"      Log \"replace retry $i : $($_.Exception.Message)\"\n";
+    script += L"      Start-Sleep -Seconds 1\n";
+    script += L"      continue\n";
+    script += L"    }\n";
+    script += L"  }\n";
+    script += L"  if (-not (Test-Path $dst)) { throw 'replacement failed' }\n";
+    script += L"  Remove-Item -Path $src -Force -ErrorAction SilentlyContinue\n";
+    script += L"  for ($i = 0; $i -lt 5; $i++) {\n";
+    script += L"    try {\n";
+    script += L"      if ([string]::IsNullOrWhiteSpace($argsLine)) {\n";
+    script += L"        Log \"launching without args try $i\"\n";
+    script += L"        Start-Process -FilePath $dst\n";
+    script += L"      } else {\n";
+    script += L"        Log \"launching with args try $i : $argsLine\"\n";
+    script += L"        Start-Process -FilePath $dst -ArgumentList $argsLine\n";
+    script += L"      }\n";
+    script += L"      Start-Sleep -Seconds 1\n";
+    script += L"      $p = Get-Process -Name 'RdpBox' -ErrorAction SilentlyContinue\n";
+    script += L"      if ($p) {\n";
+    script += L"        Log 'launch success'\n";
+    script += L"        break\n";
+    script += L"      }\n";
+    script += L"      Log 'launch retry'\n";
+    script += L"    } catch {\n";
+    script += L"      Log \"launch error $i : $($_.Exception.Message)\"\n";
+    script += L"      Start-Sleep -Seconds 1\n";
+    script += L"    }\n";
+    script += L"  }\n";
+    script += L"} catch {\n";
+    script += L"  Log \"script error: $($_.Exception.Message)\"\n";
+    script += L"} finally {\n";
+    script += L"  Log 'script end'\n";
+    script += L"}\n";
+
+    if (!writeScriptFile(scriptPath, script))
+        return false;
+
+    std::wstring commandLine =
+        L"powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + scriptPath + L"\"";
+    STARTUPINFOW startupInfo = {};
+    startupInfo.cb = sizeof(startupInfo);
+    PROCESS_INFORMATION processInfo = {};
+    BOOL created = ::CreateProcessW(nullptr,
+                                    commandLine.data(),
+                                    nullptr,
+                                    nullptr,
+                                    FALSE,
+                                    CREATE_NO_WINDOW,
+                                    nullptr,
+                                    nullptr,
+                                    &startupInfo,
+                                    &processInfo);
+    if (!created)
+        return false;
+
+    ::CloseHandle(processInfo.hThread);
+    ::CloseHandle(processInfo.hProcess);
+    return true;
 }
 
 void MainWindow::startBackgroundUpdateCheck()
@@ -169,6 +299,7 @@ void MainWindow::startBackgroundUpdateDownload()
 
     m_updateDownloadInFlight = true;
     m_updateButtonState = UpdateButtonState::Downloading;
+    m_updateDownloadProgress = 0;
     updateCaptionTooltip();
     layoutChildren();
     invalidateCaptionButtons();
@@ -182,7 +313,20 @@ void MainWindow::startBackgroundUpdateDownload()
         const std::wstring targetPath = AppPaths::updatesDirectoryPath().empty()
             ? std::wstring()
             : (AppPaths::updatesDirectoryPath() + L"\\" + releaseFileName(release));
-        if (!targetPath.empty() && updater::downloadReleaseAsset(release, targetPath, error)) {
+        auto progressCallback = [hwnd, generation](std::uint64_t bytesReceived, std::uint64_t totalBytes) {
+            if (!::IsWindow(hwnd))
+                return;
+
+            int progress = -1;
+            if (totalBytes > 0) {
+                const auto percent = static_cast<int>((bytesReceived * 100) / totalBytes);
+                progress = std::clamp(percent, 0, 100);
+            }
+            ::PostMessageW(hwnd, WM_APP_UPDATE_DOWNLOAD_PROGRESS,
+                           static_cast<WPARAM>(progress),
+                           static_cast<LPARAM>(generation));
+        };
+        if (!targetPath.empty() && updater::downloadReleaseAsset(release, targetPath, error, progressCallback)) {
             result->success = true;
         } else {
             result->success = false;
@@ -192,6 +336,17 @@ void MainWindow::startBackgroundUpdateDownload()
         if (::IsWindow(hwnd))
             ::PostMessageW(hwnd, WM_APP_UPDATE_DOWNLOAD_COMPLETED, 0, reinterpret_cast<LPARAM>(result.release()));
     }).detach();
+}
+
+LRESULT MainWindow::OnUpdateDownloadProgress(WPARAM wParam, LPARAM lParam)
+{
+    if (static_cast<std::uint64_t>(lParam) != m_updateDownloadGeneration)
+        return 0;
+
+    m_updateDownloadProgress = static_cast<int>(wParam);
+    updateCaptionTooltip();
+    invalidateUpdateButton();
+    return 0;
 }
 
 LRESULT MainWindow::OnUpdateCheckCompleted(WPARAM, LPARAM lParam)
@@ -207,6 +362,7 @@ LRESULT MainWindow::OnUpdateCheckCompleted(WPARAM, LPARAM lParam)
     if (!result->hasUpdate) {
         m_updateButtonState = UpdateButtonState::Hidden;
         m_updateRelease = {};
+        m_updateDownloadProgress = -1;
         updateCaptionTooltip();
         layoutChildren();
         invalidateCaptionButtons();
@@ -218,6 +374,7 @@ LRESULT MainWindow::OnUpdateCheckCompleted(WPARAM, LPARAM lParam)
     m_updateButtonState = std::filesystem::exists(path)
         ? UpdateButtonState::Downloaded
         : UpdateButtonState::Available;
+    m_updateDownloadProgress = (m_updateButtonState == UpdateButtonState::Downloaded) ? 100 : -1;
     updateCaptionTooltip();
     layoutChildren();
     invalidateCaptionButtons();
@@ -234,6 +391,7 @@ LRESULT MainWindow::OnUpdateDownloadCompleted(WPARAM, LPARAM lParam)
     if (!result->success) {
         MessageBox(result->errorMessage.c_str(), L"Update Download Failed", MB_OK | MB_ICONERROR);
         m_updateButtonState = UpdateButtonState::Available;
+        m_updateDownloadProgress = -1;
         updateCaptionTooltip();
         layoutChildren();
         invalidateCaptionButtons();
@@ -241,6 +399,7 @@ LRESULT MainWindow::OnUpdateDownloadCompleted(WPARAM, LPARAM lParam)
     }
 
     m_updateButtonState = UpdateButtonState::Downloaded;
+    m_updateDownloadProgress = 100;
     updateCaptionTooltip();
     layoutChildren();
     invalidateCaptionButtons();

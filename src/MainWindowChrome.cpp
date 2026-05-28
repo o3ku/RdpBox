@@ -570,11 +570,21 @@ void MainWindow::drawCaptionButton(CDC &dc, const CRect &rect, int hitCode) cons
         dc.MoveTo(cx - kGlyph, cy);
         dc.LineTo(cx + kGlyph + 1, cy);
     } else if (hitCode == kUpdateCaptionButtonHit) {
-        dc.MoveTo(cx, cy - kGlyph);
-        dc.LineTo(cx, cy + kGlyph - 1);
-        dc.MoveTo(cx - kGlyph + 1, cy + 1);
-        dc.LineTo(cx, cy + kGlyph - 1);
-        dc.LineTo(cx + kGlyph - 1, cy + 1);
+        if (m_updateButtonState == UpdateButtonState::Downloading) {
+            const CString progressText = updateButtonText();
+            const int oldBkMode = dc.SetBkMode(TRANSPARENT);
+            const COLORREF oldTextColor = dc.SetTextColor(glyphColor);
+            CRect textRect(rect);
+            dc.DrawText(progressText, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            dc.SetTextColor(oldTextColor);
+            dc.SetBkMode(oldBkMode);
+        } else {
+            dc.MoveTo(cx, cy - kGlyph);
+            dc.LineTo(cx, cy + kGlyph - 1);
+            dc.MoveTo(cx - kGlyph + 1, cy + 1);
+            dc.LineTo(cx, cy + kGlyph - 1);
+            dc.LineTo(cx + kGlyph - 1, cy + 1);
+        }
     } else if (hitCode == HTMAXBUTTON) {
         CBrush hollow;
         hollow.CreateStockObject(NULL_BRUSH);
