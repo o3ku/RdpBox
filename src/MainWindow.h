@@ -28,6 +28,7 @@ public:
     static constexpr UINT WM_APP_OPEN_STARTUP_CONNECTIONS = WM_APP + 2;
     static constexpr UINT WM_APP_UPDATE_CHECK_COMPLETED = WM_APP + 3;
     static constexpr UINT WM_APP_UPDATE_DOWNLOAD_COMPLETED = WM_APP + 4;
+    static constexpr UINT WM_APP_UPDATE_DOWNLOAD_PROGRESS = WM_APP + 5;
 
     MainWindow();
     ~MainWindow() override;
@@ -60,6 +61,7 @@ protected:
     afx_msg LRESULT OnOpenStartupConnectionsMessage(WPARAM, LPARAM);
     afx_msg LRESULT OnUpdateCheckCompleted(WPARAM, LPARAM);
     afx_msg LRESULT OnUpdateDownloadCompleted(WPARAM, LPARAM);
+    afx_msg LRESULT OnUpdateDownloadProgress(WPARAM, LPARAM);
     afx_msg LRESULT OnDwmCompositionChanged(WPARAM, LPARAM);
     afx_msg LRESULT OnDpiChanged(WPARAM, LPARAM);
     afx_msg LRESULT OnPowerBroadcast(WPARAM, LPARAM);
@@ -94,6 +96,7 @@ private:
     CRect updateButtonRect() const;
     void invalidateUpdateButton();
     CString updateTooltipText() const;
+    CString updateButtonText() const;
     void updateCaptionTooltip();
     void startBackgroundUpdateCheck();
     void startBackgroundUpdateDownload();
@@ -132,6 +135,7 @@ private:
     updater::ReleaseAsset m_updateRelease;
     bool m_updateCheckInFlight = false;
     bool m_updateDownloadInFlight = false;
+    int m_updateDownloadProgress = -1;
     std::uint64_t m_updateCheckGeneration = 0;
     std::uint64_t m_updateDownloadGeneration = 0;
     static constexpr UINT_PTR kUpdateCheckTimerId = 2;

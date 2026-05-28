@@ -5,6 +5,7 @@
 namespace AppPaths
 {
 bool isPortableMode();
+std::wstring executablePath();
 std::wstring dataRootPath();
 std::wstring profilesFilePath();
 std::wstring frameCaptureRootPath();
