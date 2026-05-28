@@ -287,6 +287,11 @@ bool MainWindow::launchDownloadedUpdate() const
     script += L"  Log \"script error: $($_.Exception.Message)\"\n";
     script += L"} finally {\n";
     script += L"  Log 'script end'\n";
+    script += L"  try {\n";
+    script += L"    $cleanupCommand = \"Start-Sleep -Seconds 2; Remove-Item -LiteralPath '$PSCommandPath' -Force -ErrorAction SilentlyContinue\"\n";
+    script += L"    Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $cleanupCommand)\n";
+    script += L"  } catch {\n";
+    script += L"  }\n";
     script += L"}\n";
 
     if (!writeScriptFile(scriptPath, script))
