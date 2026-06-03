@@ -4,24 +4,37 @@
 
 namespace rdp
 {
-bool isKeyboardModifierVirtualKey(unsigned int virtualKey)
+bool shouldSynchronizeModifiersForMouseMove(UINT mouseFlags)
+{
+    return (mouseFlags & (MK_LBUTTON | MK_RBUTTON | MK_MBUTTON | MK_XBUTTON1 | MK_XBUTTON2)) != 0;
+}
+
+unsigned int keyboardModifierMaskForVirtualKey(unsigned int virtualKey)
 {
     switch (virtualKey) {
     case VK_LCONTROL:
     case VK_RCONTROL:
     case VK_CONTROL:
+        return ModifierControl;
     case VK_LSHIFT:
     case VK_RSHIFT:
     case VK_SHIFT:
+        return ModifierShift;
     case VK_LMENU:
     case VK_RMENU:
     case VK_MENU:
+        return ModifierAlt;
     case VK_LWIN:
     case VK_RWIN:
-        return true;
+        return ModifierWin;
     default:
-        return false;
+        return ModifierNone;
     }
+}
+
+bool isKeyboardModifierVirtualKey(unsigned int virtualKey)
+{
+    return keyboardModifierMaskForVirtualKey(virtualKey) != ModifierNone;
 }
 
 bool isToggleModifierVirtualKey(unsigned int virtualKey)
@@ -80,30 +93,9 @@ unsigned int keyboardInputModifiersForKeyMessage(std::uint32_t message,
     if (sysContext && virtualKey != VK_LMENU && virtualKey != VK_RMENU && virtualKey != VK_MENU)
         modifiers |= ModifierAlt;
 
-    unsigned int mask = ModifierNone;
-    switch (virtualKey) {
-    case VK_LCONTROL:
-    case VK_RCONTROL:
-    case VK_CONTROL:
-        mask = ModifierControl;
-        break;
-    case VK_LSHIFT:
-    case VK_RSHIFT:
-    case VK_SHIFT:
-        mask = ModifierShift;
-        break;
-    case VK_LMENU:
-    case VK_RMENU:
-    case VK_MENU:
-        mask = ModifierAlt;
-        break;
-    case VK_LWIN:
-    case VK_RWIN:
-        mask = ModifierWin;
-        break;
-    default:
+    const unsigned int mask = keyboardModifierMaskForVirtualKey(virtualKey);
+    if (mask == ModifierNone)
         return modifiers;
-    }
 
     if (down)
         modifiers |= mask;

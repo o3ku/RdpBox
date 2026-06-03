@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(RdpBox VERSION 1.10.1 LANGUAGES CXX RC)
+project(RdpBox VERSION 1.11.0 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -80,6 +80,8 @@ set(RDPBOX_SOURCES
     rdp/RdpInputEventUtil.cpp
     rdp/RdpInputModifiers.h
     rdp/RdpInputModifiers.cpp
+    rdp/RdpKeyboardInputRouter.h
+    rdp/RdpKeyboardInputRouter.cpp
     rdp/RdpReconnectInteraction.h
     rdp/RdpResolutionRecovery.h
     rdp/RdpResolutionRecovery.cpp
@@ -181,15 +183,6 @@ target_link_libraries(RdpBox PRIVATE
 
 if(MSVC)
     set_target_properties(RdpBox PROPERTIES LINK_FLAGS "/ENTRY:WinMainCRTStartup")
-    if(CMAKE_BUILD_TYPE STREQUAL "Release")
-        find_program(UPX_EXECUTABLE upx)
-        if(UPX_EXECUTABLE)
-            add_custom_command(TARGET RdpBox POST_BUILD
-                COMMAND "${UPX_EXECUTABLE}" -9 "$<TARGET_FILE:RdpBox>"
-                COMMENT "Compressing RdpBox.exe with UPX -9"
-            )
-        endif()
-    endif()
 endif()
 
 if(BUILD_TEST)

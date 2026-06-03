@@ -2,14 +2,10 @@
 
 #include "rdp/RdpInputModifiers.h"
 #include "rdp/RdpReconnectInteraction.h"
-#include "rdp/RdpSystemChordTrace.h"
 #include "ui/ParentResizeForwarder.h"
-
-#include <vector>
 
 namespace
 {
-constexpr UINT_PTR kMouseMoveTimerId = 2;
 constexpr UINT kMouseMoveCoalesceMs = 16;
 }
 
@@ -18,32 +14,11 @@ void CRdpSessionView::syncMouseModifiers(UINT mouseFlags)
     if (!m_process)
         return;
 
-    const unsigned int desiredModifiers =
-        rdp::mouseInputModifiers(mouseFlags, currentModifiers());
-    const std::vector<RdpModifierSyncTracker::KeyAction> actions =
-        m_modifierTracker.synchronize(desiredModifiers);
-    for (const auto &action : actions) {
-        if (rdp::trace::shouldTraceSystemChordVirtualKey(action.virtualKey)) {
-            rdp::trace::logSystemChordSyncAction(
-                L"sync-mouse",
-                0,
-                action.virtualKey,
-                action.message == static_cast<std::uint32_t>(WM_KEYDOWN)
-                    || action.message == static_cast<std::uint32_t>(WM_SYSKEYDOWN),
-                desiredModifiers,
-                m_keyboardModifiers,
-                ::GetFocus() == GetSafeHwnd(),
-                m_captureSystemKeysWithoutFocus,
-                m_pressedKeys.size());
-        }
-        sendSynchronizedModifier(action.virtualKey, action.message == static_cast<std::uint32_t>(WM_KEYDOWN)
-                                                       || action.message == static_cast<std::uint32_t>(WM_SYSKEYDOWN));
-    }
-}
-
-unsigned int CRdpSessionView::currentModifiers() const
-{
-    return m_keyboardModifiers;
+    sendKeyboardActions(m_keyboardRouter.synchronizeMouseModifiers(
+        mouseFlags,
+        currentKeyboardPhysicalState(),
+        ::GetFocus() == GetSafeHwnd()));
+    releaseKeyboardTargetIfInactive();
 }
 
 void CRdpSessionView::flushPendingMouseMove()
@@ -69,7 +44,8 @@ void CRdpSessionView::flushPendingMouseMove()
 void CRdpSessionView::OnMouseMove(UINT flags, CPoint point)
 {
     updatePointerPosition(PointI{point.x, point.y});
-    syncMouseModifiers(flags);
+    if (rdp::shouldSynchronizeModifiersForMouseMove(flags))
+        syncMouseModifiers(flags);
     if (!m_process)
         return;
 

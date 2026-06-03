@@ -12,8 +12,7 @@
 
 #include "profiles/Profile.h"
 #include "rdp/FreeRdpProcess.h"
-#include "rdp/RdpInputEventUtil.h"
-#include "rdp/RdpModifierSyncTracker.h"
+#include "rdp/RdpKeyboardInputRouter.h"
 #include "rdp/RdpMouseMoveCoalescer.h"
 #include "rdp/RdpResolutionRecovery.h"
 #include "rdp/RdpReservedShortcutTracker.h"
@@ -50,6 +49,10 @@ public:
 
     bool canCaptureSystemKeys() const;
     unsigned int activeKeyboardModifiers() const;
+    bool shouldCaptureLowLevelKey(const RdpLowLevelKeyEvent &event,
+                                  const RdpKeyboardPhysicalState &physical) const;
+    std::uint32_t messageForLowLevelKey(const RdpLowLevelKeyEvent &event,
+                                        const RdpKeyboardPhysicalState &physical) const;
     void noteConsumedLocalShortcutKey(unsigned int virtualKey);
     void forwardNativeKeyMessage(std::uint32_t message, std::uintptr_t wParam, std::intptr_t lParam);
 
@@ -84,6 +87,8 @@ protected:
     LRESULT WindowProc(UINT message, WPARAM wParam, LPARAM lParam) override;
 
 private:
+    static constexpr UINT_PTR kMouseMoveTimerId = 2;
+
     struct PendingCertificateRequest
     {
         std::uintptr_t generation = 0;
@@ -116,21 +121,17 @@ private:
     void beginFrameCapture(const wchar_t *reason);
     void captureFrameIfRequested(const FrameBuffer &frame);
     void syncMouseModifiers(UINT mouseFlags);
-    unsigned int currentModifiers() const;
+    RdpKeyboardPhysicalState currentKeyboardPhysicalState() const;
     SizeI currentViewSize() const;
     SizeI fullScreenSize() const;
     void releaseCursorHandle();
     void drawOverlay(CDC &dc, const CRect &rect);
     void flushPendingMouseMove();
-    void sendTrackedKey(const KeyIdentifier &key, bool down, bool wasDown = false);
-    bool hasTrackedKey(const KeyIdentifier &key) const;
-    void trackKeyState(const KeyIdentifier &key, bool down);
+    void sendKeyboardAction(const RdpKeyboardInputRouter::KeyAction &action);
+    void sendKeyboardActions(const std::vector<RdpKeyboardInputRouter::KeyAction> &actions);
     void rememberReservedShortcutKey(unsigned int virtualKey);
     bool consumeReservedShortcutKey(unsigned int virtualKey);
-    void sendSynchronizedModifier(unsigned int virtualKey, bool down);
-    unsigned int keyboardModifiersForMessage(std::uint32_t message, unsigned int virtualKey) const;
-    void updateKeyboardModifierState(std::uint32_t message, unsigned int virtualKey);
-    void refreshSystemKeyCaptureState();
+    void releaseKeyboardTargetIfInactive();
     void sendTrackedMouseButton(MouseButton button, bool down, PointI point);
     void releasePressedMouseButtons();
     void releaseAllPressedKeys();
@@ -145,7 +146,7 @@ private:
     bool m_hasPendingResize = false;
     std::function<void()> m_reconnectRequested;
     std::function<void()> m_connectedCallback;
-    RdpModifierSyncTracker m_modifierTracker;
+    RdpKeyboardInputRouter m_keyboardRouter;
     RdpResizeBurstTracker m_resizeBurstTracker;
     RdpMouseMoveCoalescer m_mouseMoveCoalescer;
     bool m_mouseMoveTimerActive = false;
@@ -168,9 +169,6 @@ private:
     bool m_ownsCursorHandle = false;
     bool m_connected = false;
     bool m_created = false;
-    std::vector<KeyIdentifier> m_pressedKeys;
-    unsigned int m_keyboardModifiers = ModifierNone;
-    bool m_captureSystemKeysWithoutFocus = false;
     RdpReservedShortcutTracker m_reservedShortcutTracker;
     unsigned int m_pressedMouseButtons = 0;
     PointI m_lastPointerPoint{};

@@ -1,14 +1,10 @@
 #include "RdpSessionView.h"
 
-#include "common/Win32String.h"
 #include "rdp/FrameBufferMemory.h"
 #include "rdp/RdpCursorClassifier.h"
-#include "rdp/RdpInputModifiers.h"
 #include "rdp/RdpFocusNotification.h"
 #include "rdp/RdpSystemChordTrace.h"
-#include "resources/resource.h"
 #include "ui/MainWindowShortcuts.h"
-#include "ui/ParentResizeForwarder.h"
 #include "ui/Win10Theme.h"
 
 #include <algorithm>
@@ -17,7 +13,6 @@
 namespace
 {
 constexpr UINT_PTR kResizeTimerId = 1;
-constexpr UINT_PTR kMouseMoveTimerId = 2;
 constexpr UINT kResumeRecoveryTimeoutMs = 2500;
 constexpr int kInitialFrameDiscardWithCodec = 3;
 constexpr int kInitialFrameDiscardNoCodec = 5;
@@ -25,41 +20,81 @@ constexpr int kInitialFrameDiscardNoCodec = 5;
 CRdpSessionView *g_systemKeyTarget = nullptr;
 HHOOK g_keyboardHook = nullptr;
 
-bool isAltKey(DWORD vkCode)
+bool isVirtualKeyPhysicallyDown(int virtualKey)
 {
-    return vkCode == VK_MENU || vkCode == VK_LMENU || vkCode == VK_RMENU;
+    return (::GetAsyncKeyState(virtualKey) & 0x8000) != 0;
 }
 
-bool isSystemKey(DWORD vkCode)
+unsigned int physicalKeyboardModifiers()
 {
-    return vkCode == VK_LWIN || vkCode == VK_RWIN;
+    unsigned int modifiers = ModifierNone;
+    if (isVirtualKeyPhysicallyDown(VK_CONTROL))
+        modifiers |= ModifierControl;
+    if (isVirtualKeyPhysicallyDown(VK_SHIFT))
+        modifiers |= ModifierShift;
+    if (isVirtualKeyPhysicallyDown(VK_MENU))
+        modifiers |= ModifierAlt;
+    if (isVirtualKeyPhysicallyDown(VK_LWIN) || isVirtualKeyPhysicallyDown(VK_RWIN))
+        modifiers |= ModifierWin;
+    return modifiers;
 }
 
-bool isControlDown()
+RdpKeyboardPhysicalState physicalKeyboardState()
 {
-    return (::GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+    RdpKeyboardPhysicalState state;
+    state.modifiers = physicalKeyboardModifiers();
+    if (isVirtualKeyPhysicallyDown(VK_RCONTROL))
+        state.controlVirtualKey = VK_RCONTROL;
+    else if (isVirtualKeyPhysicallyDown(VK_LCONTROL))
+        state.controlVirtualKey = VK_LCONTROL;
+    if (isVirtualKeyPhysicallyDown(VK_RSHIFT))
+        state.shiftVirtualKey = VK_RSHIFT;
+    else if (isVirtualKeyPhysicallyDown(VK_LSHIFT))
+        state.shiftVirtualKey = VK_LSHIFT;
+    if (isVirtualKeyPhysicallyDown(VK_RMENU))
+        state.altVirtualKey = VK_RMENU;
+    else if (isVirtualKeyPhysicallyDown(VK_LMENU))
+        state.altVirtualKey = VK_LMENU;
+    if (isVirtualKeyPhysicallyDown(VK_RWIN))
+        state.winVirtualKey = VK_RWIN;
+    else if (isVirtualKeyPhysicallyDown(VK_LWIN))
+        state.winVirtualKey = VK_LWIN;
+    return state;
 }
 
-bool isCtrlEscapeSequence(DWORD vkCode)
-{
-    return vkCode == VK_ESCAPE && isControlDown();
-}
-
-bool shouldCaptureLowLevelKey(const KBDLLHOOKSTRUCT *info)
+bool isReservedLowLevelShortcut(const KBDLLHOOKSTRUCT *info)
 {
     if (!info)
         return false;
 
-    const unsigned int keyboardModifiers = g_systemKeyTarget
-        ? g_systemKeyTarget->activeKeyboardModifiers()
-        : ModifierNone;
+    return ui::isReservedMainWindowShortcut(isVirtualKeyPhysicallyDown(VK_CONTROL),
+                                            isVirtualKeyPhysicallyDown(VK_MENU)
+                                                || (info->flags & LLKHF_ALTDOWN) != 0,
+                                            static_cast<unsigned int>(info->vkCode));
+}
 
-    return isSystemKey(info->vkCode)
-        || isAltKey(info->vkCode)
-        || isCtrlEscapeSequence(info->vkCode)
-        || rdp::shouldCaptureTabForSystemChord(static_cast<unsigned int>(info->vkCode),
-                                               static_cast<unsigned int>(info->flags),
-                                               keyboardModifiers);
+RdpLowLevelKeyEvent lowLevelKeyEventFromInfo(const KBDLLHOOKSTRUCT *info, bool keyUp)
+{
+    if (!info)
+        return {};
+
+    return RdpLowLevelKeyEvent{
+        static_cast<unsigned int>(info->vkCode),
+        static_cast<unsigned int>(info->flags),
+        keyUp,
+        g_systemKeyTarget && ::GetFocus() == g_systemKeyTarget->GetSafeHwnd(),
+        isReservedLowLevelShortcut(info)
+    };
+}
+
+bool shouldCaptureLowLevelKey(const KBDLLHOOKSTRUCT *info, bool keyUp)
+{
+    if (!info || !g_systemKeyTarget)
+        return false;
+
+    return g_systemKeyTarget->shouldCaptureLowLevelKey(
+        lowLevelKeyEventFromInfo(info, keyUp),
+        physicalKeyboardState());
 }
 
 LRESULT CALLBACK keyboardHookProc(int code, WPARAM wParam, LPARAM lParam)
@@ -69,7 +104,8 @@ LRESULT CALLBACK keyboardHookProc(int code, WPARAM wParam, LPARAM lParam)
 
     auto *info = reinterpret_cast<KBDLLHOOKSTRUCT *>(lParam);
     const bool traceKey = rdp::trace::shouldTraceSystemChordVirtualKey(static_cast<unsigned int>(info->vkCode));
-    const bool shouldCapture = shouldCaptureLowLevelKey(info);
+    const bool keyUp = (wParam == WM_KEYUP || wParam == WM_SYSKEYUP || (info->flags & LLKHF_UP));
+    const bool shouldCapture = shouldCaptureLowLevelKey(info, keyUp);
     const bool canCapture = g_systemKeyTarget->canCaptureSystemKeys();
     if (traceKey) {
         rdp::trace::logSystemChordEvent(
@@ -86,12 +122,10 @@ LRESULT CALLBACK keyboardHookProc(int code, WPARAM wParam, LPARAM lParam)
     if (!shouldCapture || !canCapture)
         return CallNextHookEx(g_keyboardHook, code, wParam, lParam);
 
-    const bool keyUp = (wParam == WM_KEYUP || wParam == WM_SYSKEYUP || (info->flags & LLKHF_UP));
     const bool extended = (info->flags & LLKHF_EXTENDED) != 0;
-    const bool sysContext = isAltKey(info->vkCode) || (info->flags & LLKHF_ALTDOWN);
-    const std::uint32_t message = keyUp
-        ? (sysContext ? WM_SYSKEYUP : WM_KEYUP)
-        : (sysContext ? WM_SYSKEYDOWN : WM_KEYDOWN);
+    const RdpLowLevelKeyEvent lowLevelEvent = lowLevelKeyEventFromInfo(info, keyUp);
+    const std::uint32_t message =
+        g_systemKeyTarget->messageForLowLevelKey(lowLevelEvent, physicalKeyboardState());
     const std::intptr_t keyLParam = static_cast<std::intptr_t>((info->scanCode & 0xFFu) << 16)
         | (extended ? 0x01000000 : 0)
         | (keyUp ? 0xC0000000 : 0);
@@ -351,10 +385,7 @@ void CRdpSessionView::startProcess()
     m_captureFramesRemaining = 0;
     m_captureFrameIndex = 0;
     m_resizeBurstTracker.reset();
-    m_modifierTracker.reset();
-    m_keyboardModifiers = ModifierNone;
-    m_captureSystemKeysWithoutFocus = false;
-    m_pressedKeys.clear();
+    m_keyboardRouter.reset();
     m_reservedShortcutTracker.reset();
     m_pressedMouseButtons = 0;
     m_hasLastPointerPoint = false;
@@ -415,10 +446,7 @@ void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
     m_captureFrameIndex = 0;
     m_processBinding.reset();
     m_resizeBurstTracker.reset();
-    m_modifierTracker.reset();
-    m_keyboardModifiers = ModifierNone;
-    m_captureSystemKeysWithoutFocus = false;
-    m_pressedKeys.clear();
+    m_keyboardRouter.reset();
     m_reservedShortcutTracker.reset();
     m_pressedMouseButtons = 0;
     m_hasLastPointerPoint = false;
@@ -444,10 +472,7 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
         beginFrameCapture(L"connect");
         if (!m_resolutionUpdatePending && !m_waitingForFirstContentFrame && !m_frameGateActive)
             clearOverlay();
-        m_modifierTracker.reset();
-        m_keyboardModifiers = ModifierNone;
-        m_captureSystemKeysWithoutFocus = false;
-        m_pressedKeys.clear();
+        m_keyboardRouter.reset();
         m_reservedShortcutTracker.reset();
         m_pressedMouseButtons = 0;
         m_hasLastPointerPoint = false;
@@ -505,6 +530,11 @@ void CRdpSessionView::updateCursorFromProcess()
 
     if (GetSafeHwnd())
         ::SetCursor(m_cursorHandle);
+}
+
+RdpKeyboardPhysicalState CRdpSessionView::currentKeyboardPhysicalState() const
+{
+    return physicalKeyboardState();
 }
 
 void CRdpSessionView::setFocusToFreeRdp()
@@ -697,7 +727,7 @@ void CRdpSessionView::OnTimer(UINT_PTR timerId)
 void CRdpSessionView::OnSetFocus(CWnd *oldWnd)
 {
     CWnd::OnSetFocus(oldWnd);
-    m_captureSystemKeysWithoutFocus = false;
+    m_keyboardRouter.onFocusGained();
     disableLocalIme();
     setFocusToFreeRdp();
 }
@@ -706,22 +736,21 @@ void CRdpSessionView::OnKillFocus(CWnd *newWnd)
 {
     CWnd::OnKillFocus(newWnd);
     rdp::trace::logSystemChordNote(L"kill-focus",
-                                   m_keyboardModifiers,
+                                   m_keyboardRouter.activeKeyboardModifiers(),
                                    false,
-                                   m_captureSystemKeysWithoutFocus,
-                                   m_pressedKeys.size());
+                                   m_keyboardRouter.captureSystemKeysWithoutFocus(),
+                                   m_keyboardRouter.pressedKeyCount());
     flushPendingMouseMove();
     releasePressedMouseButtons();
-    if (rdp::shouldDeferKeyReleaseOnFocusLoss(m_keyboardModifiers)) {
-        m_captureSystemKeysWithoutFocus = true;
+    sendKeyboardActions(m_keyboardRouter.handleFocusLost(physicalKeyboardState()));
+    if (m_keyboardRouter.captureSystemKeysWithoutFocus()) {
         rdp::trace::logSystemChordNote(L"defer-focus-release",
-                                       m_keyboardModifiers,
+                                       m_keyboardRouter.activeKeyboardModifiers(),
                                        false,
-                                       m_captureSystemKeysWithoutFocus,
-                                       m_pressedKeys.size());
+                                       m_keyboardRouter.captureSystemKeysWithoutFocus(),
+                                       m_keyboardRouter.pressedKeyCount());
         return;
     }
-    releaseAllPressedKeys();
     if (g_systemKeyTarget == this)
         g_systemKeyTarget = nullptr;
     releaseKeyboardHookIfUnused();
@@ -744,42 +773,32 @@ void CRdpSessionView::OnCaptureChanged(CWnd *wnd)
     releasePressedMouseButtons();
 }
 
-void CRdpSessionView::sendTrackedKey(const KeyIdentifier &key, bool down, bool wasDown)
+void CRdpSessionView::sendKeyboardAction(const RdpKeyboardInputRouter::KeyAction &action)
 {
     if (!m_process)
         return;
 
-    if (rdp::trace::shouldTraceSystemChordVirtualKey(MapVirtualKeyW(key.scanCode, MAPVK_VSC_TO_VK_EX))) {
+    const unsigned int virtualKey = action.virtualKey != 0
+        ? action.virtualKey
+        : static_cast<unsigned int>(MapVirtualKeyW(action.key.scanCode, MAPVK_VSC_TO_VK_EX));
+    if (rdp::trace::shouldTraceSystemChordVirtualKey(virtualKey)) {
         rdp::trace::logSystemChordEvent(L"send-key",
-                                        static_cast<unsigned int>(MapVirtualKeyW(key.scanCode, MAPVK_VSC_TO_VK_EX)),
-                                        down ? WM_KEYDOWN : WM_KEYUP,
+                                        virtualKey,
+                                        action.down ? WM_KEYDOWN : WM_KEYUP,
                                         0,
-                                        key.extended ? 0x01000000u : 0u,
-                                        m_keyboardModifiers,
+                                        action.key.extended ? 0x01000000u : 0u,
+                                        m_keyboardRouter.activeKeyboardModifiers(),
                                         ::GetFocus() == GetSafeHwnd(),
-                                        m_captureSystemKeysWithoutFocus,
-                                        m_pressedKeys.size());
+                                        m_keyboardRouter.captureSystemKeysWithoutFocus(),
+                                        m_keyboardRouter.pressedKeyCount());
     }
-    m_process->sendKey(key, down, wasDown);
-    trackKeyState(key, down);
+    m_process->sendKey(action.key, action.down, action.wasDown);
 }
 
-bool CRdpSessionView::hasTrackedKey(const KeyIdentifier &key) const
+void CRdpSessionView::sendKeyboardActions(const std::vector<RdpKeyboardInputRouter::KeyAction> &actions)
 {
-    return std::find(m_pressedKeys.begin(), m_pressedKeys.end(), key) != m_pressedKeys.end();
-}
-
-void CRdpSessionView::trackKeyState(const KeyIdentifier &key, bool down)
-{
-    const auto it = std::find(m_pressedKeys.begin(), m_pressedKeys.end(), key);
-    if (down) {
-        if (it == m_pressedKeys.end())
-            m_pressedKeys.push_back(key);
-        return;
-    }
-
-    if (it != m_pressedKeys.end())
-        m_pressedKeys.erase(it);
+    for (const auto &action : actions)
+        sendKeyboardAction(action);
 }
 
 void CRdpSessionView::rememberReservedShortcutKey(unsigned int virtualKey)
@@ -792,52 +811,11 @@ bool CRdpSessionView::consumeReservedShortcutKey(unsigned int virtualKey)
     return m_reservedShortcutTracker.consumeHandledKeyUp(virtualKey);
 }
 
-void CRdpSessionView::sendSynchronizedModifier(unsigned int virtualKey, bool down)
+void CRdpSessionView::releaseKeyboardTargetIfInactive()
 {
-    const auto key = keyIdentifierFromVirtualKey(virtualKey);
-    if (!key)
-        return;
-
-    const bool wasDown = down && hasTrackedKey(*key);
-    sendTrackedKey(*key, down, wasDown);
-}
-
-unsigned int CRdpSessionView::keyboardModifiersForMessage(std::uint32_t message, unsigned int virtualKey) const
-{
-    return rdp::keyboardInputModifiersForKeyMessage(message, virtualKey, m_keyboardModifiers);
-}
-
-void CRdpSessionView::updateKeyboardModifierState(std::uint32_t message, unsigned int virtualKey)
-{
-    if (!rdp::isKeyboardModifierVirtualKey(virtualKey))
-        return;
-
-    m_keyboardModifiers = rdp::keyboardInputModifiersForKeyMessage(message, virtualKey, m_keyboardModifiers);
-}
-
-void CRdpSessionView::refreshSystemKeyCaptureState()
-{
-    if (!m_captureSystemKeysWithoutFocus)
-        return;
-
-    if (rdp::shouldDeferKeyReleaseOnFocusLoss(m_keyboardModifiers))
-    {
-        rdp::trace::logSystemChordNote(L"refresh-keep-capture",
-                                       m_keyboardModifiers,
-                                       ::GetFocus() == GetSafeHwnd(),
-                                       m_captureSystemKeysWithoutFocus,
-                                       m_pressedKeys.size());
-        return;
-    }
-
-    m_captureSystemKeysWithoutFocus = false;
-    rdp::trace::logSystemChordNote(L"refresh-stop-capture",
-                                   m_keyboardModifiers,
-                                   ::GetFocus() == GetSafeHwnd(),
-                                   m_captureSystemKeysWithoutFocus,
-                                   m_pressedKeys.size());
-    if (::GetFocus() != GetSafeHwnd() && g_systemKeyTarget == this) {
-        g_systemKeyTarget = nullptr;
+    if (::GetFocus() != GetSafeHwnd() && !m_keyboardRouter.captureSystemKeysWithoutFocus()) {
+        if (g_systemKeyTarget == this)
+            g_systemKeyTarget = nullptr;
         releaseKeyboardHookIfUnused();
     }
 }
@@ -899,25 +877,18 @@ void CRdpSessionView::releasePressedMouseButtons()
 void CRdpSessionView::releaseAllPressedKeys()
 {
     rdp::trace::logSystemChordNote(L"release-all-pressed-keys",
-                                   m_keyboardModifiers,
+                                   m_keyboardRouter.activeKeyboardModifiers(),
                                    ::GetFocus() == GetSafeHwnd(),
-                                   m_captureSystemKeysWithoutFocus,
-                                   m_pressedKeys.size());
-    m_modifierTracker.reset();
-    m_keyboardModifiers = ModifierNone;
-    m_captureSystemKeysWithoutFocus = false;
+                                   m_keyboardRouter.captureSystemKeysWithoutFocus(),
+                                   m_keyboardRouter.pressedKeyCount());
 
     if (!m_process || m_process->state() != FreeRdpProcess::State::Running) {
-        m_pressedKeys.clear();
+        m_keyboardRouter.reset();
         m_reservedShortcutTracker.reset();
         return;
     }
 
-    const std::vector<KeyIdentifier> pressedKeys = m_pressedKeys;
-    for (const auto &key : pressedKeys)
-        sendTrackedKey(key, false, true);
-
-    m_pressedKeys.clear();
+    sendKeyboardActions(m_keyboardRouter.releaseAllPressedKeys());
     m_reservedShortcutTracker.reset();
 }
 
