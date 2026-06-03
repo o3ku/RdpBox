@@ -42,6 +42,24 @@ target_include_directories(RdpModifierSyncTrackerTests PRIVATE
 
 add_test(NAME RdpModifierSyncTrackerTests COMMAND RdpModifierSyncTrackerTests)
 
+add_executable(RdpKeyboardInputRouterTests
+    rdp/RdpKeyboardInputRouterTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/rdp/RdpKeyboardInputRouter.cpp
+    ${CMAKE_SOURCE_DIR}/src/rdp/RdpInputModifiers.cpp
+    ${CMAKE_SOURCE_DIR}/src/rdp/RdpInputEventUtil.cpp
+    ${CMAKE_SOURCE_DIR}/src/rdp/RdpModifierSyncTracker.cpp
+)
+
+target_include_directories(RdpKeyboardInputRouterTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(RdpKeyboardInputRouterTests PRIVATE
+    User32
+)
+
+add_test(NAME RdpKeyboardInputRouterTests COMMAND RdpKeyboardInputRouterTests)
+
 add_executable(RdpFocusNotificationTests
     rdp/RdpFocusNotificationTests.cpp
     ${CMAKE_SOURCE_DIR}/src/rdp/RdpFocusNotification.cpp

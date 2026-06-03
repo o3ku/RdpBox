@@ -6,8 +6,10 @@
 int main()
 {
     using rdp::mouseInputModifiers;
+    using rdp::shouldSynchronizeModifiersForMouseMove;
     using rdp::isKeyboardModifierVirtualKey;
     using rdp::isToggleModifierVirtualKey;
+    using rdp::keyboardModifierMaskForVirtualKey;
     using rdp::shouldCaptureTabForSystemChord;
     using rdp::shouldDeferKeyReleaseOnFocusLoss;
     using rdp::keyboardInputModifiersForKeyMessage;
@@ -29,6 +31,16 @@ int main()
         != (ModifierControl | ModifierShift | ModifierAlt | ModifierWin)) {
         return 1;
     }
+    if (shouldSynchronizeModifiersForMouseMove(0))
+        return 1;
+    if (shouldSynchronizeModifiersForMouseMove(MK_CONTROL | MK_SHIFT))
+        return 1;
+    if (!shouldSynchronizeModifiersForMouseMove(MK_LBUTTON))
+        return 1;
+    if (!shouldSynchronizeModifiersForMouseMove(MK_RBUTTON | MK_CONTROL))
+        return 1;
+    if (!shouldSynchronizeModifiersForMouseMove(MK_XBUTTON1))
+        return 1;
     if (!isKeyboardModifierVirtualKey(VK_MENU))
         return 1;
     if (!isKeyboardModifierVirtualKey(VK_LWIN))
@@ -38,6 +50,16 @@ int main()
     if (!isKeyboardModifierVirtualKey(VK_RCONTROL))
         return 1;
     if (isKeyboardModifierVirtualKey('2'))
+        return 1;
+    if (keyboardModifierMaskForVirtualKey(VK_LCONTROL) != ModifierControl)
+        return 1;
+    if (keyboardModifierMaskForVirtualKey(VK_RSHIFT) != ModifierShift)
+        return 1;
+    if (keyboardModifierMaskForVirtualKey(VK_RMENU) != ModifierAlt)
+        return 1;
+    if (keyboardModifierMaskForVirtualKey(VK_RWIN) != ModifierWin)
+        return 1;
+    if (keyboardModifierMaskForVirtualKey('2') != ModifierNone)
         return 1;
     if (!isToggleModifierVirtualKey(VK_CAPITAL))
         return 1;

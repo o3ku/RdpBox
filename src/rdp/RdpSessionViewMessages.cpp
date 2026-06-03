@@ -1,7 +1,6 @@
 #include "RdpSessionView.h"
 
 #include "rdp/RdpInputEventUtil.h"
-#include "rdp/RdpInputModifiers.h"
 #include "rdp/RdpSystemChordTrace.h"
 #include "ui/MainWindowShortcuts.h"
 
@@ -144,12 +143,24 @@ bool CRdpSessionView::canCaptureSystemKeys() const
         && m_process->state() == FreeRdpProcess::State::Running
         && GetSafeHwnd()
         && IsWindowVisible()
-        && (::GetFocus() == GetSafeHwnd() || m_captureSystemKeysWithoutFocus);
+        && (::GetFocus() == GetSafeHwnd() || m_keyboardRouter.captureSystemKeysWithoutFocus());
 }
 
 unsigned int CRdpSessionView::activeKeyboardModifiers() const
 {
-    return m_keyboardModifiers;
+    return m_keyboardRouter.activeKeyboardModifiers();
+}
+
+bool CRdpSessionView::shouldCaptureLowLevelKey(const RdpLowLevelKeyEvent &event,
+                                               const RdpKeyboardPhysicalState &physical) const
+{
+    return m_keyboardRouter.shouldCaptureLowLevelKey(event, physical);
+}
+
+std::uint32_t CRdpSessionView::messageForLowLevelKey(const RdpLowLevelKeyEvent &event,
+                                                     const RdpKeyboardPhysicalState &physical) const
+{
+    return m_keyboardRouter.messageForLowLevelKey(event, physical);
 }
 
 void CRdpSessionView::forwardNativeKeyMessage(std::uint32_t message,
@@ -166,44 +177,19 @@ void CRdpSessionView::forwardNativeKeyMessage(std::uint32_t message,
                                         message,
                                         lParam,
                                         0,
-                                        m_keyboardModifiers,
+                                        m_keyboardRouter.activeKeyboardModifiers(),
                                         ::GetFocus() == GetSafeHwnd(),
-                                        m_captureSystemKeysWithoutFocus,
-                                        m_pressedKeys.size());
+                                        m_keyboardRouter.captureSystemKeysWithoutFocus(),
+                                        m_keyboardRouter.pressedKeyCount());
     }
-    const unsigned int messageModifiers = keyboardModifiersForMessage(message, virtualKey);
-    if (!rdp::isKeyboardModifierVirtualKey(virtualKey)) {
-        const unsigned int desiredModifiers =
-            messageModifiers;
-        const std::vector<RdpModifierSyncTracker::KeyAction> actions =
-            m_modifierTracker.synchronize(desiredModifiers);
-        for (const auto &action : actions) {
-            if (rdp::trace::shouldTraceSystemChordVirtualKey(virtualKey)
-                || rdp::trace::shouldTraceSystemChordVirtualKey(action.virtualKey)) {
-                rdp::trace::logSystemChordSyncAction(
-                    L"sync-action",
-                    virtualKey,
-                    action.virtualKey,
-                    action.message == static_cast<std::uint32_t>(WM_KEYDOWN)
-                        || action.message == static_cast<std::uint32_t>(WM_SYSKEYDOWN),
-                    desiredModifiers,
-                    m_keyboardModifiers,
-                    ::GetFocus() == GetSafeHwnd(),
-                    m_captureSystemKeysWithoutFocus,
-                    m_pressedKeys.size());
-            }
-            sendSynchronizedModifier(action.virtualKey,
-                                     action.message == static_cast<std::uint32_t>(WM_KEYDOWN)
-                                     || action.message == static_cast<std::uint32_t>(WM_SYSKEYDOWN));
-        }
-    }
-
     const auto event = keyEventInfoFromMessage(message, wParam, lParam);
     if (!event)
         return;
 
-    sendTrackedKey(event->key, event->down, event->wasDown);
-    m_modifierTracker.recordKeyState(virtualKey, event->down);
-    updateKeyboardModifierState(message, virtualKey);
-    refreshSystemKeyCaptureState();
+    sendKeyboardActions(m_keyboardRouter.handleKeyMessage(message,
+                                                          virtualKey,
+                                                          *event,
+                                                          currentKeyboardPhysicalState(),
+                                                          ::GetFocus() == GetSafeHwnd()));
+    releaseKeyboardTargetIfInactive();
 }
