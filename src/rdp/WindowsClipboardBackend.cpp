@@ -1,6 +1,7 @@
 #include "WindowsClipboardBackend.h"
 #include "ClipboardWindowReady.h"
 #include "WindowsClipboardBackendInternal.h"
+#include "WindowsClipboardBehavior.h"
 
 #include <winpr/assert.h>
 #include <winpr/library.h>
@@ -13,12 +14,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <string_view>
 
 namespace
 {
 constexpr DWORD kClipboardRequestTimeoutMs = 30000;
-constexpr size_t kMaxClipboardFileCount = 10000;
-constexpr int kMaxClipboardDirectoryDepth = 32;
 
 constexpr UINT32 kCliprdrGeneralCapabilityPayloadSize = sizeof(UINT32) + CB_CAPSTYPE_GENERAL_LEN;
 constexpr UINT32 kCliprdrFormatDataRequestPayloadSize = sizeof(UINT32);
@@ -337,7 +337,7 @@ static BOOL ensureFileArrayCapacity(ClipboardContext *clipboard)
     if (clipboard->fileCount != clipboard->fileArraySize)
         return TRUE;
 
-    const size_t newSize = (clipboard->fileArraySize == 0) ? 16 : (clipboard->fileArraySize * 2);
+    const size_t newSize = rdp::clipboard::nextClipboardFileArrayCapacity(clipboard->fileArraySize);
     auto *newDescriptors = static_cast<FILEDESCRIPTORW**>(calloc(newSize, sizeof(FILEDESCRIPTORW*)));
     auto *newNames = static_cast<WCHAR**>(calloc(newSize, sizeof(WCHAR*)));
 
@@ -360,7 +360,7 @@ static BOOL ensureFileArrayCapacity(ClipboardContext *clipboard)
 
 static BOOL addToFileArrays(ClipboardContext *clipboard, WCHAR *fullFileName, size_t pathLength)
 {
-    if (!clipboard || clipboard->fileCount >= kMaxClipboardFileCount)
+    if (!clipboard || !rdp::clipboard::canAddClipboardFile(clipboard->fileCount))
         return FALSE;
 
     if (!ensureFileArrayCapacity(clipboard))
@@ -387,7 +387,7 @@ static BOOL traverseDirectory(ClipboardContext *clipboard, WCHAR *directory, siz
 {
     if (!clipboard || !directory)
         return FALSE;
-    if (depth >= kMaxClipboardDirectoryDepth)
+    if (!rdp::clipboard::canTraverseClipboardDirectoryDepth(depth))
         return FALSE;
 
     WIN32_FIND_DATAW findData = {};
@@ -401,12 +401,11 @@ static BOOL traverseDirectory(ClipboardContext *clipboard, WCHAR *directory, siz
 
     BOOL success = TRUE;
     do {
-        if (((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 &&
-             wcscmp(findData.cFileName, L".") == 0) ||
-            wcscmp(findData.cFileName, L"..") == 0) {
-            continue;
-        }
-        if ((findData.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
+        const bool isDirectory = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        const bool isReparsePoint = (findData.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+        if (rdp::clipboard::shouldSkipClipboardDirectoryEntry(findData.cFileName,
+                                                              isDirectory,
+                                                              isReparsePoint))
             continue;
 
         WCHAR path[MAX_PATH] = {};
@@ -419,7 +418,7 @@ static BOOL traverseDirectory(ClipboardContext *clipboard, WCHAR *directory, siz
             break;
         }
 
-        if ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+        if (isDirectory) {
             if (!traverseDirectory(clipboard, path, pathLength, depth + 1)) {
                 success = FALSE;
                 break;
@@ -436,14 +435,8 @@ static BOOL processClipboardFilename(ClipboardContext *clipboard, WCHAR *fileNam
     if (!clipboard || !fileName)
         return FALSE;
 
-    size_t offset = length;
-    while (offset > 0) {
-        if (fileName[offset] == L'\\')
-            break;
-        --offset;
-    }
-
-    const size_t pathLength = offset + 1;
+    const size_t pathLength =
+        rdp::clipboard::clipboardPathPrefixLength(std::wstring_view(fileName, length));
     if (!addToFileArrays(clipboard, fileName, pathLength))
         return FALSE;
 
@@ -558,7 +551,12 @@ static SSIZE_T buildFileDescriptorList(ClipboardContext *clipboard, BYTE **data)
     GlobalUnlock(STGMEDIUM_HGLOBAL(medium));
     ReleaseStgMedium(&medium);
 
-    const size_t size = 4ull + clipboard->fileCount * sizeof(FILEDESCRIPTORW);
+    const size_t size =
+        rdp::clipboard::fileGroupDescriptorByteSize(clipboard->fileCount, sizeof(FILEDESCRIPTORW));
+    if (size == 0) {
+        IDataObject_Release(dataObject);
+        return -1;
+    }
     auto *group = static_cast<FILEGROUPDESCRIPTORW*>(calloc(size, 1));
     if (!group) {
         IDataObject_Release(dataObject);
@@ -765,9 +763,9 @@ static UINT CALLBACK onServerFileContentsRequest(CliprdrClientContext *context,
     auto *clipboard = static_cast<ClipboardContext*>(context->custom);
     if (!clipboard)
         return ERROR_INTERNAL_ERROR;
-    UINT32 requestedSize = request->cbRequested;
-    if (request->dwFlags == FILECONTENTS_SIZE)
-        requestedSize = sizeof(UINT64);
+    UINT32 requestedSize =
+        rdp::clipboard::fileContentsRequestBufferSize(request->dwFlags == FILECONTENTS_SIZE,
+                                                      request->cbRequested);
 
     BYTE *data = static_cast<BYTE*>(calloc(1, requestedSize));
     if (!data)
@@ -856,7 +854,10 @@ static UINT CALLBACK onServerFileContentsResponse(CliprdrClientContext *context,
         return SetEvent(clipboard->requestFileEvent) ? CHANNEL_RC_OK : ERROR_INTERNAL_ERROR;
     }
 
-    const UINT32 dataSize = std::min(response->cbRequested, response->common.dataLen);
+    const UINT32 dataSize =
+        rdp::clipboard::boundedFileContentsResponseSize(true,
+                                                        response->cbRequested,
+                                                        response->common.dataLen);
     if (clipboard->requestFileData) {
         free(clipboard->requestFileData);
         clipboard->requestFileData = nullptr;

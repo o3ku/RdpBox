@@ -1,19 +1,21 @@
-#include <afxwin.h>
-
 #include "SessionManager.h"
 
 #include "common/Win32String.h"
 #include "profiles/ProfileRepository.h"
-#include "rdp/RdpSessionView.h"
+#include "session/SessionCollectionBehavior.h"
 #include "session/SessionResumePolicy.h"
-#include "ui/BrowserTabBar.h"
+#include "session/SessionTabBehavior.h"
 
-#include <algorithm>
 #include <string>
+#include <utility>
 
-SessionManager::SessionManager(BrowserTabBar *tabBar, CWnd *sessionHost, ProfileRepository *repository)
-    : m_tabBar(tabBar)
-    , m_sessionHost(sessionHost)
+SessionManager::SessionManager(ISessionTabs *tabs,
+                               ISessionHost *host,
+                               ISessionViewFactory *viewFactory,
+                               ProfileRepository *repository)
+    : m_tabs(tabs)
+    , m_host(host)
+    , m_viewFactory(viewFactory)
     , m_repository(repository)
 {
 }
@@ -25,17 +27,14 @@ SessionManager::~SessionManager()
 
 std::string SessionManager::openSession(const Profile &profile)
 {
-    if (!m_tabBar || !m_sessionHost)
+    if (!m_tabs || !m_host || !m_viewFactory)
         return {};
 
     Session session;
     session.id = createGuidString();
     session.profileName = profile.name;
-    session.view = std::make_unique<CRdpSessionView>();
-
-    CRect hostRect;
-    m_sessionHost->GetClientRect(&hostRect);
-    if (!session.view->create(m_sessionHost, hostRect))
+    session.view = m_viewFactory->createView(m_host->clientBounds());
+    if (!session.view)
         return {};
 
     const std::string sessionId = session.id;
@@ -52,14 +51,14 @@ std::string SessionManager::openSession(const Profile &profile)
     });
 
     const std::wstring title = profile.name.empty() ? L"(unnamed)" : profile.name;
-    const int index = m_tabBar->insertTab(title);
+    const int index = m_tabs->insertTab(title);
     if (index < 0) {
-        session.view->DestroyWindow();
+        session.view->destroy();
         return {};
     }
 
     m_sessions.push_back(std::move(session));
-    m_tabBar->setSelectedIndex(index);
+    m_tabs->setSelectedIndex(index);
     showSessionAtIndex(index);
     m_sessions[static_cast<size_t>(index)].view->connectToHost(profile);
     return m_sessions[static_cast<size_t>(index)].id;
@@ -68,19 +67,23 @@ std::string SessionManager::openSession(const Profile &profile)
 void SessionManager::closeSession(const std::string &sessionId)
 {
     const int index = indexOfSession(sessionId);
-    if (index < 0 || !m_tabBar)
+    if (index < 0 || !m_tabs)
         return;
 
-    m_sessions[static_cast<size_t>(index)].view->DestroyWindow();
+    m_sessions[static_cast<size_t>(index)].view->destroy();
     m_sessions.erase(m_sessions.begin() + index);
-    m_tabBar->removeTab(index);
+    m_tabs->removeTab(index);
 
     if (m_sessions.empty())
         return;
 
-    const int nextIndex = std::min(index, static_cast<int>(m_sessions.size()) - 1);
-    m_tabBar->setSelectedIndex(nextIndex);
-    showSessionAtIndex(nextIndex);
+    const std::optional<int> nextIndex =
+        selectedTabAfterClose(static_cast<int>(m_sessions.size()) + 1, index);
+    if (!nextIndex.has_value())
+        return;
+
+    m_tabs->setSelectedIndex(*nextIndex);
+    showSessionAtIndex(*nextIndex);
 }
 
 void SessionManager::reconnectSession(const std::string &sessionId)
@@ -96,12 +99,12 @@ void SessionManager::closeAllSessions()
 {
     for (auto &session : m_sessions) {
         if (session.view)
-            session.view->DestroyWindow();
+            session.view->destroy();
     }
     m_sessions.clear();
 
-    if (m_tabBar)
-        m_tabBar->clearTabs();
+    if (m_tabs)
+        m_tabs->clearTabs();
 }
 
 void SessionManager::activateTab(int index)
@@ -111,27 +114,22 @@ void SessionManager::activateTab(int index)
 
 void SessionManager::focusActiveSession()
 {
-    if (!m_tabBar)
+    if (!m_tabs)
         return;
 
-    showSessionAtIndex(m_tabBar->selectedIndex());
+    showSessionAtIndex(m_tabs->selectedIndex());
 }
 
 void SessionManager::layoutSessions()
 {
-    if (!m_sessionHost)
+    if (!m_host)
         return;
 
-    CRect rect;
-    m_sessionHost->GetClientRect(&rect);
+    const SessionViewBounds bounds = m_host->clientBounds();
     for (auto &session : m_sessions) {
-        if (session.view && session.view->GetSafeHwnd()) {
-            session.view->SetWindowPos(nullptr,
-                                       rect.left, rect.top,
-                                       rect.Width(), rect.Height(),
-                                       SWP_NOZORDER | SWP_NOACTIVATE);
-            session.view->RedrawWindow(nullptr, nullptr,
-                                       RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN | RDW_NOERASE);
+        if (session.view && session.view->isCreated()) {
+            session.view->setBounds(bounds);
+            session.view->redraw();
         }
     }
 }
@@ -139,7 +137,7 @@ void SessionManager::layoutSessions()
 void SessionManager::setResizeSuppressed(bool suppressed)
 {
     for (auto &session : m_sessions) {
-        if (session.view && session.view->GetSafeHwnd())
+        if (session.view && session.view->isCreated())
             session.view->setResizeSuppressed(suppressed);
     }
 }
@@ -147,17 +145,17 @@ void SessionManager::setResizeSuppressed(bool suppressed)
 void SessionManager::flushPendingResize()
 {
     for (auto &session : m_sessions) {
-        if (session.view && session.view->GetSafeHwnd())
+        if (session.view && session.view->isCreated())
             session.view->flushPendingResize();
     }
 }
 
 void SessionManager::handleHostResume()
 {
-    const int activeTabIndex = m_tabBar ? m_tabBar->selectedIndex() : -1;
+    const int activeTabIndex = m_tabs ? m_tabs->selectedIndex() : -1;
     for (size_t index = 0; index < m_sessions.size(); ++index) {
         auto &session = m_sessions[index];
-        if (session.view && session.view->GetSafeHwnd())
+        if (session.view && session.view->isCreated())
             session.view->handleHostResume(
                 sessionResumeActionForTab(static_cast<int>(index), activeTabIndex)
                 == SessionResumeAction::AutoReconnect);
@@ -166,10 +164,7 @@ void SessionManager::handleHostResume()
 
 std::string SessionManager::sessionIdByTabIndex(int index) const
 {
-    if (index < 0 || index >= static_cast<int>(m_sessions.size()))
-        return {};
-
-    return m_sessions[static_cast<size_t>(index)].id;
+    return sessionIdAtTabIndex(snapshots(), index);
 }
 
 bool SessionManager::hasOpenSessions() const
@@ -198,22 +193,12 @@ bool SessionManager::isTabConnected(int index) const
 
 std::vector<std::wstring> SessionManager::connectedProfileNames() const
 {
-    std::vector<std::wstring> names;
-    names.reserve(m_sessions.size());
-    for (const auto &session : m_sessions) {
-        if (session.view && session.view->isConnected())
-            names.push_back(session.profileName);
-    }
-    return names;
+    return connectedProfileNamesForSessions(snapshots());
 }
 
 std::vector<std::wstring> SessionManager::openProfileNames() const
 {
-    std::vector<std::wstring> names;
-    names.reserve(m_sessions.size());
-    for (const auto &session : m_sessions)
-        names.push_back(session.profileName);
-    return names;
+    return openProfileNamesForSessions(snapshots());
 }
 
 int SessionManager::indexOfSession(const std::string &sessionId) const
@@ -227,20 +212,20 @@ int SessionManager::indexOfSession(const std::string &sessionId) const
 
 void SessionManager::showSessionAtIndex(int index)
 {
-    CRdpSessionView *activeView = nullptr;
+    ISessionView *activeView = nullptr;
     for (size_t currentIndex = 0; currentIndex < m_sessions.size(); ++currentIndex) {
-        if (!m_sessions[currentIndex].view || !m_sessions[currentIndex].view->GetSafeHwnd())
+        if (!m_sessions[currentIndex].view || !m_sessions[currentIndex].view->isCreated())
             continue;
 
         const bool active = static_cast<int>(currentIndex) == index;
-        m_sessions[currentIndex].view->ShowWindow(active ? SW_SHOW : SW_HIDE);
+        m_sessions[currentIndex].view->show(active);
         if (active)
             activeView = m_sessions[currentIndex].view.get();
     }
 
-    if (activeView && activeView->GetSafeHwnd()) {
+    if (activeView && activeView->isCreated()) {
         activeView->handleBecameVisible();
-        activeView->SetFocus();
+        activeView->focus();
     }
 }
 
@@ -268,18 +253,28 @@ void SessionManager::setSessionConnectedCallback(SessionConnectedCallback callba
 
 bool SessionManager::moveSession(int fromIndex, int toIndex)
 {
-    if (!m_tabBar)
+    if (!m_tabs)
         return false;
-    if (fromIndex < 0 || toIndex < 0)
-        return false;
-    if (fromIndex >= static_cast<int>(m_sessions.size()) || toIndex >= static_cast<int>(m_sessions.size()))
-        return false;
-    if (fromIndex == toIndex)
+    if (!canMoveSessionTab(static_cast<int>(m_sessions.size()), fromIndex, toIndex))
         return false;
 
     Session moved = std::move(m_sessions[static_cast<size_t>(fromIndex)]);
     m_sessions.erase(m_sessions.begin() + fromIndex);
     m_sessions.insert(m_sessions.begin() + toIndex, std::move(moved));
-    showSessionAtIndex(m_tabBar->selectedIndex());
+    showSessionAtIndex(m_tabs->selectedIndex());
     return true;
+}
+
+std::vector<SessionSnapshot> SessionManager::snapshots() const
+{
+    std::vector<SessionSnapshot> result;
+    result.reserve(m_sessions.size());
+    for (const auto &session : m_sessions) {
+        result.push_back(SessionSnapshot{
+            session.id,
+            session.profileName,
+            session.view && session.view->isConnected(),
+        });
+    }
+    return result;
 }

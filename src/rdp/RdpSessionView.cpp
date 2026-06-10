@@ -3,22 +3,71 @@
 #include "rdp/FrameBufferMemory.h"
 #include "rdp/RdpCursorClassifier.h"
 #include "rdp/RdpFocusNotification.h"
+#include "rdp/RdpProcessEventQueueBehavior.h"
+#include "rdp/RdpSessionViewBehavior.h"
 #include "rdp/RdpSystemChordTrace.h"
 #include "ui/MainWindowShortcuts.h"
 #include "ui/Win10Theme.h"
 
-#include <algorithm>
 #include <imm.h>
+#include <utility>
 
 namespace
 {
 constexpr UINT_PTR kResizeTimerId = 1;
 constexpr UINT kResumeRecoveryTimeoutMs = 2500;
-constexpr int kInitialFrameDiscardWithCodec = 3;
-constexpr int kInitialFrameDiscardNoCodec = 5;
 
 CRdpSessionView *g_systemKeyTarget = nullptr;
 HHOOK g_keyboardHook = nullptr;
+
+class WindowProcessEventTarget final : public rdp::process_event_queue::EventTarget
+{
+public:
+    explicit WindowProcessEventTarget(HWND hwnd)
+        : m_hwnd(hwnd)
+    {
+    }
+
+    bool canPost() const override
+    {
+        return m_hwnd && ::IsWindow(m_hwnd);
+    }
+
+    void postStateChanged(FreeRdpProcess::State state, std::uintptr_t generation) override
+    {
+        ::PostMessageW(m_hwnd,
+                       CRdpSessionView::WM_APP_RDP_STATE,
+                       static_cast<WPARAM>(state),
+                       static_cast<LPARAM>(generation));
+    }
+
+    void postFrameUpdated(std::uintptr_t generation) override
+    {
+        ::PostMessageW(m_hwnd,
+                       CRdpSessionView::WM_APP_RDP_FRAME,
+                       0,
+                       static_cast<LPARAM>(generation));
+    }
+
+    void postCursorUpdated(std::uintptr_t generation) override
+    {
+        ::PostMessageW(m_hwnd,
+                       CRdpSessionView::WM_APP_RDP_CURSOR,
+                       0,
+                       static_cast<LPARAM>(generation));
+    }
+
+    void postCertificateRequest(std::uintptr_t generation) override
+    {
+        ::PostMessageW(m_hwnd,
+                       CRdpSessionView::WM_APP_RDP_CERT,
+                       0,
+                       static_cast<LPARAM>(generation));
+    }
+
+private:
+    HWND m_hwnd = nullptr;
+};
 
 bool isVirtualKeyPhysicallyDown(int virtualKey)
 {
@@ -269,7 +318,9 @@ void CRdpSessionView::setResizeSuppressed(bool suppressed)
 
 void CRdpSessionView::flushPendingResize()
 {
-    if (!m_hasPendingResize || !m_connected || !m_process)
+    if (!rdp::session_view::shouldFlushPendingResize(m_hasPendingResize,
+                                                     m_connected,
+                                                     static_cast<bool>(m_process)))
         return;
 
     m_hasPendingResize = false;
@@ -311,32 +362,35 @@ void CRdpSessionView::bindProcessCallbacks(std::uintptr_t generation)
     m_processBinding = binding;
 
     m_process->setStateChangedCallback([binding](FreeRdpProcess::State state) {
-        if (binding->hwnd && ::IsWindow(binding->hwnd))
-            ::PostMessageW(binding->hwnd, WM_APP_RDP_STATE, static_cast<WPARAM>(state), static_cast<LPARAM>(binding->generation));
+        WindowProcessEventTarget target(binding->hwnd);
+        rdp::process_event_queue::postStateChanged(target, state, binding->generation);
     });
 
     m_process->setFrameUpdatedCallback([binding]() {
-        if (binding->hwnd && ::IsWindow(binding->hwnd))
-            ::PostMessageW(binding->hwnd, WM_APP_RDP_FRAME, 0, static_cast<LPARAM>(binding->generation));
+        WindowProcessEventTarget target(binding->hwnd);
+        rdp::process_event_queue::postFrameUpdated(target, binding->generation);
     });
 
     m_process->setDesktopResizedCallback([binding](const SizeI &) {
-        if (binding->hwnd && ::IsWindow(binding->hwnd))
-            ::PostMessageW(binding->hwnd, WM_APP_RDP_FRAME, 0, static_cast<LPARAM>(binding->generation));
+        WindowProcessEventTarget target(binding->hwnd);
+        rdp::process_event_queue::postFrameUpdated(target, binding->generation);
     });
 
     m_process->setCursorUpdatedCallback([binding]() {
-        if (binding->hwnd && ::IsWindow(binding->hwnd))
-            ::PostMessageW(binding->hwnd, WM_APP_RDP_CURSOR, 0, static_cast<LPARAM>(binding->generation));
+        WindowProcessEventTarget target(binding->hwnd);
+        rdp::process_event_queue::postCursorUpdated(target, binding->generation);
     });
 
     m_process->setCertificateChallengeCallback([binding](const FreeRdpProcess::CertificateChallenge &challenge) {
         {
             std::scoped_lock lock(binding->certMutex);
-            binding->pendingCert = PendingCertificateRequest{ binding->generation, challenge };
+            rdp::process_event_queue::storePendingCertificateRequest(
+                binding->pendingCert,
+                binding->generation,
+                challenge);
         }
-        if (binding->hwnd && ::IsWindow(binding->hwnd))
-            ::PostMessageW(binding->hwnd, WM_APP_RDP_CERT, 0, static_cast<LPARAM>(binding->generation));
+        WindowProcessEventTarget target(binding->hwnd);
+        rdp::process_event_queue::postCertificateRequest(target, binding->generation);
     });
 }
 
@@ -395,7 +449,7 @@ void CRdpSessionView::startProcess()
         KillTimer(kMouseMoveTimerId);
         m_mouseMoveTimerActive = false;
     }
-    showOverlay(m_reconnecting ? L"Reconnecting..." : L"Connecting...");
+    showOverlay(rdp::session_view::startOverlayText(m_reconnecting).c_str());
     m_reconnecting = false;
 
     const SizeI viewSize = m_profile.fullScreenOnConnect
@@ -454,7 +508,7 @@ void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
     m_resolutionRecovery.reset();
     m_resumeRecovery.reset();
     if (showDisconnectedOverlay)
-        showOverlay(L"Disconnected - Click to Reconnect");
+        showOverlay(rdp::session_view::finishedOverlayText({}).c_str());
     releaseCursorHandle();
 }
 
@@ -465,9 +519,8 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
         m_connected = true;
         if (m_process && m_frameGateActive) {
             auto info = m_process->connectionInfo();
-            m_frameGateRemaining = info.codecName.empty()
-                ? kInitialFrameDiscardNoCodec
-                : kInitialFrameDiscardWithCodec;
+            m_frameGateRemaining =
+                rdp::session_view::initialFrameDiscardCount(!info.codecName.empty());
         }
         beginFrameCapture(L"connect");
         if (!m_resolutionUpdatePending && !m_waitingForFirstContentFrame && !m_frameGateActive)
@@ -502,10 +555,7 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
             CString overlayText = L"Disconnected";
             if (m_process) {
                 std::string error = m_process->lastDisconnectError();
-                if (!error.empty())
-                    overlayText = CString(error.c_str()) + L"\r\nClick to Reconnect";
-                else
-                    overlayText = L"Disconnected - Click to Reconnect";
+                overlayText = rdp::session_view::finishedOverlayText(error).c_str();
             }
             showOverlay(overlayText);
         }
@@ -576,11 +626,11 @@ void CRdpSessionView::beginResolutionUpdate()
 {
     m_resolutionUpdatePending = true;
     m_frameGateActive = true;
-    m_frameGateRemaining = kInitialFrameDiscardWithCodec;
+    m_frameGateRemaining = rdp::session_view::initialFrameDiscardCount(true);
     m_resolutionRecovery.begin(m_connected);
     syncRecoveryTimer();
     beginFrameCapture(L"resize");
-    showOverlay(L"Reconnecting...");
+    showOverlay(rdp::session_view::startOverlayText(true).c_str());
 }
 
 void CRdpSessionView::beginResumeRecovery()
@@ -620,7 +670,7 @@ SizeI CRdpSessionView::currentViewSize() const
 {
     CRect rect;
     GetClientRect(&rect);
-    return SizeI{std::max(1, rect.Width()), std::max(1, rect.Height())};
+    return rdp::session_view::normalizedViewSize(rect.Width(), rect.Height());
 }
 
 SizeI CRdpSessionView::fullScreenSize() const
@@ -656,7 +706,7 @@ void CRdpSessionView::OnSize(UINT type, int cx, int cy)
         return;
     }
 
-    const SizeI size{std::max(1, cx), std::max(1, cy)};
+    const SizeI size = rdp::session_view::normalizedViewSize(cx, cy);
 
     if (m_resizeSuppressed) {
         m_pendingResize = size;

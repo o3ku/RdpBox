@@ -5,6 +5,8 @@
 #include "common/UpdateClient.h"
 #include "common/Win32String.h"
 #include "session/SessionManager.h"
+#include "ui/MainWindowLayoutBehavior.h"
+#include "ui/MainWindowUpdateBehavior.h"
 
 #include <shellapi.h>
 
@@ -15,8 +17,6 @@
 
 namespace
 {
-constexpr int kUpdateButtonWidth = 38;
-
 struct UpdateCheckResult
 {
     std::uint64_t generation = 0;
@@ -40,13 +40,6 @@ struct MessageBoxCenterContext
 };
 
 thread_local MessageBoxCenterContext *g_messageBoxCenterContext = nullptr;
-
-std::wstring releaseFileName(const updater::ReleaseAsset &release)
-{
-    if (release.tagName.empty())
-        return L"RdpBox.exe";
-    return L"RdpBox-" + release.tagName + L".exe";
-}
 
 std::wstring quoteForBatchSet(const std::wstring &value)
 {
@@ -107,24 +100,40 @@ int centeredMessageBox(HWND owner, const CString &text, const wchar_t *caption, 
     g_messageBoxCenterContext = nullptr;
     return result;
 }
+
+}
+
+ui::UpdateUiState MainWindow::updateUiState() const
+{
+    switch (m_updateButtonState) {
+    case UpdateButtonState::Available:
+        return ui::UpdateUiState::Available;
+    case UpdateButtonState::Downloading:
+        return ui::UpdateUiState::Downloading;
+    case UpdateButtonState::Downloaded:
+        return ui::UpdateUiState::Downloaded;
+    case UpdateButtonState::Hidden:
+    default:
+        return ui::UpdateUiState::Hidden;
+    }
 }
 
 bool MainWindow::shouldShowUpdateButton() const
 {
-    return m_updateButtonState != UpdateButtonState::Hidden;
+    return ui::shouldShowUpdateButton(updateUiState());
 }
 
 CRect MainWindow::updateButtonRect() const
 {
     CRect clientRect;
     const_cast<MainWindow *>(this)->GetClientRect(&clientRect);
-    const int right = clientRect.right - 46 * 3;
-    return CRect(right - kUpdateButtonWidth, 0, right, 34);
+    const ui::LayoutRect rect = ui::mainWindowUpdateButtonRect(clientRect.right);
+    return CRect(rect.left, rect.top, rect.right, rect.bottom);
 }
 
 int MainWindow::captionButtonReserveWidth() const
 {
-    return 46 * 3 + (shouldShowUpdateButton() ? updateButtonRect().Width() : 0);
+    return ui::mainWindowCaptionButtonReserveWidth(shouldShowUpdateButton());
 }
 
 void MainWindow::invalidateUpdateButton()
@@ -135,45 +144,15 @@ void MainWindow::invalidateUpdateButton()
 
 CString MainWindow::updateTooltipText() const
 {
-    CString text;
-    switch (m_updateButtonState) {
-    case UpdateButtonState::Available:
-        if (!m_updateRelease.tagName.empty())
-            text.Format(L"New version %s available. Click to download.", m_updateRelease.tagName.c_str());
-        else
-            text = L"New version available. Click to download.";
-        break;
-    case UpdateButtonState::Downloading:
-        if (m_updateDownloadProgress >= 0)
-            text.Format(L"Downloading update... %d%%", m_updateDownloadProgress);
-        else
-            text = L"Downloading update...";
-        break;
-    case UpdateButtonState::Downloaded:
-        if (!m_updateRelease.tagName.empty())
-            text.Format(L"Update %s downloaded. Click to launch.", m_updateRelease.tagName.c_str());
-        else
-            text = L"Update downloaded. Click to launch.";
-        break;
-    case UpdateButtonState::Hidden:
-    default:
-        text.Empty();
-        break;
-    }
-    return text;
+    return ui::updateTooltipText(updateUiState(),
+                                 m_updateRelease.tagName,
+                                 m_updateDownloadProgress).c_str();
 }
 
 CString MainWindow::updateButtonText() const
 {
-    if (m_updateButtonState != UpdateButtonState::Downloading)
-        return {};
-
-    CString text;
-    if (m_updateDownloadProgress >= 0)
-        text.Format(L"%d%%", m_updateDownloadProgress);
-    else
-        text = L"...";
-    return text;
+    return ui::updateButtonText(updateUiState(),
+                                m_updateDownloadProgress).c_str();
 }
 
 void MainWindow::updateCaptionTooltip()
@@ -190,7 +169,7 @@ std::wstring MainWindow::downloadedUpdatePath() const
     const std::wstring updateDir = AppPaths::updatesDirectoryPath();
     if (updateDir.empty())
         return {};
-    return updateDir + L"\\" + releaseFileName(m_updateRelease);
+    return updateDir + L"\\" + ui::updateReleaseFileName(m_updateRelease.tagName);
 }
 
 bool MainWindow::launchDownloadedUpdate() const
@@ -322,14 +301,7 @@ bool MainWindow::launchDownloadedUpdate() const
 
 bool MainWindow::confirmLaunchDownloadedUpdate()
 {
-    CString prompt;
-    if (m_updateRelease.tagName.empty()) {
-        prompt = L"Update downloaded. Launch new version now?";
-    } else {
-        prompt = L"Update ";
-        prompt += m_updateRelease.tagName.c_str();
-        prompt += L" downloaded. Launch now?";
-    }
+    const CString prompt = ui::downloadedUpdatePrompt(m_updateRelease.tagName).c_str();
 
     if (centeredMessageBox(GetSafeHwnd(), prompt, L"Update Downloaded", MB_YESNO | MB_ICONQUESTION) != IDYES)
         return false;
@@ -390,16 +362,12 @@ void MainWindow::startBackgroundUpdateDownload()
         std::wstring error;
         const std::wstring targetPath = AppPaths::updatesDirectoryPath().empty()
             ? std::wstring()
-            : (AppPaths::updatesDirectoryPath() + L"\\" + releaseFileName(release));
+            : (AppPaths::updatesDirectoryPath() + L"\\" + ui::updateReleaseFileName(release.tagName));
         auto progressCallback = [hwnd, generation](std::uint64_t bytesReceived, std::uint64_t totalBytes) {
             if (!::IsWindow(hwnd))
                 return;
 
-            int progress = -1;
-            if (totalBytes > 0) {
-                const auto percent = static_cast<int>((bytesReceived * 100) / totalBytes);
-                progress = std::clamp(percent, 0, 100);
-            }
+            const int progress = ui::updateDownloadProgressPercent(bytesReceived, totalBytes);
             ::PostMessageW(hwnd, WM_APP_UPDATE_DOWNLOAD_PROGRESS,
                            static_cast<WPARAM>(progress),
                            static_cast<LPARAM>(generation));

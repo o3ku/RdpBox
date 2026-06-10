@@ -81,6 +81,53 @@ target_include_directories(ClipboardWindowReadyTests PRIVATE
 
 add_test(NAME ClipboardWindowReadyTests COMMAND ClipboardWindowReadyTests)
 
+add_executable(WindowsClipboardBehaviorTests
+    rdp/WindowsClipboardBehaviorTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/rdp/WindowsClipboardBehavior.cpp
+)
+
+target_include_directories(WindowsClipboardBehaviorTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME WindowsClipboardBehaviorTests COMMAND WindowsClipboardBehaviorTests)
+
+add_executable(WindowsClipboardDataObjectTests
+    rdp/WindowsClipboardDataObjectTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/rdp/WindowsClipboardBackendDataObject.cpp
+)
+
+target_include_directories(WindowsClipboardDataObjectTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+get_target_property(WINDOWS_CLIPBOARD_TEST_FREERDP_INCLUDE_DIRS freerdp INTERFACE_INCLUDE_DIRECTORIES)
+foreach(_freerdp_include_dir IN LISTS WINDOWS_CLIPBOARD_TEST_FREERDP_INCLUDE_DIRS)
+    if(EXISTS "${_freerdp_include_dir}/freerdp3")
+        target_include_directories(WindowsClipboardDataObjectTests PRIVATE "${_freerdp_include_dir}/freerdp3")
+    endif()
+endforeach()
+
+target_link_libraries(WindowsClipboardDataObjectTests PRIVATE
+    freerdp
+    freerdp-client
+    winpr
+    Ole32
+)
+
+add_test(NAME WindowsClipboardDataObjectTests COMMAND WindowsClipboardDataObjectTests)
+
+add_executable(RdpCertificatePromptBehaviorTests
+    rdp/RdpCertificatePromptBehaviorTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/rdp/RdpCertificatePromptBehavior.cpp
+)
+
+target_include_directories(RdpCertificatePromptBehaviorTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME RdpCertificatePromptBehaviorTests COMMAND RdpCertificatePromptBehaviorTests)
+
 add_executable(FrameBufferMemoryTests
     rdp/FrameBufferMemoryTests.cpp
 )
@@ -112,6 +159,32 @@ target_include_directories(RdpInputEventUtilTests PRIVATE
 )
 
 add_test(NAME RdpInputEventUtilTests COMMAND RdpInputEventUtilTests)
+
+add_executable(RdpProcessEventBehaviorTests
+    rdp/RdpProcessEventBehaviorTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/rdp/RdpProcessEventBehavior.cpp
+)
+
+target_include_directories(RdpProcessEventBehaviorTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME RdpProcessEventBehaviorTests COMMAND RdpProcessEventBehaviorTests)
+
+add_executable(RdpProcessEventQueueBehaviorTests
+    rdp/RdpProcessEventQueueBehaviorTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/rdp/RdpProcessEventQueueBehavior.cpp
+)
+
+target_include_directories(RdpProcessEventQueueBehaviorTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(RdpProcessEventQueueBehaviorTests PRIVATE
+    winpr
+)
+
+add_test(NAME RdpProcessEventQueueBehaviorTests COMMAND RdpProcessEventQueueBehaviorTests)
 
 add_executable(RdpCursorClassifierTests
     rdp/RdpCursorClassifierTests.cpp
@@ -161,6 +234,17 @@ target_include_directories(RdpResolutionRecoveryTests PRIVATE
 
 add_test(NAME RdpResolutionRecoveryTests COMMAND RdpResolutionRecoveryTests)
 
+add_executable(RdpSessionViewBehaviorTests
+    rdp/RdpSessionViewBehaviorTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/rdp/RdpSessionViewBehavior.cpp
+)
+
+target_include_directories(RdpSessionViewBehaviorTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME RdpSessionViewBehaviorTests COMMAND RdpSessionViewBehaviorTests)
+
 add_executable(RdpReservedShortcutTrackerTests
     rdp/RdpReservedShortcutTrackerTests.cpp
     ${CMAKE_SOURCE_DIR}/src/rdp/RdpReservedShortcutTracker.cpp
@@ -181,6 +265,54 @@ target_include_directories(SessionResumePolicyTests PRIVATE
 )
 
 add_test(NAME SessionResumePolicyTests COMMAND SessionResumePolicyTests)
+
+add_executable(SessionCollectionBehaviorTests
+    session/SessionCollectionBehaviorTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/session/SessionCollectionBehavior.cpp
+    ${CMAKE_SOURCE_DIR}/src/session/SessionTabBehavior.cpp
+)
+
+target_include_directories(SessionCollectionBehaviorTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME SessionCollectionBehaviorTests COMMAND SessionCollectionBehaviorTests)
+
+add_executable(SessionTabBehaviorTests
+    session/SessionTabBehaviorTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/session/SessionTabBehavior.cpp
+)
+
+target_include_directories(SessionTabBehaviorTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME SessionTabBehaviorTests COMMAND SessionTabBehaviorTests)
+
+add_executable(SessionManagerIntegrationTests
+    session/SessionManagerIntegrationTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/session/SessionManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/session/SessionCollectionBehavior.cpp
+    ${CMAKE_SOURCE_DIR}/src/session/SessionTabBehavior.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/AppPaths.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/PasswordProtection.cpp
+    ${CMAKE_SOURCE_DIR}/src/profiles/ProfileRepository.cpp
+)
+
+target_include_directories(SessionManagerIntegrationTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(SessionManagerIntegrationTests PRIVATE
+    winpr
+    cjson
+    Bcrypt
+    Crypt32
+    Ole32
+    Shell32
+)
+
+add_test(NAME SessionManagerIntegrationTests COMMAND SessionManagerIntegrationTests)
 
 add_executable(ProfileRepositoryTests
     profiles/ProfileRepositoryTests.cpp
@@ -371,9 +503,88 @@ target_include_directories(MainWindowStatePersistenceTests PRIVATE
 
 add_test(NAME MainWindowStatePersistenceTests COMMAND MainWindowStatePersistenceTests)
 
+add_executable(MainWindowTabBehaviorTests
+    ui/MainWindowTabBehaviorTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/MainWindowTabBehavior.cpp
+)
+
+target_include_directories(MainWindowTabBehaviorTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME MainWindowTabBehaviorTests COMMAND MainWindowTabBehaviorTests)
+
+add_executable(MainWindowSessionBehaviorTests
+    ui/MainWindowSessionBehaviorTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/MainWindowSessionBehavior.cpp
+)
+
+target_include_directories(MainWindowSessionBehaviorTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME MainWindowSessionBehaviorTests COMMAND MainWindowSessionBehaviorTests)
+
+add_executable(MainWindowUpdateBehaviorTests
+    ui/MainWindowUpdateBehaviorTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/MainWindowUpdateBehavior.cpp
+)
+
+target_include_directories(MainWindowUpdateBehaviorTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME MainWindowUpdateBehaviorTests COMMAND MainWindowUpdateBehaviorTests)
+
+add_executable(MainWindowLayoutBehaviorTests
+    ui/MainWindowLayoutBehaviorTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/MainWindowLayoutBehavior.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/WindowFrameMetrics.cpp
+)
+
+target_include_directories(MainWindowLayoutBehaviorTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME MainWindowLayoutBehaviorTests COMMAND MainWindowLayoutBehaviorTests)
+
+add_executable(ConnectionListBehaviorTests
+    ui/ConnectionListBehaviorTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/ConnectionListBehavior.cpp
+)
+
+target_include_directories(ConnectionListBehaviorTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME ConnectionListBehaviorTests COMMAND ConnectionListBehaviorTests)
+
+add_executable(ProfileEditBehaviorTests
+    ui/ProfileEditBehaviorTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/ProfileEditBehavior.cpp
+)
+
+target_include_directories(ProfileEditBehaviorTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME ProfileEditBehaviorTests COMMAND ProfileEditBehaviorTests)
+
+add_executable(BrowserTabBehaviorTests
+    ui/BrowserTabBehaviorTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/BrowserTabBehavior.cpp
+)
+
+target_include_directories(BrowserTabBehaviorTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME BrowserTabBehaviorTests COMMAND BrowserTabBehaviorTests)
+
 add_executable(BrowserTabBarTests
     ui/BrowserTabBarTests.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/BrowserTabBar.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/BrowserTabBehavior.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ParentResizeForwarder.cpp
 )
 

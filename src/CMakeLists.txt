@@ -85,12 +85,18 @@ set(RDPBOX_SOURCES
     rdp/RdpReconnectInteraction.h
     rdp/RdpResolutionRecovery.h
     rdp/RdpResolutionRecovery.cpp
+    rdp/RdpSessionViewBehavior.h
+    rdp/RdpSessionViewBehavior.cpp
     rdp/RdpReservedShortcutTracker.h
     rdp/RdpReservedShortcutTracker.cpp
     rdp/RdpModifierSyncTracker.h
     rdp/RdpModifierSyncTracker.cpp
     rdp/RdpMouseMoveCoalescer.h
     rdp/RdpMouseMoveCoalescer.cpp
+    rdp/RdpProcessEventBehavior.h
+    rdp/RdpProcessEventBehavior.cpp
+    rdp/RdpProcessEventQueueBehavior.h
+    rdp/RdpProcessEventQueueBehavior.cpp
     rdp/RdpResumeRecovery.h
     rdp/RdpResumeRecovery.cpp
     rdp/RdpResizeBurstTracker.h
@@ -98,6 +104,8 @@ set(RDPBOX_SOURCES
     rdp/FrameBufferMemory.h
     rdp/RdpClipboardBridge.h
     rdp/RdpClipboardBridge.cpp
+    rdp/RdpCertificatePromptBehavior.h
+    rdp/RdpCertificatePromptBehavior.cpp
     rdp/ClipboardWindowReady.h
     rdp/PlatformClipboardBackend.h
     rdp/RdpSessionView.h
@@ -106,21 +114,43 @@ set(RDPBOX_SOURCES
     rdp/RdpSessionViewMessages.cpp
     rdp/RdpSessionViewRendering.cpp
     rdp/WindowsClipboardBackend.h
+    rdp/WindowsClipboardBehavior.h
+    rdp/WindowsClipboardBehavior.cpp
     rdp/WindowsClipboardBackendInternal.h
     rdp/WindowsClipboardBackendDataObject.cpp
     rdp/WindowsClipboardBackendWindow.cpp
     rdp/WindowsClipboardBackend.cpp
     session/SessionManager.h
+    session/SessionManagerInterfaces.h
     session/SessionManager.cpp
+    session/SessionManagerMfc.cpp
+    session/SessionCollectionBehavior.h
+    session/SessionCollectionBehavior.cpp
+    session/SessionTabBehavior.h
+    session/SessionTabBehavior.cpp
     session/SessionResumePolicy.h
     ui/AboutDialog.h
     ui/AboutDialog.cpp
+    ui/BrowserTabBehavior.h
+    ui/BrowserTabBehavior.cpp
+    ui/ConnectionListBehavior.h
+    ui/ConnectionListBehavior.cpp
     ui/ProfileEditDialog.h
     ui/ProfileEditDialog.cpp
+    ui/ProfileEditBehavior.h
+    ui/ProfileEditBehavior.cpp
     ui/ConnectionListDialog.h
     ui/ConnectionListDialog.cpp
     ui/BrowserTabBar.h
     ui/BrowserTabBar.cpp
+    ui/MainWindowTabBehavior.h
+    ui/MainWindowTabBehavior.cpp
+    ui/MainWindowSessionBehavior.h
+    ui/MainWindowSessionBehavior.cpp
+    ui/MainWindowUpdateBehavior.h
+    ui/MainWindowUpdateBehavior.cpp
+    ui/MainWindowLayoutBehavior.h
+    ui/MainWindowLayoutBehavior.cpp
     ui/FlatButton.h
     ui/FlatButton.cpp
     ui/SessionHostWnd.h

@@ -1,4 +1,5 @@
 #include "WindowsClipboardBackendInternal.h"
+#include "WindowsClipboardBehavior.h"
 
 #include <atomic>
 
@@ -18,9 +19,10 @@ void clearResponseData(ClipboardContext *clipboard)
 
 bool shouldSyncClipboard(const ClipboardContext *clipboard)
 {
-    return clipboard && clipboard->sync &&
-           GetClipboardOwner() != clipboard->hwnd &&
-           OleIsCurrentClipboard(clipboard->dataObject) == S_FALSE;
+    return clipboard
+        && rdp::clipboard::shouldSyncClipboard(clipboard->sync,
+                                               GetClipboardOwner() == clipboard->hwnd,
+                                               OleIsCurrentClipboard(clipboard->dataObject) == S_OK);
 }
 
 LRESULT handleRenderFormat(ClipboardContext *clipboard, WPARAM format)
