@@ -5,6 +5,8 @@
 #include "profiles/ProfileRepository.h"
 #include "session/SessionManager.h"
 #include "ui/ConnectionListDialog.h"
+#include "ui/MainWindowSessionBehavior.h"
+#include "ui/MainWindowTabBehavior.h"
 #include "ui/ProfileEditDialog.h"
 #include "resources/resource.h"
 
@@ -12,8 +14,28 @@ namespace
 {
 void openProfileSession(SessionManager *sessionManager, const Profile &profile)
 {
-    if (sessionManager && profile.isValid())
+    if (sessionManager && shouldOpenProfileSession(profile))
         sessionManager->openSession(profile);
+}
+
+ui::MainWindowConnectionInfo mainWindowConnectionInfo(const FreeRdpProcess::ConnectionInfo &info)
+{
+    return ui::MainWindowConnectionInfo{info.codecName, info.rtt, info.rttAvailable};
+}
+
+BrowserTabBar::TabStatus tabStatusFromMainWindowStatus(ui::MainWindowTabStatus status)
+{
+    switch (status) {
+    case ui::MainWindowTabStatus::ConnectedGood:
+        return BrowserTabBar::TabStatus::ConnectedGood;
+    case ui::MainWindowTabStatus::ConnectedWarn:
+        return BrowserTabBar::TabStatus::ConnectedWarn;
+    case ui::MainWindowTabStatus::ConnectedBad:
+        return BrowserTabBar::TabStatus::ConnectedBad;
+    case ui::MainWindowTabStatus::Inactive:
+    default:
+        return BrowserTabBar::TabStatus::Inactive;
+    }
 }
 }
 
@@ -42,12 +64,12 @@ int MainWindow::OnCreate(LPCREATESTRUCT createStruct)
         if (!m_sessionManager)
             return;
 
-        const std::string sessionId = m_sessionManager->sessionIdByTabIndex(index);
-        if (sessionId.empty())
-            return;
-
-        m_sessionManager->closeSession(sessionId);
-        refreshTabStatuses();
+        const ui::MainWindowTabClosePlan plan =
+            ui::tabClosePlanForSessionId(m_sessionManager->sessionIdByTabIndex(index));
+        if (plan.closeSession)
+            m_sessionManager->closeSession(plan.sessionId);
+        if (plan.refreshTabStatuses)
+            refreshTabStatuses();
     });
 
     m_tabBar.setTabReorderedCallback([this](int fromIndex, int toIndex) {
@@ -64,12 +86,7 @@ int MainWindow::OnCreate(LPCREATESTRUCT createStruct)
         if (info.codecName.empty())
             return {};
 
-        CString text;
-        if (info.rttAvailable)
-            text.Format(L"Codec: %S, Delay: %u ms", info.codecName.c_str(), info.rtt);
-        else
-            text.Format(L"Codec: %S", info.codecName.c_str());
-        return text.GetString();
+        return ui::tabTooltipText(mainWindowConnectionInfo(info));
     });
 
     if (!m_sessionHost.create(this, CRect(0, 0, 100, 100), 2))
@@ -78,9 +95,12 @@ int MainWindow::OnCreate(LPCREATESTRUCT createStruct)
     applyUiFont();
     m_sessionManager = std::make_unique<SessionManager>(&m_tabBar, &m_sessionHost, m_profileRepository.get());
     m_sessionManager->setSessionConnectedCallback([this](const std::string &, const Profile &profile) {
-        if (profile.fullScreenOnConnect && !m_isFullScreen)
+        const ui::MainWindowConnectionCompletedPlan plan =
+            ui::connectionCompletedPlan(profile, m_isFullScreen);
+        if (plan.enterFullScreen)
             setFullScreen(true);
-        refreshTabStatuses();
+        if (plan.refreshTabStatuses)
+            refreshTabStatuses();
     });
 
     layoutChildren();
@@ -153,41 +173,60 @@ void MainWindow::OnContextMenu(CWnd *window, CPoint point)
 
     CMenu menu;
     menu.CreatePopupMenu();
-    const bool isActive = index == m_tabBar.selectedIndex();
-    CString fullScreenText = m_isFullScreen ? L"Exit Full Screen" : L"Full Screen";
-    menu.AppendMenu(MF_STRING | (isActive ? MF_ENABLED : MF_GRAYED), ID_TAB_FULLSCREEN, fullScreenText);
+    const ui::TabContextMenuState menuState =
+        ui::tabContextMenuState(index, m_tabBar.selectedIndex(), hasTab, m_isFullScreen);
+    menu.AppendMenu(MF_STRING | (menuState.fullScreenEnabled ? MF_ENABLED : MF_GRAYED),
+                    ID_TAB_FULLSCREEN,
+                    menuState.fullScreenText.c_str());
     menu.AppendMenu(MF_SEPARATOR);
-    menu.AppendMenu(MF_STRING | (hasTab ? MF_ENABLED : MF_GRAYED), ID_TAB_RECONNECT, L"Reconnect");
-    menu.AppendMenu(MF_STRING | (hasTab ? MF_ENABLED : MF_GRAYED), ID_TAB_CLOSE, L"Close");
+    menu.AppendMenu(MF_STRING | (menuState.reconnectEnabled ? MF_ENABLED : MF_GRAYED),
+                    ID_TAB_RECONNECT,
+                    L"Reconnect");
+    menu.AppendMenu(MF_STRING | (menuState.closeEnabled ? MF_ENABLED : MF_GRAYED),
+                    ID_TAB_CLOSE,
+                    L"Close");
 
     const UINT command = ::TrackPopupMenuEx(menu.GetSafeHmenu(),
                                             TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN,
                                             point.x, point.y,
                                             GetSafeHwnd(),
                                             nullptr);
-    if (!hasTab)
-        return;
-
-    if (command == ID_TAB_FULLSCREEN) {
+    switch (ui::tabContextCommandForMenuId(command, hasTab)) {
+    case ui::TabContextCommand::ToggleFullScreen:
         toggleFullScreen();
-    } else if (command == ID_TAB_RECONNECT) {
-        m_sessionManager->reconnectSession(sessionId);
-    } else if (command == ID_TAB_CLOSE) {
-        m_sessionManager->closeSession(sessionId);
+        break;
+    case ui::TabContextCommand::Reconnect: {
+        const ui::MainWindowTabReconnectPlan plan = ui::tabReconnectPlanForSessionId(sessionId);
+        if (plan.reconnectSession)
+            m_sessionManager->reconnectSession(plan.sessionId);
+        break;
+    }
+    case ui::TabContextCommand::Close: {
+        const ui::MainWindowTabClosePlan plan = ui::tabClosePlanForSessionId(sessionId);
+        if (plan.closeSession)
+            m_sessionManager->closeSession(plan.sessionId);
+        if (plan.refreshTabStatuses)
+            refreshTabStatuses();
+        break;
+    }
+    case ui::TabContextCommand::None:
+    default:
+        break;
     }
 }
 
 LRESULT MainWindow::OnExitSizeMove(WPARAM, LPARAM)
 {
-    const bool shouldPersist = ui::shouldPersistWindowStateOnExitSizeMove(m_inMoveOrSizeLoop);
+    const ui::MainWindowExitSizeMovePlan plan =
+        ui::exitSizeMovePlan(m_inMoveOrSizeLoop, static_cast<bool>(m_sessionManager));
     m_inMoveOrSizeLoop = false;
 
-    if (m_sessionManager) {
+    if (m_sessionManager && plan.clearResizeSuppression)
         m_sessionManager->setResizeSuppressed(false);
+    if (m_sessionManager && plan.flushPendingResize)
         m_sessionManager->flushPendingResize();
-    }
 
-    if (shouldPersist)
+    if (plan.persistWindowState)
         saveWindowState();
 
     return 0;
@@ -207,7 +246,9 @@ LRESULT MainWindow::OnOpenStartupConnectionsMessage(WPARAM, LPARAM)
 
 LRESULT MainWindow::OnPowerBroadcast(WPARAM wParam, LPARAM)
 {
-    if ((wParam == PBT_APMRESUMEAUTOMATIC || wParam == PBT_APMRESUMESUSPEND) && m_sessionManager)
+    const ui::MainWindowPowerBroadcastPlan plan =
+        ui::powerBroadcastPlan(static_cast<unsigned int>(wParam), static_cast<bool>(m_sessionManager));
+    if (plan.handleHostResume)
         m_sessionManager->handleHostResume();
 
     return TRUE;
@@ -235,8 +276,10 @@ void MainWindow::openConnectionsByName(const std::vector<std::wstring> &connecti
     if (!m_profileRepository)
         return;
 
-    for (const std::wstring &connectionName : connectionNames)
-        openProfileSession(m_sessionManager.get(), m_profileRepository->profileByName(connectionName));
+    const ui::MainWindowOpenPlan plan =
+        ui::openPlanForConnectionNames(connectionNames, m_profileRepository->profiles());
+    for (const Profile &profile : plan.profilesToOpen)
+        openProfileSession(m_sessionManager.get(), profile);
 }
 
 void MainWindow::refreshTabStatuses()
@@ -247,19 +290,10 @@ void MainWindow::refreshTabStatuses()
     const int count = m_tabBar.tabCount();
     for (int i = 0; i < count; ++i) {
         BrowserTabBar::TabStatusInfo status;
-        if (m_sessionManager->isTabConnected(i)) {
-            const auto info = m_sessionManager->connectionInfoForTab(i);
-            if (info.rttAvailable) {
-                if (info.rtt <= 100)
-                    status.status = BrowserTabBar::TabStatus::ConnectedGood;
-                else if (info.rtt <= 300)
-                    status.status = BrowserTabBar::TabStatus::ConnectedWarn;
-                else
-                    status.status = BrowserTabBar::TabStatus::ConnectedBad;
-            } else {
-                status.status = BrowserTabBar::TabStatus::ConnectedGood;
-            }
-        }
+        const auto info = m_sessionManager->connectionInfoForTab(i);
+        status.status = tabStatusFromMainWindowStatus(
+            ui::tabStatusForConnection(m_sessionManager->isTabConnected(i),
+                                       mainWindowConnectionInfo(info)));
 
         m_tabBar.setTabStatus(i, status);
     }

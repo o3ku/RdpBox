@@ -2,6 +2,8 @@
 
 #include "profiles/Profile.h"
 #include "rdp/FreeRdpProcess.h"
+#include "session/SessionCollectionBehavior.h"
+#include "session/SessionManagerInterfaces.h"
 
 #include <functional>
 #include <memory>
@@ -10,7 +12,6 @@
 
 class BrowserTabBar;
 class CWnd;
-class CRdpSessionView;
 class ProfileRepository;
 
 class SessionManager
@@ -19,6 +20,10 @@ public:
     using SessionConnectedCallback = std::function<void(const std::string &, const Profile &)>;
 
     SessionManager(BrowserTabBar *tabBar, CWnd *sessionHost, ProfileRepository *repository);
+    SessionManager(ISessionTabs *tabs,
+                   ISessionHost *host,
+                   ISessionViewFactory *viewFactory,
+                   ProfileRepository *repository = nullptr);
     ~SessionManager();
 
     std::string openSession(const Profile &profile);
@@ -47,15 +52,20 @@ private:
     {
         std::string id;
         std::wstring profileName;
-        std::unique_ptr<CRdpSessionView> view;
+        std::unique_ptr<ISessionView> view;
     };
 
     int indexOfSession(const std::string &sessionId) const;
+    std::vector<SessionSnapshot> snapshots() const;
     void showSessionAtIndex(int index);
     void touchLastConnectedAt(const std::string &sessionId);
 
-    BrowserTabBar *m_tabBar = nullptr;
-    CWnd *m_sessionHost = nullptr;
+    std::unique_ptr<ISessionTabs> m_ownedTabs;
+    std::unique_ptr<ISessionHost> m_ownedHost;
+    std::unique_ptr<ISessionViewFactory> m_ownedViewFactory;
+    ISessionTabs *m_tabs = nullptr;
+    ISessionHost *m_host = nullptr;
+    ISessionViewFactory *m_viewFactory = nullptr;
     ProfileRepository *m_repository = nullptr;
     std::vector<Session> m_sessions;
     SessionConnectedCallback m_sessionConnectedCallback;

@@ -2,6 +2,7 @@
 
 #include "common/AppPaths.h"
 #include "rdp/FrameBufferMemory.h"
+#include "rdp/RdpSessionViewBehavior.h"
 #include <algorithm>
 #include <iterator>
 #include <memory>
@@ -192,33 +193,24 @@ void CRdpSessionView::OnPaint()
             const FrameBuffer &frame = nextFrame;
             captureFrameIfRequested(frame);
 
-            bool shouldRenderFrame = true;
-            if (m_frameGateActive) {
-                if (m_frameGateRemaining > 0)
-                    --m_frameGateRemaining;
+            const rdp::session_view::FrameArrivalDecision frameDecision =
+                rdp::session_view::frameArrivalDecision(
+                    rdp::session_view::FrameGateState{m_frameGateActive,
+                                                      m_frameGateRemaining,
+                                                      m_waitingForFirstContentFrame,
+                                                      m_resolutionUpdatePending});
+            m_frameGateActive = frameDecision.state.active;
+            m_frameGateRemaining = frameDecision.state.remaining;
+            m_waitingForFirstContentFrame = frameDecision.state.waitingForFirstContentFrame;
+            m_resolutionUpdatePending = frameDecision.state.resolutionUpdatePending;
+            hideOverlayAfterFramePresent = hideOverlayAfterFramePresent || frameDecision.hideOverlay;
 
-                if (m_frameGateRemaining == 0) {
-                    m_frameGateActive = false;
-                    m_waitingForFirstContentFrame = false;
-                    m_resolutionUpdatePending = false;
-                    hideOverlayAfterFramePresent = true;
-                } else {
-                    shouldRenderFrame = false;
-                }
-            } else {
-                if (m_waitingForFirstContentFrame) {
-                    m_waitingForFirstContentFrame = false;
-                    if (!m_resolutionUpdatePending)
-                        hideOverlayAfterFramePresent = true;
-                }
-            }
-
-            if (shouldRenderFrame) {
+            if (frameDecision.renderFrame) {
                 m_cachedFrame = std::move(nextFrame);
             }
 
             if (m_resolutionRecovery.active())
-                m_resolutionRecovery.onFrameProgress(!m_resolutionUpdatePending && !m_frameGateActive);
+                m_resolutionRecovery.onFrameProgress(frameDecision.resolutionFrameProgress);
 
             syncRecoveryTimer();
         }

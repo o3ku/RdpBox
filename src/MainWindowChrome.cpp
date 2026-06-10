@@ -2,6 +2,7 @@
 
 #include "profiles/ProfileRepository.h"
 #include "session/SessionManager.h"
+#include "ui/MainWindowLayoutBehavior.h"
 #include "ui/Win10Theme.h"
 #include "ui/WindowStateScaling.h"
 #include "ui/WindowFrameMetrics.h"
@@ -14,16 +15,20 @@
 
 namespace
 {
-constexpr int kCaptionHeight = 34;
-constexpr int kLogoSize = 22;
-constexpr int kLogoLeftPadding = 8;
-constexpr int kLogoRightPadding = 8;
-constexpr int kCaptionButtonWidth = 46;
-constexpr int kResizeBorderTop = 6;
 constexpr DWORD kDwmwaBorderColor = 34;
 constexpr DWORD kDwmwaWindowCornerPreference = 33;
 constexpr DWORD kDwmcpDoNotRound = 1;
 constexpr COLORREF kDwmColorNone = 0xFFFFFFFE;
+
+CRect toCRect(const ui::LayoutRect &rect)
+{
+    return CRect(rect.left, rect.top, rect.right, rect.bottom);
+}
+
+ui::LayoutPoint toLayoutPoint(CPoint point)
+{
+    return { point.x, point.y };
+}
 
 void adjustMaximizedClientRect(RECT &rect)
 {
@@ -61,9 +66,7 @@ void applyDwmExtension(HWND hwnd, const WindowFrameMetrics &metrics)
 
 CRect logoHoverRectFor(const WindowFrameMetrics &metrics)
 {
-    return CRect(0, metrics.clientEdgeInset,
-                 kLogoLeftPadding + kLogoSize + kLogoRightPadding,
-                 kCaptionHeight);
+    return toCRect(ui::mainWindowLogoHoverRect(metrics.clientEdgeInset));
 }
 
 bool monitorWorkAreaForRect(const RECT &rect, RECT &workArea)
@@ -216,40 +219,16 @@ LRESULT MainWindow::OnNcLButtonDown(WPARAM hitTest, LPARAM)
 
 LRESULT MainWindow::OnNcHitTest(WPARAM, LPARAM lParam)
 {
-    if (m_isFullScreen)
-        return HTCLIENT;
-
     POINT clientPoint = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
     ScreenToClient(&clientPoint);
 
     CRect clientRect;
     GetClientRect(&clientRect);
-
-    if (!isMaximized()) {
-        const bool nearLeft = clientPoint.x < kResizeBorderTop;
-        const bool nearRight = clientPoint.x >= clientRect.right - kResizeBorderTop;
-        const bool nearTop = clientPoint.y < kResizeBorderTop;
-        const bool nearBottom = clientPoint.y >= clientRect.bottom - kResizeBorderTop;
-
-        if (nearTop && nearLeft)
-            return HTTOPLEFT;
-        if (nearTop && nearRight)
-            return HTTOPRIGHT;
-        if (nearBottom && nearLeft)
-            return HTBOTTOMLEFT;
-        if (nearBottom && nearRight)
-            return HTBOTTOMRIGHT;
-        if (nearTop)
-            return HTTOP;
-        if (nearBottom)
-            return HTBOTTOM;
-        if (nearLeft)
-            return HTLEFT;
-        if (nearRight)
-            return HTRIGHT;
-    }
-
-    return HTCLIENT;
+    return ui::mainWindowNonClientHitTest({ clientPoint.x, clientPoint.y },
+                                          clientRect.Width(),
+                                          clientRect.Height(),
+                                          isMaximized(),
+                                          m_isFullScreen);
 }
 
 LRESULT MainWindow::OnDwmCompositionChanged(WPARAM, LPARAM)
@@ -324,7 +303,7 @@ void MainWindow::OnLButtonDown(UINT flags, CPoint point)
         return;
     }
 
-    if (point.y < kCaptionHeight && !m_isFullScreen) {
+    if (point.y < ui::kMainWindowCaptionHeight && !m_isFullScreen) {
         ReleaseCapture();
         SendMessage(WM_NCLBUTTONDOWN, HTCAPTION, 0);
         return;
@@ -335,7 +314,8 @@ void MainWindow::OnLButtonDown(UINT flags, CPoint point)
 
 void MainWindow::OnLButtonDblClk(UINT flags, CPoint point)
 {
-    if (point.y < kCaptionHeight && !m_isFullScreen && captionButtonHitTest(point) == 0 && !logoHitTest(point)) {
+    if (point.y < ui::kMainWindowCaptionHeight && !m_isFullScreen
+        && captionButtonHitTest(point) == 0 && !logoHitTest(point)) {
         SendMessage(WM_SYSCOMMAND, isMaximized() ? SC_RESTORE : SC_MAXIMIZE, 0);
         return;
     }
@@ -490,42 +470,20 @@ LRESULT MainWindow::OnDpiChanged(WPARAM, LPARAM lParam)
 
 CRect MainWindow::captionButtonRectFor(int hitCode) const
 {
+    static_assert(kUpdateCaptionButtonHit == ui::kMainWindowUpdateCaptionButtonHit);
+
     CRect clientRect;
     const_cast<MainWindow *>(this)->GetClientRect(&clientRect);
-
-    if (hitCode == kUpdateCaptionButtonHit && shouldShowUpdateButton())
-        return updateButtonRect();
-
-    int order = -1;
-    if (hitCode == HTCLOSE)
-        order = 0;
-    else if (hitCode == HTMAXBUTTON)
-        order = 1;
-    else if (hitCode == HTMINBUTTON)
-        order = 2;
-
-    if (order < 0)
-        return CRect();
-
-    const int right = clientRect.right - order * kCaptionButtonWidth;
-    const int left = right - kCaptionButtonWidth;
-    return CRect(left, 0, right, kCaptionHeight);
+    return toCRect(ui::mainWindowCaptionButtonRectFor(clientRect.right, hitCode, shouldShowUpdateButton()));
 }
 
 int MainWindow::captionButtonHitTest(CPoint clientPoint) const
 {
-    if (clientPoint.y < 0 || clientPoint.y >= kCaptionHeight)
-        return 0;
-
-    if (shouldShowUpdateButton() && updateButtonRect().PtInRect(clientPoint))
-        return kUpdateCaptionButtonHit;
-    if (captionButtonRectFor(HTCLOSE).PtInRect(clientPoint))
-        return HTCLOSE;
-    if (captionButtonRectFor(HTMAXBUTTON).PtInRect(clientPoint))
-        return HTMAXBUTTON;
-    if (captionButtonRectFor(HTMINBUTTON).PtInRect(clientPoint))
-        return HTMINBUTTON;
-    return 0;
+    CRect clientRect;
+    const_cast<MainWindow *>(this)->GetClientRect(&clientRect);
+    return ui::mainWindowCaptionButtonHitTest(toLayoutPoint(clientPoint),
+                                              clientRect.right,
+                                              shouldShowUpdateButton());
 }
 
 void MainWindow::invalidateCaptionButtons()
@@ -612,12 +570,12 @@ void MainWindow::drawCaptionButton(CDC &dc, const CRect &rect, int hitCode) cons
 
 CRect MainWindow::logoRect() const
 {
-    return CRect(0, 0, kLogoLeftPadding + kLogoSize + kLogoRightPadding, kCaptionHeight);
+    return toCRect(ui::mainWindowLogoRect());
 }
 
 bool MainWindow::logoHitTest(CPoint clientPoint) const
 {
-    return !m_isFullScreen && logoRect().PtInRect(clientPoint);
+    return ui::mainWindowLogoHitTest(toLayoutPoint(clientPoint), m_isFullScreen);
 }
 
 void MainWindow::showLogoMenu()
@@ -641,7 +599,7 @@ void MainWindow::OnPaint()
 
     CRect clientRect;
     GetClientRect(&clientRect);
-    CRect captionRect(0, 0, clientRect.right, kCaptionHeight);
+    CRect captionRect(0, 0, clientRect.right, ui::kMainWindowCaptionHeight);
     const WindowFrameMetrics metrics = calculateWindowFrameMetrics(isMaximized(), m_isFullScreen);
 
     // Paint the full client area first so newly exposed edge pixels after live resize
@@ -667,8 +625,16 @@ void MainWindow::OnPaint()
         }
 
         if (m_logoIcon) {
-            const int logoY = (kCaptionHeight - kLogoSize) / 2;
-            ::DrawIconEx(targetDc, kLogoLeftPadding, logoY, m_logoIcon, kLogoSize, kLogoSize, 0, nullptr, DI_NORMAL);
+            const int logoY = (ui::kMainWindowCaptionHeight - ui::kMainWindowLogoSize) / 2;
+            ::DrawIconEx(targetDc,
+                         ui::kMainWindowLogoLeftPadding,
+                         logoY,
+                         m_logoIcon,
+                         ui::kMainWindowLogoSize,
+                         ui::kMainWindowLogoSize,
+                         0,
+                         nullptr,
+                         DI_NORMAL);
         }
 
         if (shouldShowUpdateButton())
@@ -679,8 +645,8 @@ void MainWindow::OnPaint()
 
         CPen captionBottomBorderPen(PS_SOLID, 1, Win10Theme::kBrandAccentDark);
         CPen *oldCaptionBottomBorderPen = dc.SelectObject(&captionBottomBorderPen);
-        dc.MoveTo(0, kCaptionHeight - 1);
-        dc.LineTo(clientRect.right, kCaptionHeight - 1);
+        dc.MoveTo(0, ui::kMainWindowCaptionHeight - 1);
+        dc.LineTo(clientRect.right, ui::kMainWindowCaptionHeight - 1);
         dc.SelectObject(oldCaptionBottomBorderPen);
 
         if (metrics.drawAccentBorder) {
@@ -689,9 +655,9 @@ void MainWindow::OnPaint()
             dc.MoveTo(0, 0);
             dc.LineTo(clientRect.right - 1, 0);
             dc.MoveTo(0, 0);
-            dc.LineTo(0, kCaptionHeight);
+            dc.LineTo(0, ui::kMainWindowCaptionHeight);
             dc.MoveTo(clientRect.right - 1, 0);
-            dc.LineTo(clientRect.right - 1, kCaptionHeight);
+            dc.LineTo(clientRect.right - 1, ui::kMainWindowCaptionHeight);
             dc.SelectObject(oldPen);
         }
 
@@ -714,34 +680,31 @@ void MainWindow::layoutChildren()
     CRect clientRect;
     GetClientRect(&clientRect);
 
-    if (m_isFullScreen) {
-        if (m_sessionHost.GetSafeHwnd())
-            m_sessionHost.MoveWindow(0, 0, clientRect.Width(), clientRect.Height());
-        if (m_sessionManager)
-            m_sessionManager->layoutSessions();
-        return;
-    }
+    const ui::MainWindowChildLayout layout = ui::mainWindowChildLayout(clientRect.Width(),
+                                                                       clientRect.Height(),
+                                                                       isMaximized(),
+                                                                       m_isFullScreen,
+                                                                       shouldShowUpdateButton());
 
-    const WindowFrameMetrics metrics = calculateWindowFrameMetrics(isMaximized(), false);
-    const int inset = metrics.clientEdgeInset;
-    const int tabLeft = kLogoLeftPadding + kLogoSize + kLogoRightPadding;
-    const int tabRight = std::max(tabLeft, static_cast<int>(clientRect.right) - captionButtonReserveWidth());
-
-    if (m_tabBar.GetSafeHwnd()) {
-        m_tabBar.SetWindowPos(nullptr, tabLeft, inset,
-                              std::max(0, tabRight - tabLeft), std::max(0, kCaptionHeight - inset - 1),
+    if (layout.tabBarVisible && m_tabBar.GetSafeHwnd()) {
+        const CRect tabRect = toCRect(layout.tabBarRect);
+        m_tabBar.SetWindowPos(nullptr, tabRect.left, tabRect.top,
+                              tabRect.Width(), tabRect.Height(),
                               SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
     if (m_sessionHost.GetSafeHwnd()) {
-        m_sessionHost.SetWindowPos(nullptr, inset, kCaptionHeight,
-                                   std::max(0, clientRect.Width() - 2 * inset),
-                                   std::max(0, clientRect.Height() - kCaptionHeight - inset),
+        const CRect hostRect = toCRect(layout.sessionHostRect);
+        m_sessionHost.SetWindowPos(nullptr, hostRect.left, hostRect.top,
+                                   hostRect.Width(), hostRect.Height(),
                                    SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
     if (m_sessionManager)
         m_sessionManager->layoutSessions();
+
+    if (!layout.tabBarVisible)
+        return;
 
     if (m_sessionHost.GetSafeHwnd()) {
         m_sessionHost.RedrawWindow(nullptr, nullptr,

@@ -1,5 +1,6 @@
 #include "ProfileEditDialog.h"
 
+#include "ProfileEditBehavior.h"
 #include "resources/resource.h"
 
 #include <uxtheme.h>
@@ -48,18 +49,20 @@ BOOL ProfileEditDialog::OnInitDialog()
 void ProfileEditDialog::OnOK()
 {
     UpdateData(TRUE);
-    if (m_name.IsEmpty() || m_host.IsEmpty())
+    const ProfileEditValidationResult validation =
+        validateProfileEditFields(static_cast<LPCWSTR>(m_name),
+                                  static_cast<LPCWSTR>(m_host));
+    if (validation == ProfileEditValidationResult::MissingRequiredField)
         return;
 
-    if (m_name.Find(L',') >= 0 || m_name.Find(L'"') >= 0) {
+    if (validation == ProfileEditValidationResult::InvalidNameCharacter) {
         MessageBox(L"Connection name cannot contain ',' or '\"'.",
                    L"Invalid Connection Name",
                    MB_OK | MB_ICONWARNING);
         return;
     }
 
-    if (m_port < 1 || m_port > 65535)
-        m_port = 3389;
+    m_port = normalizedProfilePort(m_port);
 
     CDialogEx::OnOK();
 }

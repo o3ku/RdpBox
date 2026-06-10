@@ -14,6 +14,7 @@
 #include "rdp/FreeRdpProcess.h"
 #include "rdp/RdpKeyboardInputRouter.h"
 #include "rdp/RdpMouseMoveCoalescer.h"
+#include "rdp/RdpProcessEventQueueBehavior.h"
 #include "rdp/RdpResolutionRecovery.h"
 #include "rdp/RdpReservedShortcutTracker.h"
 #include "rdp/RdpResumeRecovery.h"
@@ -89,18 +90,12 @@ protected:
 private:
     static constexpr UINT_PTR kMouseMoveTimerId = 2;
 
-    struct PendingCertificateRequest
-    {
-        std::uintptr_t generation = 0;
-        FreeRdpProcess::CertificateChallenge challenge;
-    };
-
     struct ProcessBinding
     {
         HWND hwnd = nullptr;
         std::uintptr_t generation = 0;
         std::mutex certMutex;
-        std::optional<PendingCertificateRequest> pendingCert;
+        std::optional<rdp::process_event_queue::PendingCertificateRequest> pendingCert;
     };
 
     void bindProcessCallbacks(std::uintptr_t generation);

@@ -1,14 +1,34 @@
 #include "RdpSessionView.h"
 
 #include "rdp/RdpInputEventUtil.h"
+#include "rdp/RdpCertificatePromptBehavior.h"
+#include "rdp/RdpProcessEventBehavior.h"
 #include "rdp/RdpSystemChordTrace.h"
 #include "ui/MainWindowShortcuts.h"
 
 #include <utility>
 
+namespace
+{
+rdp::certificate_prompt::Challenge promptChallengeFromProcessChallenge(
+    const FreeRdpProcess::CertificateChallenge &challenge)
+{
+    return rdp::certificate_prompt::Challenge{
+        challenge.host,
+        challenge.port,
+        challenge.commonName,
+        challenge.subject,
+        challenge.issuer,
+        challenge.fingerprint,
+        challenge.changed,
+    };
+}
+}
+
 LRESULT CRdpSessionView::OnRdpStateChanged(WPARAM state, LPARAM generation)
 {
-    if (!isCurrentGeneration(static_cast<std::uintptr_t>(generation)))
+    if (!rdp::process_event::shouldHandleProcessEvent(m_processGeneration,
+                                                      static_cast<std::uintptr_t>(generation)))
         return 0;
 
     onStateChanged(static_cast<FreeRdpProcess::State>(state));
@@ -17,10 +37,9 @@ LRESULT CRdpSessionView::OnRdpStateChanged(WPARAM state, LPARAM generation)
 
 LRESULT CRdpSessionView::OnRdpFrameUpdated(WPARAM, LPARAM generation)
 {
-    if (!IsWindowVisible())
-        return 0;
-
-    if (!isCurrentGeneration(static_cast<std::uintptr_t>(generation)))
+    if (!rdp::process_event::shouldHandleFrameEvent(IsWindowVisible() != FALSE,
+                                                    m_processGeneration,
+                                                    static_cast<std::uintptr_t>(generation)))
         return 0;
 
     // Drain any queued frame messages so we only paint the latest.
@@ -35,7 +54,8 @@ LRESULT CRdpSessionView::OnRdpFrameUpdated(WPARAM, LPARAM generation)
 
 LRESULT CRdpSessionView::OnRdpCursorUpdated(WPARAM, LPARAM generation)
 {
-    if (!isCurrentGeneration(static_cast<std::uintptr_t>(generation)))
+    if (!rdp::process_event::shouldHandleProcessEvent(m_processGeneration,
+                                                      static_cast<std::uintptr_t>(generation)))
         return 0;
 
     updateCursorFromProcess();
@@ -47,10 +67,14 @@ LRESULT CRdpSessionView::OnRdpCertRequest(WPARAM, LPARAM generation)
     const std::uintptr_t requestGeneration = static_cast<std::uintptr_t>(generation);
     const std::shared_ptr<ProcessBinding> binding = m_processBinding;
     const std::shared_ptr<FreeRdpProcess> process = m_process;
-    if (!isCurrentGeneration(requestGeneration) || !binding || !process) {
+    if (!rdp::process_event::shouldHandleProcessEvent(m_processGeneration, requestGeneration)
+        || !binding || !process) {
         if (binding) {
             std::scoped_lock lock(binding->certMutex);
-            if (binding->pendingCert && binding->pendingCert->generation == requestGeneration)
+            if (rdp::process_event::shouldClearPendingCertificateRequest(
+                    binding->pendingCert.has_value(),
+                    binding->pendingCert ? binding->pendingCert->generation : 0,
+                    requestGeneration))
                 binding->pendingCert.reset();
         }
         return 0;
@@ -59,7 +83,13 @@ LRESULT CRdpSessionView::OnRdpCertRequest(WPARAM, LPARAM generation)
     std::optional<FreeRdpProcess::CertificateChallenge> challenge;
     {
         std::scoped_lock lock(binding->certMutex);
-        if (!binding->pendingCert || binding->pendingCert->generation != requestGeneration)
+        if (!rdp::process_event::shouldShowCertificatePrompt(
+                m_processGeneration,
+                requestGeneration,
+                true,
+                true,
+                binding->pendingCert.has_value(),
+                binding->pendingCert ? binding->pendingCert->generation : 0))
             return 0;
         challenge = std::move(binding->pendingCert->challenge);
         binding->pendingCert.reset();
@@ -67,18 +97,14 @@ LRESULT CRdpSessionView::OnRdpCertRequest(WPARAM, LPARAM generation)
 
     bool accept = false;
     if (challenge) {
-        CString message;
-        message.Format(L"%s\n\nHost: %s:%d\nCommon Name: %s\nSubject: %s\nIssuer: %s\nFingerprint: %s\n\nAccept this certificate?",
-                       challenge->changed
-                           ? L"The remote host's certificate has CHANGED since the previous connection."
-                           : L"The remote host's certificate could not be verified.",
-                       challenge->host.c_str(), challenge->port,
-                       challenge->commonName.c_str(),
-                       challenge->subject.c_str(),
-                       challenge->issuer.c_str(),
-                       challenge->fingerprint.c_str());
-        const UINT icon = challenge->changed ? MB_ICONWARNING : MB_ICONQUESTION;
-        accept = MessageBox(message, L"Verify Certificate", MB_YESNO | icon | MB_DEFBUTTON2) == IDYES;
+        const auto prompt = rdp::certificate_prompt::promptForChallenge(
+            promptChallengeFromProcessChallenge(*challenge));
+        const UINT icon = prompt.icon == rdp::certificate_prompt::PromptIcon::Warning
+            ? MB_ICONWARNING
+            : MB_ICONQUESTION;
+        accept = MessageBox(prompt.message.c_str(),
+                            L"Verify Certificate",
+                            MB_YESNO | icon | MB_DEFBUTTON2) == IDYES;
     }
 
     process->resolveCertificateChallenge(accept);

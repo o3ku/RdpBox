@@ -1,12 +1,11 @@
 #include "ConnectionListDialog.h"
 
+#include "ConnectionListBehavior.h"
 #include "ProfileEditDialog.h"
 
 #include "profiles/ProfileRepository.h"
 
 #include "resources/resource.h"
-
-#include <algorithm>
 
 #include <uxtheme.h>
 
@@ -69,10 +68,6 @@ void makeFlatOwnerDraw(FlatButton &button)
         button.ModifyStyle(BS_DEFPUSHBUTTON, BS_OWNERDRAW);
 }
 
-bool isConnected(const std::wstring &profileName, const std::vector<std::wstring> &connectedNames)
-{
-    return std::find(connectedNames.begin(), connectedNames.end(), profileName) != connectedNames.end();
-}
 }
 
 BOOL ConnectionListDialog::OnInitDialog()
@@ -221,14 +216,8 @@ void ConnectionListDialog::OnConnectClicked()
     if (!m_repo)
         return;
 
-    m_selectedProfileNames.clear();
-    for (int idx : indices) {
-        if (idx >= 0 && idx < static_cast<int>(m_currentProfiles.size())) {
-            const auto &profileName = m_currentProfiles[idx].name;
-            if (!isConnected(profileName, m_connectedProfileNames))
-                m_selectedProfileNames.push_back(profileName);
-        }
-    }
+    m_selectedProfileNames =
+        connectableProfileNamesForSelection(m_currentProfiles, indices, m_connectedProfileNames);
 
     if (m_selectedProfileNames.empty())
         return;
@@ -247,11 +236,7 @@ void ConnectionListDialog::OnDuplicateClicked()
         if (idx < 0 || idx >= static_cast<int>(m_currentProfiles.size()))
             continue;
 
-        Profile dup = m_currentProfiles[idx];
-        if (!dup.name.empty())
-            dup.name += L"(n)";
-        else
-            dup.name = L"(unnamed)";
+        Profile dup = duplicateProfileDraft(m_currentProfiles[idx]);
 
         if (!m_repo->addProfile(dup))
             showNameConflictMessage(dup.name.c_str());
@@ -305,7 +290,7 @@ void ConnectionListDialog::refreshList(const std::vector<Profile> &profiles)
         list->InsertItem(idx, name);
         list->SetItemText(idx, 1, host);
         list->SetItemText(idx, 2, portStr);
-        list->SetItemText(idx, 3, isConnected(p.name, m_connectedProfileNames) ? L"Connected" : L"");
+        list->SetItemText(idx, 3, isProfileConnected(p.name, m_connectedProfileNames) ? L"Connected" : L"");
         list->SetItemData(idx, static_cast<DWORD_PTR>(idx));
     }
 
@@ -322,23 +307,8 @@ void ConnectionListDialog::refreshList(const std::vector<Profile> &profiles)
 
 void ConnectionListDialog::updateButtonStates()
 {
-    CListCtrl *list = static_cast<CListCtrl*>(GetDlgItem(IDC_CONNECTION_LIST));
-    const int selectedCount = list ? list->GetSelectedCount() : 0;
-
-    bool allConnected = true;
-    if (list && selectedCount > 0) {
-        POSITION pos = list->GetFirstSelectedItemPosition();
-        while (pos) {
-            const int idx = list->GetNextSelectedItem(pos);
-            if (idx >= 0 && idx < static_cast<int>(m_currentProfiles.size())
-                && !isConnected(m_currentProfiles[idx].name, m_connectedProfileNames)) {
-                allConnected = false;
-                break;
-            }
-        }
-    } else {
-        allConnected = false;
-    }
+    const ConnectionListButtonState state =
+        connectionListButtonState(m_currentProfiles, selectedIndices(), m_connectedProfileNames);
 
     CWnd *editButton = GetDlgItem(IDC_CONNECTION_EDIT);
     CWnd *deleteButton = GetDlgItem(IDC_CONNECTION_DELETE);
@@ -346,13 +316,13 @@ void ConnectionListDialog::updateButtonStates()
     CWnd *duplicateButton = GetDlgItem(IDC_CONNECTION_DUPLICATE);
 
     if (editButton)
-        editButton->EnableWindow(selectedCount == 1);
+        editButton->EnableWindow(state.editEnabled);
     if (deleteButton)
-        deleteButton->EnableWindow(selectedCount > 0);
+        deleteButton->EnableWindow(state.deleteEnabled);
     if (connectButton)
-        connectButton->EnableWindow(selectedCount > 0 && !allConnected);
+        connectButton->EnableWindow(state.connectEnabled);
     if (duplicateButton)
-        duplicateButton->EnableWindow(selectedCount > 0);
+        duplicateButton->EnableWindow(state.duplicateEnabled);
 }
 
 Profile ConnectionListDialog::currentProfile() const
@@ -591,23 +561,7 @@ std::size_t ConnectionListDialog::repositoryTargetIndexForVisibleInsertIndex(int
     if (!m_repo || m_currentProfiles.empty())
         return 0;
 
-    const auto &profiles = m_repo->profiles();
-    auto findFullIndex = [&](const std::wstring &name) {
-        for (std::size_t i = 0; i < profiles.size(); ++i) {
-            if (profiles[i].name == name)
-                return i;
-        }
-        return profiles.size();
-    };
-
-    if (insertIndex <= 0)
-        return findFullIndex(m_currentProfiles.front().name);
-    if (insertIndex >= static_cast<int>(m_currentProfiles.size())) {
-        const std::size_t lastIndex = findFullIndex(m_currentProfiles.back().name);
-        return lastIndex >= profiles.size() ? profiles.size() : lastIndex + 1;
-    }
-
-    return findFullIndex(m_currentProfiles[static_cast<std::size_t>(insertIndex)].name);
+    return ::repositoryTargetIndexForVisibleInsertIndex(m_repo->profiles(), m_currentProfiles, insertIndex);
 }
 
 void ConnectionListDialog::selectProfileByName(const std::wstring &name)
@@ -682,21 +636,19 @@ bool ConnectionListDialog::moveCurrentSelectionBy(int delta)
         if (pos)
             currentIndex = list->GetNextSelectedItem(pos);
     }
-    if (currentIndex < 0 || currentIndex >= static_cast<int>(m_currentProfiles.size()))
-        return false;
-
-    const int targetIndex = currentIndex + delta;
-    if (targetIndex < 0 || targetIndex >= static_cast<int>(m_currentProfiles.size()))
+    const std::optional<int> targetIndex =
+        targetSelectionIndex(currentIndex, static_cast<int>(m_currentProfiles.size()), delta);
+    if (!targetIndex.has_value())
         return false;
 
     for (int i = 0; i < list->GetItemCount(); ++i)
         list->SetItemState(i, 0, LVIS_SELECTED | LVIS_FOCUSED);
 
-    list->SetItemState(targetIndex,
+    list->SetItemState(*targetIndex,
                        LVIS_SELECTED | LVIS_FOCUSED,
                        LVIS_SELECTED | LVIS_FOCUSED);
-    list->SetSelectionMark(targetIndex);
-    list->EnsureVisible(targetIndex, FALSE);
+    list->SetSelectionMark(*targetIndex);
+    list->EnsureVisible(*targetIndex, FALSE);
     updateButtonStates();
     return true;
 }

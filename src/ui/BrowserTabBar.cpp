@@ -2,24 +2,21 @@
 
 #include <afxcmn.h>
 
+#include "BrowserTabBehavior.h"
 #include "ParentResizeForwarder.h"
 #include "Win10Theme.h"
 
 #include <algorithm>
-#include <cstdlib>
+#include <optional>
+#include <utility>
 
 #include <uxtheme.h>
 
 namespace
 {
-constexpr int kTabMinWidth = 120;
-constexpr int kTabMaxWidth = 220;
 constexpr int kTabPadding = 12;
-constexpr int kCloseButtonSize = 16;
-constexpr int kCloseButtonMargin = 6;
 constexpr int kStatusDotWidth = 8;
 constexpr int kStatusDotHeight = 8;
-constexpr int kDragThreshold = 4;
 constexpr int kDropIndicatorWidth = 3;
 HFONT createTabFont(int pixelHeight, int weight)
 {
@@ -35,10 +32,6 @@ HFONT createTabFont(int pixelHeight, int weight)
     return ::CreateFontIndirectW(&lf);
 }
 
-bool shouldDrawSeparator(bool selected, bool nextSelected, bool hasNext)
-{
-    return hasNext && !selected && !nextSelected;
-}
 }
 
 IMPLEMENT_DYNAMIC(BrowserTabBar, CWnd)
@@ -214,22 +207,19 @@ void BrowserTabBar::recomputeLayout()
 
     CRect clientRect;
     GetClientRect(&clientRect);
-    const int totalWidth = clientRect.Width();
     const int count = static_cast<int>(m_tabs.size());
-    int tabWidth = totalWidth / count;
-    tabWidth = std::clamp(tabWidth, kTabMinWidth, kTabMaxWidth);
-    if (tabWidth * count > totalWidth)
-        tabWidth = std::max(40, totalWidth / count);
+    const auto layout = ui::browserTabLayout(clientRect.Width(), clientRect.bottom, count);
+    if (layout.size() != m_tabs.size())
+        return;
 
-    int x = 0;
     for (int i = 0; i < count; ++i) {
         TabItem &item = m_tabs[i];
-        item.rect = CRect(x, 0, x + tabWidth, clientRect.bottom);
-        item.closeRect.right = item.rect.right - kCloseButtonMargin;
-        item.closeRect.left = item.closeRect.right - kCloseButtonSize;
-        item.closeRect.top = item.rect.top + (item.rect.Height() - kCloseButtonSize) / 2;
-        item.closeRect.bottom = item.closeRect.top + kCloseButtonSize;
-        x += tabWidth;
+        const auto &geometry = layout[static_cast<size_t>(i)];
+        item.rect = CRect(geometry.left, 0, geometry.right, clientRect.bottom);
+        item.closeRect = CRect(geometry.closeLeft,
+                               geometry.closeTop,
+                               geometry.closeRight,
+                               geometry.closeBottom);
     }
 }
 
@@ -325,9 +315,9 @@ void BrowserTabBar::OnPaint()
             memDc.Draw3dRect(dragOutline, RGB(0, 120, 215), RGB(0, 120, 215));
         }
 
-        const bool hasNext = static_cast<int>(i) + 1 < static_cast<int>(m_tabs.size());
-        const bool nextSelected = hasNext && (static_cast<int>(i) + 1 == m_selectedIndex);
-        if (shouldDrawSeparator(selected, nextSelected, hasNext)) {
+        if (ui::shouldDrawTabSeparator(static_cast<int>(i),
+                                       m_selectedIndex,
+                                       static_cast<int>(m_tabs.size()))) {
             CRect separator(item.rect);
             separator.left = separator.right - 1;
             separator.top += 6;
@@ -474,14 +464,11 @@ void BrowserTabBar::OnLButtonUp(UINT flags, CPoint point)
     m_pressedTabIndex = -1;
 
     if (wasDragging) {
-        if (sourceIndex >= 0 && dropInsertIndex >= 0) {
-            int targetIndex = dropInsertIndex;
-            if (targetIndex > sourceIndex)
-                --targetIndex;
-            if (targetIndex >= static_cast<int>(m_tabs.size()))
-                targetIndex = static_cast<int>(m_tabs.size()) - 1;
-            if (targetIndex >= 0 && moveTab(sourceIndex, targetIndex) && m_tabReordered)
-                m_tabReordered(sourceIndex, targetIndex);
+        const std::optional<int> targetIndex =
+            ui::targetTabIndexForDrop(sourceIndex, dropInsertIndex, static_cast<int>(m_tabs.size()));
+        if (targetIndex.has_value()) {
+            if (moveTab(sourceIndex, *targetIndex) && m_tabReordered)
+                m_tabReordered(sourceIndex, *targetIndex);
         }
         m_draggingTabIndex = -1;
         m_dropInsertIndex = -1;
@@ -524,9 +511,10 @@ void BrowserTabBar::OnMouseMove(UINT flags, CPoint point)
     ensureMouseTracking();
 
     if (m_leftButtonDown && m_pressedTabIndex >= 0) {
-        const bool movedEnough =
-            std::abs(point.x - m_dragStartPoint.x) >= kDragThreshold
-            || std::abs(point.y - m_dragStartPoint.y) >= kDragThreshold;
+        const bool movedEnough = ui::hasDraggedTabFarEnough(m_dragStartPoint.x,
+                                                            m_dragStartPoint.y,
+                                                            point.x,
+                                                            point.y);
         if (m_draggingTabIndex < 0 && movedEnough)
             m_draggingTabIndex = m_pressedTabIndex;
         if (m_draggingTabIndex >= 0) {

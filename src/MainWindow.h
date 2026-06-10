@@ -18,6 +18,7 @@ class ProfileRepository;
 class SessionManager;
 struct Profile;
 class AboutDialog;
+namespace ui { enum class UpdateUiState; }
 
 class MainWindow : public CFrameWnd
 {
@@ -97,6 +98,7 @@ private:
     void invalidateUpdateButton();
     CString updateTooltipText() const;
     CString updateButtonText() const;
+    ui::UpdateUiState updateUiState() const;
     void updateCaptionTooltip();
     void startBackgroundUpdateCheck();
     void startBackgroundUpdateDownload();
