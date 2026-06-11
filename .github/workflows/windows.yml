@@ -83,8 +83,8 @@ jobs:
             -DCMAKE_BUILD_TYPE=Debug `
             -DBUILD_TEST=ON `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
-            -DVCPKG_TARGET_TRIPLET=$env:VCPKG_DEFAULT_TRIPLET `
-            -DVCPKG_INSTALLED_DIR="$env:VCPKG_INSTALLED_DIR"
+            "-DVCPKG_TARGET_TRIPLET=$env:VCPKG_DEFAULT_TRIPLET" `
+            "-DVCPKG_INSTALLED_DIR=$env:VCPKG_INSTALLED_DIR"
 
       - name: Build debug tests
         run: cmake --build build/msvc-debug-test --parallel
@@ -98,8 +98,8 @@ jobs:
           cmake -S . -B build/msvc-release -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
-            -DVCPKG_TARGET_TRIPLET=$env:VCPKG_DEFAULT_TRIPLET `
-            -DVCPKG_INSTALLED_DIR="$env:VCPKG_INSTALLED_DIR"
+            "-DVCPKG_TARGET_TRIPLET=$env:VCPKG_DEFAULT_TRIPLET" `
+            "-DVCPKG_INSTALLED_DIR=$env:VCPKG_INSTALLED_DIR"
 
       - name: Build release
         run: cmake --build build/msvc-release --parallel
