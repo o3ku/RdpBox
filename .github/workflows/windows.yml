@@ -1,0 +1,105 @@
+name: Windows CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  VCPKG_DEFAULT_TRIPLET: x64-windows-static-md
+  VCPKG_FEATURE_FLAGS: manifests,binarycaching
+  VCPKG_INSTALLED_DIR: ${{ github.workspace }}\vcpkg_installed
+  VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}\.vcpkg-cache,readwrite
+
+jobs:
+  build-test:
+    name: Build and test
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Verify build tools
+        shell: pwsh
+        run: |
+          where.exe cl
+          cmake --version
+          ninja --version
+          if (-not $env:VCToolsInstallDir) {
+            throw "VCToolsInstallDir is not set."
+          }
+          $mfcHeader = Join-Path $env:VCToolsInstallDir "atlmfc\include\afxwin.h"
+          if (-not (Test-Path $mfcHeader)) {
+            throw "MFC headers were not found at $mfcHeader."
+          }
+
+      - name: Locate vcpkg
+        shell: pwsh
+        run: |
+          $root = $env:VCPKG_ROOT
+          if (-not $root -and $env:VCPKG_INSTALLATION_ROOT) {
+            $root = $env:VCPKG_INSTALLATION_ROOT
+          }
+          if (-not $root -and (Test-Path "C:\vcpkg")) {
+            $root = "C:\vcpkg"
+          }
+          if (-not $root) {
+            throw "Could not locate vcpkg on the runner."
+          }
+          "VCPKG_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            .vcpkg-cache
+            vcpkg_installed
+          key: windows-vcpkg-${{ env.VCPKG_DEFAULT_TRIPLET }}-${{ hashFiles('vcpkg.json', '.github/workflows/windows.yml') }}
+          restore-keys: |
+            windows-vcpkg-${{ env.VCPKG_DEFAULT_TRIPLET }}-
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ".vcpkg-cache" | Out-Null
+          & "$env:VCPKG_ROOT\vcpkg.exe" install `
+            --triplet $env:VCPKG_DEFAULT_TRIPLET `
+            --x-install-root="$env:VCPKG_INSTALLED_DIR"
+
+      - name: Configure debug tests
+        shell: pwsh
+        run: |
+          cmake -S . -B build/msvc-debug-test -G Ninja `
+            -DCMAKE_BUILD_TYPE=Debug `
+            -DBUILD_TEST=ON `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=$env:VCPKG_DEFAULT_TRIPLET `
+            -DVCPKG_INSTALLED_DIR="$env:VCPKG_INSTALLED_DIR"
+
+      - name: Build debug tests
+        run: cmake --build build/msvc-debug-test --parallel
+
+      - name: Run tests
+        run: ctest --test-dir build/msvc-debug-test --output-on-failure
+
+      - name: Configure release
+        shell: pwsh
+        run: |
+          cmake -S . -B build/msvc-release -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=$env:VCPKG_DEFAULT_TRIPLET `
+            -DVCPKG_INSTALLED_DIR="$env:VCPKG_INSTALLED_DIR"
+
+      - name: Build release
+        run: cmake --build build/msvc-release --parallel
