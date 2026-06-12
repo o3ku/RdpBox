@@ -2,9 +2,13 @@
 
 #include "common/AppPaths.h"
 #include "qt/QtProfileDialog.h"
+#include "qt/QtRdpSessionWidget.h"
+#include "qt/QtWindowChromeBehavior.h"
 
 #include <QApplication>
 #include <QBoxLayout>
+#include <QByteArray>
+#include <QEvent>
 #include <QFrame>
 #include <QGroupBox>
 #include <QLabel>
@@ -17,9 +21,17 @@
 #include <QStyle>
 #include <QTabWidget>
 #include <QTimer>
+#include <QToolButton>
+
+#include <windows.h>
+
+#include <array>
 
 namespace
 {
+constexpr int kTitleBarHeight = 42;
+constexpr int kResizeBorderWidth = 6;
+
 QString profileTitle(const Profile &profile)
 {
     return QString::fromStdWString(profile.name);
@@ -42,6 +54,8 @@ QtMainWindow::QtMainWindow(std::vector<std::wstring> startupConnectionNames,
       m_repository(AppPaths::profilesFilePath()),
       m_startupConnectionNames(std::move(startupConnectionNames))
 {
+    setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
+    setAttribute(Qt::WA_NativeWindow);
     setWindowTitle(QStringLiteral("RdpBox"));
     resize(1180, 760);
     buildUi();
@@ -54,9 +68,37 @@ QtMainWindow::QtMainWindow(std::vector<std::wstring> startupConnectionNames,
     }
 }
 
+bool QtMainWindow::nativeEvent(const QByteArray &eventType, void *message, long *result)
+{
+    if (eventType != "windows_generic_MSG" && eventType != "windows_dispatcher_MSG")
+        return QMainWindow::nativeEvent(eventType, message, result);
+
+    MSG *msg = static_cast<MSG *>(message);
+    if (!msg || msg->message != WM_NCHITTEST)
+        return QMainWindow::nativeEvent(eventType, message, result);
+
+    const POINTS screenPoint = MAKEPOINTS(msg->lParam);
+    const QPoint windowPoint = mapFromGlobal(QPoint(screenPoint.x, screenPoint.y));
+    *result = nativeHitTestForPoint(windowPoint);
+    return true;
+}
+
+void QtMainWindow::changeEvent(QEvent *event)
+{
+    QMainWindow::changeEvent(event);
+    if (event->type() == QEvent::WindowStateChange)
+        refreshWindowControls();
+}
+
 void QtMainWindow::buildUi()
 {
-    auto *splitter = new QSplitter(Qt::Horizontal, this);
+    auto *shell = new QWidget(this);
+    auto *shellLayout = new QVBoxLayout(shell);
+    shellLayout->setContentsMargins(0, 0, 0, 0);
+    shellLayout->setSpacing(0);
+    buildTitleBar(shellLayout);
+
+    auto *splitter = new QSplitter(Qt::Horizontal, shell);
     splitter->setChildrenCollapsible(false);
 
     auto *sidebar = new QWidget(splitter);
@@ -112,7 +154,8 @@ void QtMainWindow::buildUi()
     splitter->setStretchFactor(1, 1);
     splitter->setSizes({300, 880});
 
-    setCentralWidget(splitter);
+    shellLayout->addWidget(splitter, 1);
+    setCentralWidget(shell);
     m_statusLabel = new QLabel(this);
     statusBar()->addPermanentWidget(m_statusLabel, 1);
 
@@ -145,6 +188,71 @@ void QtMainWindow::buildUi()
     refreshActions();
 }
 
+void QtMainWindow::buildTitleBar(QVBoxLayout *rootLayout)
+{
+    m_titleBar = new QWidget(this);
+    m_titleBar->setObjectName(QStringLiteral("titleBar"));
+    m_titleBar->setFixedHeight(kTitleBarHeight);
+
+    auto *layout = new QHBoxLayout(m_titleBar);
+    layout->setContentsMargins(12, 0, 0, 0);
+    layout->setSpacing(6);
+
+    auto *iconLabel = new QLabel(m_titleBar);
+    iconLabel->setPixmap(windowIcon().pixmap(20, 20));
+    iconLabel->setFixedSize(24, 24);
+
+    m_titleLabel = new QLabel(QStringLiteral("RdpBox"), m_titleBar);
+    QFont titleFont = m_titleLabel->font();
+    titleFont.setBold(true);
+    m_titleLabel->setFont(titleFont);
+
+    m_minimizeButton = new QToolButton(m_titleBar);
+    m_maximizeButton = new QToolButton(m_titleBar);
+    m_closeButton = new QToolButton(m_titleBar);
+
+    m_minimizeButton->setObjectName(QStringLiteral("captionButton"));
+    m_maximizeButton->setObjectName(QStringLiteral("captionButton"));
+    m_closeButton->setObjectName(QStringLiteral("closeCaptionButton"));
+    m_minimizeButton->setIcon(style()->standardIcon(QStyle::SP_TitleBarMinButton));
+    m_maximizeButton->setIcon(style()->standardIcon(QStyle::SP_TitleBarMaxButton));
+    m_closeButton->setIcon(style()->standardIcon(QStyle::SP_TitleBarCloseButton));
+    m_minimizeButton->setToolTip(tr("Minimize"));
+    m_maximizeButton->setToolTip(tr("Maximize"));
+    m_closeButton->setToolTip(tr("Close"));
+
+    const std::array<QToolButton *, 3> captionButtons = {
+        m_minimizeButton,
+        m_maximizeButton,
+        m_closeButton,
+    };
+    for (QToolButton *button : captionButtons) {
+        button->setAutoRaise(true);
+        button->setFixedSize(46, kTitleBarHeight);
+        button->setFocusPolicy(Qt::NoFocus);
+    }
+
+    layout->addWidget(iconLabel);
+    layout->addWidget(m_titleLabel);
+    layout->addStretch(1);
+    layout->addWidget(m_minimizeButton);
+    layout->addWidget(m_maximizeButton);
+    layout->addWidget(m_closeButton);
+    rootLayout->addWidget(m_titleBar);
+
+    connect(m_minimizeButton, &QToolButton::clicked, this, [this]() {
+        showMinimized();
+    });
+    connect(m_maximizeButton, &QToolButton::clicked, this, [this]() {
+        isMaximized() ? showNormal() : showMaximized();
+    });
+    connect(m_closeButton, &QToolButton::clicked, this, [this]() {
+        close();
+    });
+
+    refreshWindowControls();
+}
+
 void QtMainWindow::refreshProfileList()
 {
     const std::wstring query = m_searchEdit ? m_searchEdit->text().toStdWString() : std::wstring();
@@ -170,6 +278,52 @@ void QtMainWindow::refreshActions()
     m_editButton->setEnabled(hasSelection);
     m_deleteButton->setEnabled(hasSelection);
     m_connectButton->setEnabled(hasSelection);
+}
+
+void QtMainWindow::refreshWindowControls()
+{
+    if (!m_maximizeButton)
+        return;
+
+    m_maximizeButton->setIcon(style()->standardIcon(
+        isMaximized() ? QStyle::SP_TitleBarNormalButton : QStyle::SP_TitleBarMaxButton));
+    m_maximizeButton->setToolTip(isMaximized() ? tr("Restore") : tr("Maximize"));
+}
+
+int QtMainWindow::nativeHitTestForPoint(const QPoint &windowPoint) const
+{
+    const QRect captionRect = m_titleBar ? QRect(m_titleBar->pos(), m_titleBar->size()) : QRect();
+    const qt::chrome::HitArea area = qt::chrome::hitAreaForPoint(
+        windowPoint,
+        size(),
+        captionRect,
+        captionExclusionRects(),
+        kResizeBorderWidth,
+        isMaximized());
+
+    switch (area) {
+    case qt::chrome::HitArea::Caption:
+        return HTCAPTION;
+    case qt::chrome::HitArea::Left:
+        return HTLEFT;
+    case qt::chrome::HitArea::Right:
+        return HTRIGHT;
+    case qt::chrome::HitArea::Top:
+        return HTTOP;
+    case qt::chrome::HitArea::Bottom:
+        return HTBOTTOM;
+    case qt::chrome::HitArea::TopLeft:
+        return HTTOPLEFT;
+    case qt::chrome::HitArea::TopRight:
+        return HTTOPRIGHT;
+    case qt::chrome::HitArea::BottomLeft:
+        return HTBOTTOMLEFT;
+    case qt::chrome::HitArea::BottomRight:
+        return HTBOTTOMRIGHT;
+    case qt::chrome::HitArea::Client:
+    default:
+        return HTCLIENT;
+    }
 }
 
 void QtMainWindow::addProfile()
@@ -297,15 +451,28 @@ QWidget *QtMainWindow::createSessionPage(const Profile &profile) const
     summaryLayout->addWidget(new QLabel(profileSubtitle(profile), summary));
     summaryLayout->addWidget(new QLabel(tr("Disconnected"), summary));
 
-    auto *surface = new QFrame(page);
+    auto *surface = new QtRdpSessionWidget(profile, page);
     surface->setObjectName(QStringLiteral("sessionSurface"));
-    surface->setFrameShape(QFrame::StyledPanel);
-    auto *surfaceLayout = new QVBoxLayout(surface);
-    auto *surfaceLabel = new QLabel(tr("No signal"), surface);
-    surfaceLabel->setAlignment(Qt::AlignCenter);
-    surfaceLayout->addWidget(surfaceLabel, 1);
 
     layout->addWidget(summary);
     layout->addWidget(surface, 1);
+    QTimer::singleShot(0, surface, [surface]() {
+        surface->connectToHost();
+    });
     return page;
+}
+
+std::vector<QRect> QtMainWindow::captionExclusionRects() const
+{
+    std::vector<QRect> rects;
+    for (QWidget *widget : {static_cast<QWidget *>(m_minimizeButton),
+                            static_cast<QWidget *>(m_maximizeButton),
+                            static_cast<QWidget *>(m_closeButton)}) {
+        if (!widget || !m_titleBar)
+            continue;
+
+        const QPoint topLeft = widget->mapTo(this, QPoint(0, 0));
+        rects.push_back(QRect(topLeft, widget->size()));
+    }
+    return rects;
 }

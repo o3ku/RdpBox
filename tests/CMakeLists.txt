@@ -617,3 +617,18 @@ target_compile_definitions(ParentResizeForwarderTests PRIVATE
 )
 
 add_test(NAME ParentResizeForwarderTests COMMAND ParentResizeForwarderTests)
+
+add_executable(QtWindowChromeBehaviorTests
+    qt/QtWindowChromeBehaviorTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/qt/QtWindowChromeBehavior.cpp
+)
+
+target_include_directories(QtWindowChromeBehaviorTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(QtWindowChromeBehaviorTests PRIVATE
+    Qt5::Core
+)
+
+add_test(NAME QtWindowChromeBehaviorTests COMMAND QtWindowChromeBehaviorTests)

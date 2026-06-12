@@ -39,6 +39,10 @@ void applyApplicationStyle(QApplication &application)
 
     application.setStyleSheet(QStringLiteral(
         "QMainWindow, QWidget { background: #f6f7f9; color: #1f2328; }"
+        "#titleBar { background: #ffffff; border-bottom: 1px solid #c9ced6; }"
+        "#captionButton, #closeCaptionButton { background: transparent; border: 0; border-radius: 0; padding: 0; }"
+        "#captionButton:hover { background: #e8edf4; }"
+        "#closeCaptionButton:hover { background: #c42b1c; }"
         "QLineEdit, QListWidget { background: #ffffff; border: 1px solid #c9ced6; border-radius: 4px; padding: 6px; }"
         "QListWidget::item { border-bottom: 1px solid #edf0f3; padding: 7px 6px; }"
         "QListWidget::item:selected { background: #dbeafe; color: #111827; }"
