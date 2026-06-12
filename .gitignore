@@ -1,5 +1,4 @@
 build/
 .claude/
-CMakePresets.json
 .vcpkg-cache/
 vcpkg_installed/

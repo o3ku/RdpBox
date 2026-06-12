@@ -1,10 +1,11 @@
 {
   "name": "rdpbox",
-  "version-string": "1.12.0",
+  "version-string": "2.0.0",
   "builtin-baseline": "edffab1bcd2cb5b8c17d6ba34d5651ea0bf82979",
   "dependencies": [
     "cjson",
     "freerdp",
-    "nlohmann-json"
+    "nlohmann-json",
+    "qt5base"
   ]
 }
