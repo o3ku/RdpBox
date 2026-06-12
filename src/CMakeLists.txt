@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(RdpBox VERSION 1.12.0 LANGUAGES CXX RC)
+project(RdpBox VERSION 2.0.0 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -14,6 +14,7 @@ set(CMAKE_MFC_FLAG 2)
 
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(cJSON CONFIG REQUIRED)
+find_package(Qt5 5.15 CONFIG REQUIRED COMPONENTS Widgets)
 
 find_package(FreeRDP CONFIG REQUIRED)
 find_package(FreeRDP-Client CONFIG REQUIRED)
@@ -43,6 +44,27 @@ if(NOT RDPBOX_VERSION_OVERRIDE STREQUAL "")
 endif()
 
 set(RDPBOX_GITHUB_URL_VALUE "https://github.com/o3ku/RdpBox")
+
+set(RDPBOX_QT_SOURCES
+    qt/QtMain.cpp
+    qt/QtMainWindow.h
+    qt/QtMainWindow.cpp
+    qt/QtProfileDialog.h
+    qt/QtProfileDialog.cpp
+    common/AppPaths.h
+    common/AppPaths.cpp
+    common/ConnectionLaunchArgs.h
+    common/ConnectionLaunchArgs.cpp
+    common/PasswordProtection.h
+    common/PasswordProtection.cpp
+    common/UpdateClient.h
+    common/UpdateClient.cpp
+    profiles/Profile.h
+    profiles/ProfileRepository.h
+    profiles/ProfileRepository.cpp
+    resources/resource.h
+    resources/app_icon.rc
+)
 
 set(RDPBOX_SOURCES
     RdpBoxApp.h
@@ -167,10 +189,11 @@ set(RDPBOX_SOURCES
     resources/app_icon.rc
 )
 
-add_executable(RdpBox WIN32 ${RDPBOX_SOURCES})
+add_executable(RdpBox WIN32 ${RDPBOX_QT_SOURCES})
+
+set_target_properties(RdpBox PROPERTIES AUTOMOC ON)
 
 target_compile_definitions(RdpBox PRIVATE
-    _AFXDLL
     UNICODE
     _UNICODE
     _CRT_SECURE_NO_WARNINGS
@@ -186,14 +209,48 @@ target_include_directories(RdpBox PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+target_link_libraries(RdpBox PRIVATE
+    Qt5::Widgets
+    nlohmann_json::nlohmann_json
+    cjson
+
+    Bcrypt
+    Crypt32
+    Ole32
+    Shell32
+)
+
+if(TARGET Qt5::WinMain)
+    target_link_libraries(RdpBox PRIVATE Qt5::WinMain)
+endif()
+
+add_executable(RdpBoxLegacy WIN32 ${RDPBOX_SOURCES})
+
+target_compile_definitions(RdpBoxLegacy PRIVATE
+    _AFXDLL
+    UNICODE
+    _UNICODE
+    _CRT_SECURE_NO_WARNINGS
+    RDPBOX_VERSION=L"${RDPBOX_DISPLAY_VERSION}"
+    RDPBOX_GITHUB_URL=L"${RDPBOX_GITHUB_URL_VALUE}"
+    WINVER=0x0A00
+    _WIN32_WINNT=0x0A00
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+)
+
+target_include_directories(RdpBoxLegacy PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
 get_target_property(FREERDP_INCLUDE_DIRS freerdp INTERFACE_INCLUDE_DIRECTORIES)
 foreach(_freerdp_include_dir IN LISTS FREERDP_INCLUDE_DIRS)
     if(EXISTS "${_freerdp_include_dir}/freerdp3")
-        target_include_directories(RdpBox PRIVATE "${_freerdp_include_dir}/freerdp3")
+        target_include_directories(RdpBoxLegacy PRIVATE "${_freerdp_include_dir}/freerdp3")
     endif()
 endforeach()
 
-target_link_libraries(RdpBox PRIVATE
+target_link_libraries(RdpBoxLegacy PRIVATE
     freerdp
     freerdp-client
     winpr
@@ -212,7 +269,7 @@ target_link_libraries(RdpBox PRIVATE
 )
 
 if(MSVC)
-    set_target_properties(RdpBox PROPERTIES LINK_FLAGS "/ENTRY:WinMainCRTStartup")
+    set_target_properties(RdpBoxLegacy PROPERTIES LINK_FLAGS "/ENTRY:WinMainCRTStartup")
 endif()
 
 if(BUILD_TEST)
