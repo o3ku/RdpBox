@@ -79,6 +79,12 @@ set(RDPBOX_QT_SOURCES
     rdp/RdpCursorClassifier.cpp
     rdp/RdpInputEventUtil.h
     rdp/RdpInputEventUtil.cpp
+    rdp/RdpInputModifiers.h
+    rdp/RdpInputModifiers.cpp
+    rdp/RdpKeyboardInputRouter.h
+    rdp/RdpKeyboardInputRouter.cpp
+    rdp/RdpModifierSyncTracker.h
+    rdp/RdpModifierSyncTracker.cpp
     rdp/WindowsClipboardBackend.h
     rdp/WindowsClipboardBackend.cpp
     rdp/WindowsClipboardBackendDataObject.cpp

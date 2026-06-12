@@ -3,6 +3,7 @@
 #include "rdp/FreeRdpProcessNative.h"
 #include "rdp/RdpCursorClassifier.h"
 #include "rdp/RdpInputEventUtil.h"
+#include "rdp/RdpInputModifiers.h"
 
 #include <QFocusEvent>
 #include <QImage>
@@ -14,6 +15,8 @@
 #include <QWheelEvent>
 
 #include <algorithm>
+
+#include <windows.h>
 
 namespace
 {
@@ -81,6 +84,74 @@ Qt::CursorShape cursorShapeFromKind(CursorKind kind)
         return Qt::ArrowCursor;
     }
 }
+
+bool isVirtualKeyPhysicallyDown(int virtualKey)
+{
+    return (::GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+}
+
+unsigned int physicalKeyboardModifiers()
+{
+    unsigned int modifiers = ModifierNone;
+    if (isVirtualKeyPhysicallyDown(VK_CONTROL))
+        modifiers |= ModifierControl;
+    if (isVirtualKeyPhysicallyDown(VK_SHIFT))
+        modifiers |= ModifierShift;
+    if (isVirtualKeyPhysicallyDown(VK_MENU))
+        modifiers |= ModifierAlt;
+    if (isVirtualKeyPhysicallyDown(VK_LWIN) || isVirtualKeyPhysicallyDown(VK_RWIN))
+        modifiers |= ModifierWin;
+    return modifiers;
+}
+
+RdpKeyboardPhysicalState physicalKeyboardState()
+{
+    RdpKeyboardPhysicalState state;
+    state.modifiers = physicalKeyboardModifiers();
+    if (isVirtualKeyPhysicallyDown(VK_RCONTROL))
+        state.controlVirtualKey = VK_RCONTROL;
+    else if (isVirtualKeyPhysicallyDown(VK_LCONTROL))
+        state.controlVirtualKey = VK_LCONTROL;
+    if (isVirtualKeyPhysicallyDown(VK_RSHIFT))
+        state.shiftVirtualKey = VK_RSHIFT;
+    else if (isVirtualKeyPhysicallyDown(VK_LSHIFT))
+        state.shiftVirtualKey = VK_LSHIFT;
+    if (isVirtualKeyPhysicallyDown(VK_RMENU))
+        state.altVirtualKey = VK_RMENU;
+    else if (isVirtualKeyPhysicallyDown(VK_LMENU))
+        state.altVirtualKey = VK_LMENU;
+    if (isVirtualKeyPhysicallyDown(VK_RWIN))
+        state.winVirtualKey = VK_RWIN;
+    else if (isVirtualKeyPhysicallyDown(VK_LWIN))
+        state.winVirtualKey = VK_LWIN;
+    return state;
+}
+
+std::uint32_t keyMessageFromQtEvent(const QKeyEvent *event, bool down)
+{
+    const unsigned int virtualKey = static_cast<unsigned int>(event->nativeVirtualKey());
+    const bool altContext = virtualKey == VK_MENU
+        || virtualKey == VK_LMENU
+        || virtualKey == VK_RMENU
+        || (physicalKeyboardModifiers() & ModifierAlt) != 0;
+    if (down)
+        return altContext ? WM_SYSKEYDOWN : WM_KEYDOWN;
+    return altContext ? WM_SYSKEYUP : WM_KEYUP;
+}
+
+unsigned int mouseButtonBit(MouseButton button)
+{
+    switch (button) {
+    case MouseButton::Left:
+        return 1u << 0;
+    case MouseButton::Right:
+        return 1u << 1;
+    case MouseButton::Middle:
+        return 1u << 2;
+    default:
+        return 0;
+    }
+}
 }
 
 QtRdpSessionWidget::QtRdpSessionWidget(Profile profile, QWidget *parent)
@@ -106,6 +177,9 @@ void QtRdpSessionWidget::connectToHost()
     if (!m_process)
         return;
 
+    m_keyboardRouter.reset();
+    m_pressedMouseButtons = 0;
+    m_hasLastPointerPoint = false;
     m_frameGeneration = 0;
     m_frame = {};
     updateState(FreeRdpProcess::State::Starting);
@@ -169,8 +243,13 @@ void QtRdpSessionWidget::resizeEvent(QResizeEvent *event)
 
 void QtRdpSessionWidget::mouseMoveEvent(QMouseEvent *event)
 {
+    m_lastPointerPoint = pointFromMouseEvent(event);
+    m_hasLastPointerPoint = true;
+    const unsigned int mouseFlags = mouseFlagsFromEvent(event);
+    if (rdp::shouldSynchronizeModifiersForMouseMove(mouseFlags))
+        syncMouseModifiers(mouseFlags);
     if (m_process)
-        m_process->sendMouseMove(pointFromMouseEvent(event), viewSize());
+        m_process->sendMouseMove(m_lastPointerPoint, viewSize());
 }
 
 void QtRdpSessionWidget::mousePressEvent(QMouseEvent *event)
@@ -190,6 +269,14 @@ void QtRdpSessionWidget::wheelEvent(QWheelEvent *event)
         return;
 
     const QPoint position = event->position().toPoint();
+    m_lastPointerPoint = PointI{position.x(), position.y()};
+    m_hasLastPointerPoint = true;
+    unsigned int mouseFlags = ModifierNone;
+    if ((event->modifiers() & Qt::ControlModifier) != 0)
+        mouseFlags |= MK_CONTROL;
+    if ((event->modifiers() & Qt::ShiftModifier) != 0)
+        mouseFlags |= MK_SHIFT;
+    syncMouseModifiers(mouseFlags);
     const QPoint delta = event->angleDelta();
     m_process->sendWheel(PointI{delta.x(), delta.y()},
                          PointI{position.x(), position.y()},
@@ -209,8 +296,16 @@ void QtRdpSessionWidget::keyReleaseEvent(QKeyEvent *event)
 void QtRdpSessionWidget::focusInEvent(QFocusEvent *event)
 {
     QWidget::focusInEvent(event);
+    m_keyboardRouter.onFocusGained();
     if (m_process)
         m_process->sendFocusIn();
+}
+
+void QtRdpSessionWidget::focusOutEvent(QFocusEvent *event)
+{
+    QWidget::focusOutEvent(event);
+    releasePressedMouseButtons();
+    sendKeyboardActions(m_keyboardRouter.handleFocusLost(physicalKeyboardState()));
 }
 
 void QtRdpSessionWidget::bindProcessCallbacks()
@@ -274,6 +369,8 @@ void QtRdpSessionWidget::stopProcess()
     if (!m_process)
         return;
 
+    releasePressedMouseButtons();
+    releaseAllPressedKeys();
     clearProcessCallbacks();
     m_process->stop();
 }
@@ -346,6 +443,40 @@ PointI QtRdpSessionWidget::pointFromMouseEvent(const QMouseEvent *event) const
     return PointI{pos.x(), pos.y()};
 }
 
+unsigned int QtRdpSessionWidget::mouseFlagsFromEvent(const QMouseEvent *event) const
+{
+    if (!event)
+        return 0;
+
+    unsigned int flags = 0;
+    if ((event->modifiers() & Qt::ControlModifier) != 0)
+        flags |= MK_CONTROL;
+    if ((event->modifiers() & Qt::ShiftModifier) != 0)
+        flags |= MK_SHIFT;
+    if ((event->buttons() & Qt::LeftButton) != 0)
+        flags |= MK_LBUTTON;
+    if ((event->buttons() & Qt::RightButton) != 0)
+        flags |= MK_RBUTTON;
+    if ((event->buttons() & Qt::MiddleButton) != 0)
+        flags |= MK_MBUTTON;
+    if ((event->buttons() & Qt::BackButton) != 0)
+        flags |= MK_XBUTTON1;
+    if ((event->buttons() & Qt::ForwardButton) != 0)
+        flags |= MK_XBUTTON2;
+    return flags;
+}
+
+void QtRdpSessionWidget::syncMouseModifiers(unsigned int mouseFlags)
+{
+    if (!m_process)
+        return;
+
+    sendKeyboardActions(m_keyboardRouter.synchronizeMouseModifiers(
+        mouseFlags,
+        physicalKeyboardState(),
+        hasFocus()));
+}
+
 void QtRdpSessionWidget::sendMouseButton(QMouseEvent *event, bool down)
 {
     if (!m_process || !event)
@@ -355,7 +486,24 @@ void QtRdpSessionWidget::sendMouseButton(QMouseEvent *event, bool down)
     if (button == MouseButton::None)
         return;
 
-    m_process->sendMouseButton(button, down, pointFromMouseEvent(event), viewSize());
+    m_lastPointerPoint = pointFromMouseEvent(event);
+    m_hasLastPointerPoint = true;
+    syncMouseModifiers(mouseFlagsFromEvent(event));
+    m_process->sendMouseButton(button, down, m_lastPointerPoint, viewSize());
+
+    const unsigned int bit = mouseButtonBit(button);
+    if (bit == 0)
+        return;
+
+    if (down)
+        m_pressedMouseButtons |= bit;
+    else
+        m_pressedMouseButtons &= ~bit;
+
+    if (m_pressedMouseButtons != 0)
+        grabMouse();
+    else
+        releaseMouse();
 }
 
 void QtRdpSessionWidget::sendKeyEvent(QKeyEvent *event, bool down)
@@ -370,6 +518,64 @@ void QtRdpSessionWidget::sendKeyEvent(QKeyEvent *event, bool down)
         return;
     }
 
-    m_process->sendKey(*key, down, event->isAutoRepeat());
+    const std::uint32_t message = keyMessageFromQtEvent(event, down);
+    const std::intptr_t lParam = makeKeyLParam(*key, down, event->isAutoRepeat());
+    const auto nativeEvent = keyEventInfoFromMessage(message, virtualKey, lParam);
+    if (!nativeEvent) {
+        event->ignore();
+        return;
+    }
+
+    sendKeyboardActions(m_keyboardRouter.handleKeyMessage(message,
+                                                          virtualKey,
+                                                          *nativeEvent,
+                                                          physicalKeyboardState(),
+                                                          hasFocus()));
     event->accept();
+}
+
+void QtRdpSessionWidget::sendKeyboardAction(const RdpKeyboardInputRouter::KeyAction &action)
+{
+    if (!m_process)
+        return;
+
+    m_process->sendKey(action.key, action.down, action.wasDown);
+}
+
+void QtRdpSessionWidget::sendKeyboardActions(
+    const std::vector<RdpKeyboardInputRouter::KeyAction> &actions)
+{
+    for (const auto &action : actions)
+        sendKeyboardAction(action);
+}
+
+void QtRdpSessionWidget::releasePressedMouseButtons()
+{
+    const unsigned int pressedButtons = m_pressedMouseButtons;
+    m_pressedMouseButtons = 0;
+    releaseMouse();
+
+    if (pressedButtons == 0)
+        return;
+
+    if (!m_process || m_process->state() != FreeRdpProcess::State::Running)
+        return;
+
+    const PointI point = m_hasLastPointerPoint ? m_lastPointerPoint : PointI{};
+    if ((pressedButtons & (1u << 0)) != 0)
+        m_process->sendMouseButton(MouseButton::Left, false, point, viewSize());
+    if ((pressedButtons & (1u << 1)) != 0)
+        m_process->sendMouseButton(MouseButton::Right, false, point, viewSize());
+    if ((pressedButtons & (1u << 2)) != 0)
+        m_process->sendMouseButton(MouseButton::Middle, false, point, viewSize());
+}
+
+void QtRdpSessionWidget::releaseAllPressedKeys()
+{
+    if (!m_process || m_process->state() != FreeRdpProcess::State::Running) {
+        m_keyboardRouter.reset();
+        return;
+    }
+
+    sendKeyboardActions(m_keyboardRouter.releaseAllPressedKeys());
 }
