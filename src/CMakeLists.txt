@@ -92,6 +92,8 @@ set(RDPBOX_QT_SOURCES
     rdp/WindowsClipboardBackendWindow.cpp
     rdp/WindowsClipboardBehavior.h
     rdp/WindowsClipboardBehavior.cpp
+    ui/WindowStateScaling.h
+    ui/WindowStateScaling.cpp
     resources/resource.h
     resources/app_icon.rc
 )
