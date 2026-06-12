@@ -3,7 +3,7 @@
   <assemblyIdentity
     type="win32"
     name="RdpBox"
-    version="1.11.0.0"
+    version="1.12.0.0"
     processorArchitecture="*"
   />
 
