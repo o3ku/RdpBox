@@ -6,6 +6,7 @@
 
 #include <QWidget>
 
+#include <functional>
 #include <memory>
 
 class QLabel;
@@ -19,6 +20,7 @@ public:
     void connectToHost();
     void reconnect();
     bool isConnected() const;
+    void setStateChangedCallback(std::function<void(FreeRdpProcess::State)> callback);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -51,4 +53,5 @@ private:
     FrameBuffer m_frame;
     uint64_t m_frameGeneration = 0;
     QString m_overlayText;
+    std::function<void(FreeRdpProcess::State)> m_stateChanged;
 };

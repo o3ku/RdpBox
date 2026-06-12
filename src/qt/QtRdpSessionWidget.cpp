@@ -133,6 +133,11 @@ bool QtRdpSessionWidget::isConnected() const
     return m_state == FreeRdpProcess::State::Running;
 }
 
+void QtRdpSessionWidget::setStateChangedCallback(std::function<void(FreeRdpProcess::State)> callback)
+{
+    m_stateChanged = std::move(callback);
+}
+
 void QtRdpSessionWidget::paintEvent(QPaintEvent *event)
 {
     static_cast<void>(event);
@@ -216,39 +221,39 @@ void QtRdpSessionWidget::bindProcessCallbacks()
     std::weak_ptr<FreeRdpProcess> weakProcess = m_process;
     m_process->setStateChangedCallback([this, weakProcess](FreeRdpProcess::State state) {
         QMetaObject::invokeMethod(this, [this, weakProcess, state]() {
-            if (!weakProcess.lock())
+            if (weakProcess.lock() != m_process)
                 return;
             updateState(state);
         }, Qt::QueuedConnection);
     });
     m_process->setFrameUpdatedCallback([this, weakProcess]() {
         QMetaObject::invokeMethod(this, [this, weakProcess]() {
-            if (!weakProcess.lock())
+            if (weakProcess.lock() != m_process)
                 return;
             consumeFrame();
         }, Qt::QueuedConnection);
     });
     m_process->setDesktopResizedCallback([this, weakProcess](const SizeI &) {
         QMetaObject::invokeMethod(this, [this, weakProcess]() {
-            if (!weakProcess.lock())
+            if (weakProcess.lock() != m_process)
                 return;
             requestResize();
         }, Qt::QueuedConnection);
     });
     m_process->setCursorUpdatedCallback([this, weakProcess]() {
         QMetaObject::invokeMethod(this, [this, weakProcess]() {
-            if (!weakProcess.lock())
+            if (weakProcess.lock() != m_process)
                 return;
             updateCursor();
         }, Qt::QueuedConnection);
     });
-    m_process->setCertificateChallengeCallback([this](const FreeRdpProcess::CertificateChallenge &challenge) {
+    m_process->setCertificateChallengeCallback([this, weakProcess](const FreeRdpProcess::CertificateChallenge &challenge) {
         bool accepted = false;
         QMetaObject::invokeMethod(this, [this, &accepted, challenge]() {
             accepted = confirmCertificate(challenge);
         }, Qt::BlockingQueuedConnection);
-        if (m_process)
-            m_process->resolveCertificateChallenge(accepted);
+        if (auto process = weakProcess.lock())
+            process->resolveCertificateChallenge(accepted);
     });
 }
 
@@ -282,6 +287,8 @@ void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
         if (!error.empty())
             m_overlayText = QString::fromStdString(error);
     }
+    if (m_stateChanged)
+        m_stateChanged(state);
     update();
 }
 
