@@ -49,6 +49,10 @@ set(RDPBOX_QT_SOURCES
     qt/QtMain.cpp
     qt/QtMainWindow.h
     qt/QtMainWindow.cpp
+    qt/QtRdpSessionWidget.h
+    qt/QtRdpSessionWidget.cpp
+    qt/QtWindowChromeBehavior.h
+    qt/QtWindowChromeBehavior.cpp
     qt/QtProfileDialog.h
     qt/QtProfileDialog.cpp
     common/AppPaths.h
@@ -62,6 +66,26 @@ set(RDPBOX_QT_SOURCES
     profiles/Profile.h
     profiles/ProfileRepository.h
     profiles/ProfileRepository.cpp
+    rdp/ClipboardWindowReady.h
+    rdp/FrameBufferMemory.h
+    rdp/FreeRdpProcess.h
+    rdp/FreeRdpProcess.cpp
+    rdp/FreeRdpProcessNative.h
+    rdp/FreeRdpProcessNative.cpp
+    rdp/PlatformClipboardBackend.h
+    rdp/RdpClipboardBridge.h
+    rdp/RdpClipboardBridge.cpp
+    rdp/RdpCursorClassifier.h
+    rdp/RdpCursorClassifier.cpp
+    rdp/RdpInputEventUtil.h
+    rdp/RdpInputEventUtil.cpp
+    rdp/WindowsClipboardBackend.h
+    rdp/WindowsClipboardBackend.cpp
+    rdp/WindowsClipboardBackendDataObject.cpp
+    rdp/WindowsClipboardBackendInternal.h
+    rdp/WindowsClipboardBackendWindow.cpp
+    rdp/WindowsClipboardBehavior.h
+    rdp/WindowsClipboardBehavior.cpp
     resources/resource.h
     resources/app_icon.rc
 )
@@ -209,15 +233,28 @@ target_include_directories(RdpBox PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+get_target_property(FREERDP_INCLUDE_DIRS freerdp INTERFACE_INCLUDE_DIRECTORIES)
+foreach(_freerdp_include_dir IN LISTS FREERDP_INCLUDE_DIRS)
+    if(EXISTS "${_freerdp_include_dir}/freerdp3")
+        target_include_directories(RdpBox PRIVATE "${_freerdp_include_dir}/freerdp3")
+    endif()
+endforeach()
+
 target_link_libraries(RdpBox PRIVATE
     Qt5::Widgets
+    freerdp
+    freerdp-client
+    winpr
     nlohmann_json::nlohmann_json
     cjson
 
     Bcrypt
     Crypt32
+    Imm32
     Ole32
     Shell32
+    User32
+    Gdi32
 )
 
 if(TARGET Qt5::WinMain)
@@ -243,7 +280,6 @@ target_include_directories(RdpBoxLegacy PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-get_target_property(FREERDP_INCLUDE_DIRS freerdp INTERFACE_INCLUDE_DIRECTORIES)
 foreach(_freerdp_include_dir IN LISTS FREERDP_INCLUDE_DIRS)
     if(EXISTS "${_freerdp_include_dir}/freerdp3")
         target_include_directories(RdpBoxLegacy PRIVATE "${_freerdp_include_dir}/freerdp3")
