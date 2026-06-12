@@ -3,11 +3,13 @@
 #include "common/NativeTypes.h"
 #include "profiles/Profile.h"
 #include "rdp/FreeRdpProcess.h"
+#include "rdp/RdpKeyboardInputRouter.h"
 
 #include <QWidget>
 
 #include <functional>
 #include <memory>
+#include <vector>
 
 class QLabel;
 
@@ -32,6 +34,7 @@ protected:
     void keyPressEvent(QKeyEvent *event) override;
     void keyReleaseEvent(QKeyEvent *event) override;
     void focusInEvent(QFocusEvent *event) override;
+    void focusOutEvent(QFocusEvent *event) override;
 
 private:
     void bindProcessCallbacks();
@@ -44,8 +47,14 @@ private:
     bool confirmCertificate(const FreeRdpProcess::CertificateChallenge &challenge);
     SizeI viewSize() const;
     PointI pointFromMouseEvent(const QMouseEvent *event) const;
+    unsigned int mouseFlagsFromEvent(const QMouseEvent *event) const;
+    void syncMouseModifiers(unsigned int mouseFlags);
     void sendMouseButton(QMouseEvent *event, bool down);
     void sendKeyEvent(QKeyEvent *event, bool down);
+    void sendKeyboardAction(const RdpKeyboardInputRouter::KeyAction &action);
+    void sendKeyboardActions(const std::vector<RdpKeyboardInputRouter::KeyAction> &actions);
+    void releasePressedMouseButtons();
+    void releaseAllPressedKeys();
 
     Profile m_profile;
     std::shared_ptr<FreeRdpProcess> m_process;
@@ -54,4 +63,8 @@ private:
     uint64_t m_frameGeneration = 0;
     QString m_overlayText;
     std::function<void(FreeRdpProcess::State)> m_stateChanged;
+    RdpKeyboardInputRouter m_keyboardRouter;
+    unsigned int m_pressedMouseButtons = 0;
+    PointI m_lastPointerPoint;
+    bool m_hasLastPointerPoint = false;
 };
