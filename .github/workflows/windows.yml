@@ -9,11 +9,19 @@ on:
       - main
   workflow_dispatch:
 
+concurrency:
+  group: windows-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
 env:
   VCPKG_DEFAULT_TRIPLET: x64-windows-static-md
   VCPKG_FEATURE_FLAGS: manifests,binarycaching
   VCPKG_INSTALLED_DIR: ${{ github.workspace }}\vcpkg_installed
-  VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}\.vcpkg-cache,readwrite
+  VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}\.vcpkg-cache,readwrite;nuget,GitHub,readwrite
 
 jobs:
   build-test:
@@ -67,6 +75,24 @@ jobs:
           key: windows-vcpkg-${{ env.VCPKG_DEFAULT_TRIPLET }}-${{ hashFiles('vcpkg.json', '.github/workflows/windows.yml') }}
           restore-keys: |
             windows-vcpkg-${{ env.VCPKG_DEFAULT_TRIPLET }}-
+
+      - name: Configure vcpkg binary cache
+        shell: pwsh
+        env:
+          GH_PACKAGES_TOKEN: ${{ github.token }}
+        run: |
+          $nuget = & "$env:VCPKG_ROOT\vcpkg.exe" fetch nuget
+          if (-not $nuget) {
+            throw "Could not locate nuget via vcpkg."
+          }
+          & $nuget sources remove -Name GitHub -NonInteractive 2>$null | Out-Null
+          & $nuget sources add `
+            -Name GitHub `
+            -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" `
+            -UserName "${{ github.repository_owner }}" `
+            -Password "$env:GH_PACKAGES_TOKEN" `
+            -StorePasswordInClearText `
+            -NonInteractive
 
       - name: Install dependencies
         shell: pwsh
