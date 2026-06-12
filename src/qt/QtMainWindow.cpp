@@ -5,10 +5,12 @@
 #include "qt/QtProfileDialog.h"
 #include "qt/QtRdpSessionWidget.h"
 #include "qt/QtWindowChromeBehavior.h"
+#include "ui/WindowStateScaling.h"
 
 #include <QApplication>
 #include <QBoxLayout>
 #include <QByteArray>
+#include <QCloseEvent>
 #include <QEvent>
 #include <QFrame>
 #include <QGroupBox>
@@ -28,6 +30,7 @@
 #include <windows.h>
 
 #include <array>
+#include <cwchar>
 
 namespace
 {
@@ -48,6 +51,87 @@ QString profileSubtitle(const Profile &profile)
         subtitle += QStringLiteral("  %1").arg(QString::fromStdWString(profile.username));
     return subtitle;
 }
+
+bool monitorInfoForRect(const RECT &rect, RECT &monitorRect, RECT &workArea, std::wstring &deviceName)
+{
+    const HMONITOR monitor = ::MonitorFromRect(&rect, MONITOR_DEFAULTTONEAREST);
+    if (!monitor)
+        return false;
+
+    MONITORINFOEXW info = {};
+    info.cbSize = sizeof(info);
+    if (!::GetMonitorInfoW(monitor, &info))
+        return false;
+
+    monitorRect = info.rcMonitor;
+    workArea = info.rcWork;
+    deviceName = info.szDevice;
+    return true;
+}
+
+struct MonitorLookupContext
+{
+    const wchar_t *deviceName = nullptr;
+    RECT monitorRect = {};
+    RECT workArea = {};
+    bool found = false;
+};
+
+BOOL CALLBACK findMonitorByDeviceName(HMONITOR monitor, HDC, LPRECT, LPARAM userData)
+{
+    auto *context = reinterpret_cast<MonitorLookupContext *>(userData);
+    if (!context || !context->deviceName)
+        return TRUE;
+
+    MONITORINFOEXW info = {};
+    info.cbSize = sizeof(info);
+    if (!::GetMonitorInfoW(monitor, &info))
+        return TRUE;
+
+    if (::wcscmp(info.szDevice, context->deviceName) != 0)
+        return TRUE;
+
+    context->monitorRect = info.rcMonitor;
+    context->workArea = info.rcWork;
+    context->found = true;
+    return FALSE;
+}
+
+bool monitorInfoForDeviceName(const std::wstring &deviceName, RECT &monitorRect, RECT &workArea)
+{
+    if (deviceName.empty())
+        return false;
+
+    MonitorLookupContext context;
+    context.deviceName = deviceName.c_str();
+    ::EnumDisplayMonitors(nullptr, nullptr, &findMonitorByDeviceName, reinterpret_cast<LPARAM>(&context));
+    if (!context.found)
+        return false;
+
+    monitorRect = context.monitorRect;
+    workArea = context.workArea;
+    return true;
+}
+
+bool activeMonitorInfo(RECT &monitorRect, RECT &workArea)
+{
+    POINT point = {};
+    if (!::GetCursorPos(&point))
+        point = POINT{0, 0};
+
+    const HMONITOR monitor = ::MonitorFromPoint(point, MONITOR_DEFAULTTOPRIMARY);
+    if (!monitor)
+        return false;
+
+    MONITORINFOEXW info = {};
+    info.cbSize = sizeof(info);
+    if (!::GetMonitorInfoW(monitor, &info))
+        return false;
+
+    monitorRect = info.rcMonitor;
+    workArea = info.rcWork;
+    return true;
+}
 }
 
 QtMainWindow::QtMainWindow(std::vector<std::wstring> startupConnectionNames,
@@ -61,6 +145,7 @@ QtMainWindow::QtMainWindow(std::vector<std::wstring> startupConnectionNames,
     setWindowTitle(QStringLiteral("RdpBox"));
     resize(1180, 760);
     buildUi();
+    restoreWindowState();
     refreshProfileList();
 
     if (!m_startupConnectionNames.empty()) {
@@ -88,8 +173,17 @@ bool QtMainWindow::nativeEvent(const QByteArray &eventType, void *message, long 
 void QtMainWindow::changeEvent(QEvent *event)
 {
     QMainWindow::changeEvent(event);
-    if (event->type() == QEvent::WindowStateChange)
+    if (event->type() == QEvent::WindowStateChange) {
         refreshWindowControls();
+        if (!m_restoringWindowState)
+            saveWindowState();
+    }
+}
+
+void QtMainWindow::closeEvent(QCloseEvent *event)
+{
+    saveWindowState();
+    QMainWindow::closeEvent(event);
 }
 
 void QtMainWindow::buildUi()
@@ -303,6 +397,74 @@ void QtMainWindow::configureHomeTab()
 
     bar->setTabButton(0, QTabBar::LeftSide, nullptr);
     bar->setTabButton(0, QTabBar::RightSide, nullptr);
+}
+
+void QtMainWindow::saveWindowState() const
+{
+    HWND hwnd = reinterpret_cast<HWND>(const_cast<QtMainWindow *>(this)->winId());
+    if (!hwnd || ::IsIconic(hwnd))
+        return;
+
+    WINDOWPLACEMENT placement = {};
+    placement.length = sizeof(placement);
+    if (!::GetWindowPlacement(hwnd, &placement))
+        return;
+
+    RECT monitorRect = {};
+    RECT workArea = {};
+    std::wstring deviceName;
+    if (!monitorInfoForRect(placement.rcNormalPosition, monitorRect, workArea, deviceName))
+        return;
+
+    const RECT workspaceRect = WindowStateScaling::workspaceRectForMonitorWorkArea(monitorRect, workArea);
+
+    WindowState state;
+    if (!WindowStateScaling::saveToMonitorWorkArea(placement.rcNormalPosition,
+                                                   workspaceRect,
+                                                   static_cast<int>(placement.showCmd),
+                                                   state)) {
+        return;
+    }
+
+    state.monitorDeviceName = deviceName;
+    m_repository.saveWindowState(state);
+}
+
+bool QtMainWindow::restoreWindowState()
+{
+    const WindowState state = m_repository.loadWindowState();
+    if (!state.valid)
+        return false;
+
+    RECT monitorRect = {};
+    RECT workArea = {};
+    if (!monitorInfoForDeviceName(state.monitorDeviceName, monitorRect, workArea)
+        && !activeMonitorInfo(monitorRect, workArea)) {
+        return false;
+    }
+
+    const RECT workspaceRect = WindowStateScaling::workspaceRectForMonitorWorkArea(monitorRect, workArea);
+    RECT restoredRect = {};
+    if (!WindowStateScaling::restoreFromMonitorWorkArea(state, workspaceRect, restoredRect))
+        return false;
+
+    HWND hwnd = reinterpret_cast<HWND>(winId());
+    if (!hwnd)
+        return false;
+
+    WINDOWPLACEMENT placement = {};
+    placement.length = sizeof(placement);
+    if (!::GetWindowPlacement(hwnd, &placement))
+        return false;
+
+    placement.rcNormalPosition = restoredRect;
+    placement.showCmd = state.showCmd;
+
+    m_restoringWindowState = true;
+    const bool restored = ::SetWindowPlacement(hwnd, &placement) != FALSE;
+    m_restoringWindowState = false;
+    refreshWindowControls();
+    return restored;
 }
 
 int QtMainWindow::nativeHitTestForPoint(const QPoint &windowPoint) const

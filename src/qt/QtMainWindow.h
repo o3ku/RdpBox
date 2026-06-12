@@ -27,6 +27,7 @@ public:
 protected:
     bool nativeEvent(const QByteArray &eventType, void *message, long *result) override;
     void changeEvent(QEvent *event) override;
+    void closeEvent(QCloseEvent *event) override;
 
 private:
     void buildUi();
@@ -35,6 +36,8 @@ private:
     void refreshActions();
     void refreshWindowControls();
     void configureHomeTab();
+    void saveWindowState() const;
+    bool restoreWindowState();
     int nativeHitTestForPoint(const QPoint &windowPoint) const;
     void addProfile();
     void editSelectedProfile();
@@ -64,4 +67,5 @@ private:
     QPushButton *m_connectButton = nullptr;
     QTabWidget *m_tabs = nullptr;
     QLabel *m_statusLabel = nullptr;
+    bool m_restoringWindowState = false;
 };
