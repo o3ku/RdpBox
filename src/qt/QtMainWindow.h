@@ -40,13 +40,14 @@ private:
     void editSelectedProfile();
     void deleteSelectedProfile();
     void closeSessionTab(int index);
+    void touchLastConnectedAt(const Profile &profile);
     void connectSelectedProfile();
     void openConnectionsByName(const std::vector<std::wstring> &connectionNames);
     Profile selectedProfile() const;
     std::wstring selectedProfileName() const;
     void addSessionTab(const Profile &profile);
     QWidget *createHomePage() const;
-    QWidget *createSessionPage(const Profile &profile) const;
+    QWidget *createSessionPage(const Profile &profile);
     std::vector<QRect> captionExclusionRects() const;
 
     ProfileRepository m_repository;

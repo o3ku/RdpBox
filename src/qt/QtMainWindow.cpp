@@ -1,6 +1,7 @@
 #include "qt/QtMainWindow.h"
 
 #include "common/AppPaths.h"
+#include "common/Win32String.h"
 #include "qt/QtProfileDialog.h"
 #include "qt/QtRdpSessionWidget.h"
 #include "qt/QtWindowChromeBehavior.h"
@@ -405,6 +406,17 @@ void QtMainWindow::closeSessionTab(int index)
     configureHomeTab();
 }
 
+void QtMainWindow::touchLastConnectedAt(const Profile &profile)
+{
+    Profile stored = m_repository.profileByName(profile.name);
+    if (!stored.isValid())
+        return;
+
+    stored.lastConnectedAt = currentUtcIso8601();
+    if (m_repository.updateProfile(stored.name, stored))
+        refreshProfileList();
+}
+
 void QtMainWindow::connectSelectedProfile()
 {
     const Profile profile = selectedProfile();
@@ -465,7 +477,7 @@ QWidget *QtMainWindow::createHomePage() const
     return page;
 }
 
-QWidget *QtMainWindow::createSessionPage(const Profile &profile) const
+QWidget *QtMainWindow::createSessionPage(const Profile &profile)
 {
     auto *page = new QWidget;
     auto *layout = new QVBoxLayout(page);
@@ -482,7 +494,7 @@ QWidget *QtMainWindow::createSessionPage(const Profile &profile) const
 
     auto *surface = new QtRdpSessionWidget(profile, page);
     surface->setObjectName(QStringLiteral("sessionSurface"));
-    surface->setStateChangedCallback([statusLabel](FreeRdpProcess::State state) {
+    surface->setStateChangedCallback([this, profile, statusLabel](FreeRdpProcess::State state) {
         switch (state) {
         case FreeRdpProcess::State::Idle:
             statusLabel->setText(QObject::tr("Disconnected"));
@@ -492,6 +504,7 @@ QWidget *QtMainWindow::createSessionPage(const Profile &profile) const
             break;
         case FreeRdpProcess::State::Running:
             statusLabel->setText(QObject::tr("Connected"));
+            touchLastConnectedAt(profile);
             break;
         case FreeRdpProcess::State::Finished:
             statusLabel->setText(QObject::tr("Disconnected"));
