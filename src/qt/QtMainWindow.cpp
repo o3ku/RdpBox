@@ -19,6 +19,7 @@
 #include <QSplitter>
 #include <QStatusBar>
 #include <QStyle>
+#include <QTabBar>
 #include <QTabWidget>
 #include <QTimer>
 #include <QToolButton>
@@ -146,6 +147,7 @@ void QtMainWindow::buildUi()
     m_tabs->setDocumentMode(true);
     m_tabs->setTabsClosable(true);
     m_tabs->addTab(createHomePage(), tr("Home"));
+    configureHomeTab();
     workspaceLayout->addWidget(m_tabs);
 
     splitter->addWidget(sidebar);
@@ -181,8 +183,7 @@ void QtMainWindow::buildUi()
         connectSelectedProfile();
     });
     connect(m_tabs, &QTabWidget::tabCloseRequested, this, [this](int index) {
-        if (index > 0)
-            m_tabs->removeTab(index);
+        closeSessionTab(index);
     });
 
     refreshActions();
@@ -290,6 +291,19 @@ void QtMainWindow::refreshWindowControls()
     m_maximizeButton->setToolTip(isMaximized() ? tr("Restore") : tr("Maximize"));
 }
 
+void QtMainWindow::configureHomeTab()
+{
+    if (!m_tabs || m_tabs->count() == 0)
+        return;
+
+    QTabBar *bar = m_tabs->tabBar();
+    if (!bar)
+        return;
+
+    bar->setTabButton(0, QTabBar::LeftSide, nullptr);
+    bar->setTabButton(0, QTabBar::RightSide, nullptr);
+}
+
 int QtMainWindow::nativeHitTestForPoint(const QPoint &windowPoint) const
 {
     const QRect captionRect = m_titleBar ? QRect(m_titleBar->pos(), m_titleBar->size()) : QRect();
@@ -377,6 +391,18 @@ void QtMainWindow::deleteSelectedProfile()
 
     m_repository.removeProfile(currentName);
     refreshProfileList();
+}
+
+void QtMainWindow::closeSessionTab(int index)
+{
+    if (!m_tabs || index <= 0 || index >= m_tabs->count())
+        return;
+
+    QWidget *page = m_tabs->widget(index);
+    m_tabs->removeTab(index);
+    if (page)
+        page->deleteLater();
+    configureHomeTab();
 }
 
 void QtMainWindow::connectSelectedProfile()
