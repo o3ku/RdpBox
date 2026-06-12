@@ -449,10 +449,32 @@ QWidget *QtMainWindow::createSessionPage(const Profile &profile) const
     auto *summary = new QGroupBox(profileTitle(profile), page);
     auto *summaryLayout = new QVBoxLayout(summary);
     summaryLayout->addWidget(new QLabel(profileSubtitle(profile), summary));
-    summaryLayout->addWidget(new QLabel(tr("Disconnected"), summary));
+    auto *statusLabel = new QLabel(tr("Disconnected"), summary);
+    auto *reconnectButton = new QPushButton(style()->standardIcon(QStyle::SP_BrowserReload), tr("Reconnect"), summary);
+    summaryLayout->addWidget(statusLabel);
+    summaryLayout->addWidget(reconnectButton, 0, Qt::AlignLeft);
 
     auto *surface = new QtRdpSessionWidget(profile, page);
     surface->setObjectName(QStringLiteral("sessionSurface"));
+    surface->setStateChangedCallback([statusLabel](FreeRdpProcess::State state) {
+        switch (state) {
+        case FreeRdpProcess::State::Idle:
+            statusLabel->setText(QObject::tr("Disconnected"));
+            break;
+        case FreeRdpProcess::State::Starting:
+            statusLabel->setText(QObject::tr("Connecting"));
+            break;
+        case FreeRdpProcess::State::Running:
+            statusLabel->setText(QObject::tr("Connected"));
+            break;
+        case FreeRdpProcess::State::Finished:
+            statusLabel->setText(QObject::tr("Disconnected"));
+            break;
+        }
+    });
+    connect(reconnectButton, &QPushButton::clicked, surface, [surface]() {
+        surface->reconnect();
+    });
 
     layout->addWidget(summary);
     layout->addWidget(surface, 1);
