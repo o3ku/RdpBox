@@ -6,6 +6,6 @@
     "cjson",
     "freerdp",
     "nlohmann-json",
-    "qt5base"
+    "qt5-base"
   ]
 }
