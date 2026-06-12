@@ -34,10 +34,12 @@ private:
     void refreshProfileList();
     void refreshActions();
     void refreshWindowControls();
+    void configureHomeTab();
     int nativeHitTestForPoint(const QPoint &windowPoint) const;
     void addProfile();
     void editSelectedProfile();
     void deleteSelectedProfile();
+    void closeSessionTab(int index);
     void connectSelectedProfile();
     void openConnectionsByName(const std::vector<std::wstring> &connectionNames);
     Profile selectedProfile() const;
