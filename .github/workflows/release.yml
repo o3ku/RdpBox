@@ -1,0 +1,164 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release, for example v1.12.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  VCPKG_DEFAULT_TRIPLET: x64-windows-static-md
+  VCPKG_FEATURE_FLAGS: manifests,binarycaching
+  VCPKG_INSTALLED_DIR: ${{ github.workspace }}\vcpkg_installed
+  VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}\.vcpkg-cache,readwrite
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: windows-latest
+
+    steps:
+      - name: Resolve tag
+        id: resolve-tag
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $tag = "${{ inputs.tag }}"
+          } else {
+            $tag = "${{ github.ref_name }}"
+          }
+          if (-not ($tag -match '^v[0-9]+(\.[0-9]+)*([-.][0-9A-Za-z.-]+)?$')) {
+            throw "Release tag '$tag' must start with a version-like v tag, for example v1.12.0."
+          }
+          "RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.resolve-tag.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Configure MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Verify build tools
+        shell: pwsh
+        run: |
+          where.exe cl
+          cmake --version
+          ninja --version
+          if (-not $env:VCToolsInstallDir) {
+            throw "VCToolsInstallDir is not set."
+          }
+          $mfcHeader = Join-Path $env:VCToolsInstallDir "atlmfc\include\afxwin.h"
+          if (-not (Test-Path $mfcHeader)) {
+            throw "MFC headers were not found at $mfcHeader."
+          }
+
+      - name: Locate vcpkg
+        shell: pwsh
+        run: |
+          $root = $env:VCPKG_ROOT
+          if (-not $root -and $env:VCPKG_INSTALLATION_ROOT) {
+            $root = $env:VCPKG_INSTALLATION_ROOT
+          }
+          if (-not $root -and (Test-Path "C:\vcpkg")) {
+            $root = "C:\vcpkg"
+          }
+          if (-not $root) {
+            throw "Could not locate vcpkg on the runner."
+          }
+          "VCPKG_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            .vcpkg-cache
+            vcpkg_installed
+          key: windows-release-vcpkg-${{ env.VCPKG_DEFAULT_TRIPLET }}-${{ hashFiles('vcpkg.json', '.github/workflows/release.yml') }}
+          restore-keys: |
+            windows-vcpkg-${{ env.VCPKG_DEFAULT_TRIPLET }}-
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path ".vcpkg-cache" | Out-Null
+          & "$env:VCPKG_ROOT\vcpkg.exe" install `
+            --triplet $env:VCPKG_DEFAULT_TRIPLET `
+            --x-install-root="$env:VCPKG_INSTALLED_DIR"
+
+      - name: Configure debug tests
+        shell: pwsh
+        run: |
+          cmake -S . -B build/msvc-debug-test -G Ninja `
+            -DCMAKE_BUILD_TYPE=Debug `
+            -DBUILD_TEST=ON `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            "-DVCPKG_TARGET_TRIPLET=$env:VCPKG_DEFAULT_TRIPLET" `
+            "-DVCPKG_INSTALLED_DIR=$env:VCPKG_INSTALLED_DIR"
+
+      - name: Build debug tests
+        run: cmake --build build/msvc-debug-test --parallel
+
+      - name: Run tests
+        run: ctest --test-dir build/msvc-debug-test --output-on-failure
+
+      - name: Configure release
+        shell: pwsh
+        run: |
+          cmake -S . -B build/msvc-release -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            "-DRDPBOX_VERSION_OVERRIDE=$env:RELEASE_TAG" `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            "-DVCPKG_TARGET_TRIPLET=$env:VCPKG_DEFAULT_TRIPLET" `
+            "-DVCPKG_INSTALLED_DIR=$env:VCPKG_INSTALLED_DIR"
+
+      - name: Build release
+        run: cmake --build build/msvc-release --parallel
+
+      - name: Prepare release assets
+        shell: pwsh
+        run: |
+          $artifactDir = Join-Path $env:GITHUB_WORKSPACE "release-artifacts"
+          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+
+          $sourceExe = Join-Path $env:GITHUB_WORKSPACE "build\msvc-release\src\RdpBox.exe"
+          if (-not (Test-Path $sourceExe)) {
+            throw "Release executable was not found at $sourceExe."
+          }
+
+          Copy-Item -LiteralPath $sourceExe -Destination (Join-Path $artifactDir "RdpBox.exe")
+          Copy-Item -LiteralPath $sourceExe -Destination (Join-Path $artifactDir "RdpBox-$env:RELEASE_TAG.exe")
+
+          Push-Location $artifactDir
+          Get-ChildItem -File | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          } | Set-Content -Encoding ascii -Path "SHA256SUMS.txt"
+          Pop-Location
+
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$env:RELEASE_TAG" `
+            "release-artifacts\RdpBox.exe" `
+            "release-artifacts\RdpBox-$env:RELEASE_TAG.exe" `
+            "release-artifacts\SHA256SUMS.txt" `
+            --repo "$env:GITHUB_REPOSITORY" `
+            --verify-tag `
+            --title "$env:RELEASE_TAG" `
+            --notes "RdpBox $env:RELEASE_TAG"
