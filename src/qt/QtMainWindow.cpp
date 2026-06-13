@@ -25,7 +25,6 @@
 #include <QEvent>
 #include <QFrame>
 #include <QGridLayout>
-#include <QGroupBox>
 #include <QIcon>
 #include <QKeySequence>
 #include <QLabel>
@@ -1850,44 +1849,20 @@ QWidget *QtMainWindow::createSessionPage(const Profile &profile)
 {
     auto *page = new QWidget;
     auto *layout = new QVBoxLayout(page);
-    layout->setContentsMargins(22, 22, 22, 22);
-    layout->setSpacing(12);
-
-    auto *summary = new QGroupBox(profileTitle(profile), page);
-    auto *summaryLayout = new QVBoxLayout(summary);
-    summaryLayout->addWidget(new QLabel(profileSubtitle(profile), summary));
-    auto *statusLabel = new QLabel(tr("Disconnected"), summary);
-    auto *reconnectButton = new QPushButton(style()->standardIcon(QStyle::SP_BrowserReload), tr("Reconnect"), summary);
-    summaryLayout->addWidget(statusLabel);
-    summaryLayout->addWidget(reconnectButton, 0, Qt::AlignLeft);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
 
     auto *surface = new QtRdpSessionWidget(profile, page);
     surface->setObjectName(QStringLiteral("sessionSurface"));
-    surface->setStateChangedCallback([this, profile, statusLabel](FreeRdpProcess::State state) {
+    surface->setStateChangedCallback([this, profile](FreeRdpProcess::State state) {
         updateSessionTabState(profile.name, state);
-        switch (state) {
-        case FreeRdpProcess::State::Idle:
-            statusLabel->setText(QObject::tr("Disconnected"));
-            break;
-        case FreeRdpProcess::State::Starting:
-            statusLabel->setText(QObject::tr("Connecting"));
-            break;
-        case FreeRdpProcess::State::Running:
-            statusLabel->setText(QObject::tr("Connected"));
+        if (state == FreeRdpProcess::State::Running) {
             touchLastConnectedAt(profile);
             if (ui::connectionCompletedPlan(profile, m_isFullScreen).enterFullScreen)
                 setFullScreen(true);
-            break;
-        case FreeRdpProcess::State::Finished:
-            statusLabel->setText(QObject::tr("Disconnected"));
-            break;
         }
     });
-    connect(reconnectButton, &QPushButton::clicked, surface, [surface]() {
-        surface->reconnect();
-    });
 
-    layout->addWidget(summary);
     layout->addWidget(surface, 1);
     QTimer::singleShot(0, surface, [surface]() {
         surface->connectToHost();
