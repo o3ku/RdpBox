@@ -87,6 +87,15 @@ QString profileSubtitle(const Profile &profile)
     return subtitle;
 }
 
+QString profileListSubtitle(const Profile &profile, const std::vector<std::wstring> &connectedProfileNames)
+{
+    QString subtitle = profileSubtitle(profile);
+    const QString status = QString::fromStdWString(connectionListStatusText(profile.name, connectedProfileNames));
+    if (!status.isEmpty())
+        subtitle += QStringLiteral("  %1").arg(status);
+    return subtitle;
+}
+
 QString sessionStateText(FreeRdpProcess::State state)
 {
     switch (state) {
@@ -788,13 +797,16 @@ void QtMainWindow::refreshProfileList()
 {
     const std::vector<std::wstring> previousSelection = selectedProfileNames();
     const std::vector<Profile> profiles = currentVisibleProfiles();
+    const std::vector<std::wstring> connectedNames = connectedProfileNames();
     const std::vector<int> retainedRows =
         retainedSelectionRowsForProfiles(profiles, previousSelection);
 
     m_profileList->clear();
     for (const Profile &profile : profiles) {
         auto *item = new QListWidgetItem(m_profileList);
-        item->setText(profileTitle(profile) + QStringLiteral("\n") + profileSubtitle(profile));
+        item->setText(profileTitle(profile)
+                      + QStringLiteral("\n")
+                      + profileListSubtitle(profile, connectedNames));
         item->setData(Qt::UserRole, QString::fromStdWString(profile.name));
         item->setSizeHint(QSize(0, 54));
     }
@@ -1137,6 +1149,7 @@ void QtMainWindow::closeSessionTab(int index)
     if (page)
         page->deleteLater();
     configureHomeTab();
+    refreshProfileList();
 }
 
 void QtMainWindow::touchLastConnectedAt(const Profile &profile)
@@ -1497,6 +1510,24 @@ std::vector<std::wstring> QtMainWindow::openProfileNames() const
     return names;
 }
 
+std::vector<std::wstring> QtMainWindow::connectedProfileNames() const
+{
+    std::vector<std::wstring> names;
+    if (!m_tabs || !m_tabs->tabBar())
+        return names;
+
+    for (int index = 1; index < m_tabs->count(); ++index) {
+        const QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(index);
+        if (!sessionWidget || !sessionWidget->isConnected())
+            continue;
+
+        const QString name = m_tabs->tabBar()->tabData(index).toString();
+        if (!name.isEmpty())
+            names.push_back(name.toStdWString());
+    }
+    return names;
+}
+
 bool QtMainWindow::confirmLaunchDownloadedUpdate()
 {
     const QMessageBox::StandardButton result = QMessageBox::question(
@@ -1843,6 +1874,7 @@ void QtMainWindow::addSessionTab(const Profile &profile)
         m_tabs->tabBar()->setTabData(index, QString::fromStdWString(profile.name));
     updateSessionTabState(profile.name, FreeRdpProcess::State::Idle);
     m_tabs->setCurrentIndex(index);
+    refreshProfileList();
 }
 
 void QtMainWindow::updateSessionTabState(const std::wstring &profileName, FreeRdpProcess::State state)
@@ -1935,6 +1967,7 @@ QWidget *QtMainWindow::createSessionPage(const Profile &profile)
             if (ui::connectionCompletedPlan(profile, m_isFullScreen).enterFullScreen)
                 setFullScreen(true);
         }
+        refreshProfileList();
     });
 
     layout->addWidget(surface, 1);
