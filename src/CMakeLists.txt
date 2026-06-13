@@ -108,6 +108,8 @@ set(RDPBOX_QT_SOURCES
     rdp/WindowsClipboardBehavior.cpp
     ui/ConnectionListBehavior.h
     ui/ConnectionListBehavior.cpp
+    ui/ProfileEditBehavior.h
+    ui/ProfileEditBehavior.cpp
     ui/MainWindowUpdateBehavior.h
     ui/MainWindowUpdateBehavior.cpp
     ui/WindowStateScaling.h

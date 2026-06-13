@@ -1,5 +1,7 @@
 #include "qt/QtProfileDialog.h"
 
+#include "ui/ProfileEditBehavior.h"
+
 #include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -53,6 +55,7 @@ QtProfileDialog::QtProfileDialog(QWidget *parent)
 
 void QtProfileDialog::setProfile(const Profile &profile)
 {
+    m_profile = profile;
     m_nameEdit->setText(QString::fromStdWString(profile.name));
     m_hostEdit->setText(QString::fromStdWString(profile.host));
     m_portEdit->setValue(profile.port);
@@ -66,10 +69,10 @@ void QtProfileDialog::setProfile(const Profile &profile)
 
 Profile QtProfileDialog::profile() const
 {
-    Profile profile;
+    Profile profile = m_profile;
     profile.name = m_nameEdit->text().trimmed().toStdWString();
     profile.host = m_hostEdit->text().trimmed().toStdWString();
-    profile.port = m_portEdit->value();
+    profile.port = normalizedProfilePort(m_portEdit->value());
     profile.domain = m_domainEdit->text().trimmed().toStdWString();
     profile.username = m_usernameEdit->text().trimmed().toStdWString();
     profile.password = m_passwordEdit->text().toStdWString();
@@ -82,8 +85,19 @@ Profile QtProfileDialog::profile() const
 void QtProfileDialog::accept()
 {
     const Profile candidate = profile();
-    if (!candidate.isValid()) {
+    const ProfileEditValidationResult validation =
+        validateProfileEditFields(candidate.name, candidate.host);
+
+    if (validation == ProfileEditValidationResult::MissingRequiredField) {
         QMessageBox::warning(this, tr("Connection"), tr("Name and host are required."));
+        return;
+    }
+
+    if (validation == ProfileEditValidationResult::InvalidNameCharacter) {
+        QMessageBox::warning(
+            this,
+            tr("Invalid Connection Name"),
+            tr("Connection name cannot contain ',' or '\"'."));
         return;
     }
 
