@@ -9,6 +9,7 @@
 #include "session/SessionResumePolicy.h"
 #include "ui/ConnectionListBehavior.h"
 #include "ui/MainWindowSessionBehavior.h"
+#include "ui/MainWindowShortcuts.h"
 #include "ui/MainWindowTabBehavior.h"
 #include "ui/MainWindowUpdateBehavior.h"
 #include "ui/WindowStateScaling.h"
@@ -723,12 +724,12 @@ void QtMainWindow::installShortcuts()
         if (m_isFullScreen)
             setFullScreen(false);
     });
-    bindShortcut(QKeySequence(Qt::CTRL | Qt::Key_N), [this]() {
-        addProfile();
-    });
-    bindShortcut(QKeySequence(Qt::CTRL | Qt::Key_P), [this]() {
-        focusConnections();
-    });
+
+    if (ui::shortcutActionForKey(WM_KEYDOWN, true, false, 'P') == ui::MainWindowShortcutAction::OpenConnections) {
+        bindShortcut(QKeySequence(Qt::CTRL | Qt::Key_P), [this]() {
+            focusConnections();
+        });
+    }
 }
 
 void QtMainWindow::refreshProfileList()
