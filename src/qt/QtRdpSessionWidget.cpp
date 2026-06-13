@@ -23,6 +23,7 @@
 
 namespace
 {
+constexpr int kMouseMoveTimerIntervalMs = 16;
 constexpr int kResizeTimerIntervalMs = 50;
 
 QString stateText(FreeRdpProcess::State state, bool reconnecting)
@@ -169,6 +170,11 @@ QtRdpSessionWidget::QtRdpSessionWidget(Profile profile, QWidget *parent)
     setAttribute(Qt::WA_NoSystemBackground);
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
+    m_mouseMoveTimer = new QTimer(this);
+    m_mouseMoveTimer->setInterval(kMouseMoveTimerIntervalMs);
+    connect(m_mouseMoveTimer, &QTimer::timeout, this, [this]() {
+        handleMouseMoveTimer();
+    });
     m_resizeTimer = new QTimer(this);
     m_resizeTimer->setInterval(kResizeTimerIntervalMs);
     connect(m_resizeTimer, &QTimer::timeout, this, [this]() {
@@ -282,8 +288,15 @@ void QtRdpSessionWidget::mouseMoveEvent(QMouseEvent *event)
     const unsigned int mouseFlags = mouseFlagsFromEvent(event);
     if (rdp::shouldSynchronizeModifiersForMouseMove(mouseFlags))
         syncMouseModifiers(mouseFlags);
-    if (m_process)
-        m_process->sendMouseMove(m_lastPointerPoint, viewSize());
+    if (!m_process)
+        return;
+
+    const auto immediate = m_mouseMoveCoalescer.onMouseMove(m_lastPointerPoint);
+    if (immediate)
+        m_process->sendMouseMove(*immediate, viewSize());
+
+    if (m_mouseMoveTimer && !m_mouseMoveTimer->isActive())
+        m_mouseMoveTimer->start();
 }
 
 void QtRdpSessionWidget::mousePressEvent(QMouseEvent *event)
@@ -302,11 +315,13 @@ void QtRdpSessionWidget::mousePressEvent(QMouseEvent *event)
             return;
         }
     }
+    flushPendingMouseMove();
     sendMouseButton(event, true);
 }
 
 void QtRdpSessionWidget::mouseReleaseEvent(QMouseEvent *event)
 {
+    flushPendingMouseMove();
     sendMouseButton(event, false);
 }
 
@@ -315,6 +330,7 @@ void QtRdpSessionWidget::wheelEvent(QWheelEvent *event)
     if (!m_process)
         return;
 
+    flushPendingMouseMove();
     const QPoint position = event->position().toPoint();
     m_lastPointerPoint = PointI{position.x(), position.y()};
     m_hasLastPointerPoint = true;
@@ -352,6 +368,7 @@ void QtRdpSessionWidget::focusOutEvent(QFocusEvent *event)
 {
     QWidget::focusOutEvent(event);
     releasePressedMouseButtons();
+    flushPendingMouseMove();
     sendKeyboardActions(m_keyboardRouter.handleFocusLost(physicalKeyboardState()));
 }
 
@@ -418,7 +435,11 @@ void QtRdpSessionWidget::stopProcess(bool showDisconnectedOverlay)
 
     releasePressedMouseButtons();
     releaseAllPressedKeys();
+    flushPendingMouseMove();
     clearProcessCallbacks();
+    if (m_mouseMoveTimer)
+        m_mouseMoveTimer->stop();
+    m_mouseMoveCoalescer.reset();
     if (m_resizeTimer)
         m_resizeTimer->stop();
     m_resizeBurstTracker.reset();
@@ -437,11 +458,17 @@ void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
             m_overlayText = QString::fromStdWString(rdp::session_view::finishedOverlayText(error));
     }
     if (state == FreeRdpProcess::State::Running) {
+        m_mouseMoveCoalescer.reset();
+        if (m_mouseMoveTimer)
+            m_mouseMoveTimer->stop();
         m_resizeBurstTracker.reset();
         if (m_resizeTimer)
             m_resizeTimer->stop();
         requestResize();
     } else if (state == FreeRdpProcess::State::Finished) {
+        m_mouseMoveCoalescer.reset();
+        if (m_mouseMoveTimer)
+            m_mouseMoveTimer->stop();
         m_resizeBurstTracker.reset();
         if (m_resizeTimer)
             m_resizeTimer->stop();
@@ -506,6 +533,42 @@ void QtRdpSessionWidget::handleResizeTimer()
 
     if (m_resizeTimer)
         m_resizeTimer->stop();
+}
+
+void QtRdpSessionWidget::flushPendingMouseMove()
+{
+    if (!m_process) {
+        if (m_mouseMoveTimer)
+            m_mouseMoveTimer->stop();
+        m_mouseMoveCoalescer.reset();
+        return;
+    }
+
+    const auto pending = m_mouseMoveCoalescer.flush();
+    if (pending)
+        m_process->sendMouseMove(*pending, viewSize());
+
+    if (m_mouseMoveTimer)
+        m_mouseMoveTimer->stop();
+}
+
+void QtRdpSessionWidget::handleMouseMoveTimer()
+{
+    if (!m_process) {
+        if (m_mouseMoveTimer)
+            m_mouseMoveTimer->stop();
+        m_mouseMoveCoalescer.reset();
+        return;
+    }
+
+    const auto pending = m_mouseMoveCoalescer.onTimer();
+    if (pending) {
+        m_process->sendMouseMove(*pending, viewSize());
+        return;
+    }
+
+    if (m_mouseMoveTimer)
+        m_mouseMoveTimer->stop();
 }
 
 bool QtRdpSessionWidget::confirmCertificate(const FreeRdpProcess::CertificateChallenge &challenge)
