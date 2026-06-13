@@ -34,6 +34,7 @@ public:
     void noteConsumedLocalShortcutKey(unsigned int virtualKey);
 
 protected:
+    bool event(QEvent *event) override;
     bool nativeEvent(const QByteArray &eventType, void *message, long *result) override;
     void paintEvent(QPaintEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;

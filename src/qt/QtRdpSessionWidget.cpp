@@ -9,6 +9,7 @@
 #include "rdp/RdpSessionViewBehavior.h"
 #include "ui/MainWindowShortcuts.h"
 
+#include <QEvent>
 #include <QFocusEvent>
 #include <QImage>
 #include <QKeyEvent>
@@ -300,6 +301,14 @@ void QtRdpSessionWidget::setStateChangedCallback(std::function<void(FreeRdpProce
 void QtRdpSessionWidget::noteConsumedLocalShortcutKey(unsigned int virtualKey)
 {
     m_reservedShortcutTracker.noteHandledKeyDown(virtualKey);
+}
+
+bool QtRdpSessionWidget::event(QEvent *event)
+{
+    if (event && event->type() == QEvent::UngrabMouse)
+        releasePressedMouseButtons();
+
+    return QWidget::event(event);
 }
 
 bool QtRdpSessionWidget::nativeEvent(const QByteArray &eventType, void *message, long *result)
