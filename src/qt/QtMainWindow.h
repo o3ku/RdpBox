@@ -59,6 +59,7 @@ private:
     void duplicateSelectedProfile();
     void deleteSelectedProfile();
     void moveSelectedProfileBy(int delta);
+    void moveProfileByDrop(int sourceRow, int insertIndex);
     void closeSessionTab(int index);
     void touchLastConnectedAt(const Profile &profile);
     void toggleFullScreen();
