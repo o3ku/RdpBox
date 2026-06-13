@@ -55,9 +55,7 @@ void applyApplicationStyle(QApplication &application)
         "QTabBar::tab { background: #e7eaf0; border: 1px solid #c9ced6; padding: 7px 14px; margin-right: 2px; }"
         "QTabBar::tab:selected { background: #ffffff; border-bottom-color: #ffffff; }"
         "QStatusBar { background: #eef1f5; border-top: 1px solid #c9ced6; }"
-        "QGroupBox { background: #ffffff; border: 1px solid #d4d9e2; border-radius: 4px; margin-top: 8px; padding: 10px; }"
-        "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }"
-        "#sessionSurface { background: #111827; border: 1px solid #0f172a; border-radius: 4px; }"
+        "#sessionSurface { background: #111827; border: 0; }"
         "#sessionSurface QLabel { color: #cbd5e1; background: transparent; }"
         "#mutedLabel { color: #6b7280; }"));
 }
