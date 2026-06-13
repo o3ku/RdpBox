@@ -73,6 +73,19 @@ int main()
     }
 
     {
+        const auto rows = retainedSelectionRowsForProfiles(visibleProfiles, {L"gamma", L"alpha"});
+        assert(rows.size() == 2);
+        assert(rows[0] == 0);
+        assert(rows[1] == 2);
+
+        const auto fallbackRows = retainedSelectionRowsForProfiles(visibleProfiles, {L"missing"});
+        assert(fallbackRows.size() == 1);
+        assert(fallbackRows[0] == 0);
+
+        assert(retainedSelectionRowsForProfiles({}, {L"alpha"}).empty());
+    }
+
+    {
         Profile named = profile(L"alpha");
         assert(duplicateProfileDraft(named).name == L"alpha(n)");
         named.name.clear();
