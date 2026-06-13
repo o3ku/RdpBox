@@ -7,6 +7,7 @@
 #include "rdp/RdpMouseMoveCoalescer.h"
 #include "rdp/RdpReservedShortcutTracker.h"
 #include "rdp/RdpResizeBurstTracker.h"
+#include "rdp/RdpResolutionRecovery.h"
 
 #include <QWidget>
 
@@ -51,6 +52,9 @@ private:
     void updateState(FreeRdpProcess::State state);
     void consumeFrame();
     void updateCursor();
+    void beginResolutionUpdate();
+    void syncRecoveryTimer();
+    void handleRecoveryTimer();
     void requestResize();
     void handleResizeTimer();
     void flushPendingMouseMove();
@@ -78,10 +82,16 @@ private:
     RdpReservedShortcutTracker m_reservedShortcutTracker;
     RdpMouseMoveCoalescer m_mouseMoveCoalescer;
     RdpResizeBurstTracker m_resizeBurstTracker;
+    RdpResolutionRecovery m_resolutionRecovery;
     QTimer *m_mouseMoveTimer = nullptr;
     QTimer *m_resizeTimer = nullptr;
+    QTimer *m_recoveryTimer = nullptr;
     unsigned int m_pressedMouseButtons = 0;
     PointI m_lastPointerPoint;
     bool m_hasLastPointerPoint = false;
     bool m_reconnecting = false;
+    bool m_frameGateActive = false;
+    int m_frameGateRemaining = 0;
+    bool m_waitingForFirstContentFrame = false;
+    bool m_resolutionUpdatePending = false;
 };

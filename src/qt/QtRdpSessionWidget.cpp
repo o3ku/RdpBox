@@ -27,6 +27,7 @@ namespace
 {
 constexpr int kMouseMoveTimerIntervalMs = 16;
 constexpr int kResizeTimerIntervalMs = 50;
+constexpr int kRecoveryTimerIntervalMs = 2500;
 
 rdp::certificate_prompt::Challenge promptChallengeFromProcessChallenge(
     const FreeRdpProcess::CertificateChallenge &challenge)
@@ -196,6 +197,12 @@ QtRdpSessionWidget::QtRdpSessionWidget(Profile profile, QWidget *parent)
     connect(m_resizeTimer, &QTimer::timeout, this, [this]() {
         handleResizeTimer();
     });
+    m_recoveryTimer = new QTimer(this);
+    m_recoveryTimer->setInterval(kRecoveryTimerIntervalMs);
+    m_recoveryTimer->setSingleShot(true);
+    connect(m_recoveryTimer, &QTimer::timeout, this, [this]() {
+        handleRecoveryTimer();
+    });
     bindProcessCallbacks();
 }
 
@@ -213,6 +220,11 @@ void QtRdpSessionWidget::connectToHost()
     m_reservedShortcutTracker.reset();
     m_pressedMouseButtons = 0;
     m_hasLastPointerPoint = false;
+    m_resolutionRecovery.reset();
+    m_resolutionUpdatePending = false;
+    m_waitingForFirstContentFrame = true;
+    m_frameGateActive = true;
+    m_frameGateRemaining = 0;
     m_frameGeneration = 0;
     m_frame = {};
     updateState(FreeRdpProcess::State::Starting);
@@ -331,7 +343,7 @@ void QtRdpSessionWidget::mousePressEvent(QMouseEvent *event)
                                          isConnected(),
                                          m_process != nullptr,
                                          processFinished,
-                                         false)) {
+                                         m_resolutionUpdatePending)) {
             reconnect();
             event->accept();
             return;
@@ -465,6 +477,13 @@ void QtRdpSessionWidget::stopProcess(bool showDisconnectedOverlay)
     if (m_resizeTimer)
         m_resizeTimer->stop();
     m_resizeBurstTracker.reset();
+    m_resolutionRecovery.reset();
+    if (m_recoveryTimer)
+        m_recoveryTimer->stop();
+    m_resolutionUpdatePending = false;
+    m_waitingForFirstContentFrame = false;
+    m_frameGateActive = false;
+    m_frameGateRemaining = 0;
     m_reservedShortcutTracker.reset();
     m_process->stop();
     if (showDisconnectedOverlay)
@@ -481,6 +500,11 @@ void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
             m_overlayText = QString::fromStdWString(rdp::session_view::finishedOverlayText(error));
     }
     if (state == FreeRdpProcess::State::Running) {
+        if (m_process && m_frameGateActive) {
+            const auto info = m_process->connectionInfo();
+            m_frameGateRemaining =
+                rdp::session_view::initialFrameDiscardCount(!info.codecName.empty());
+        }
         m_keyboardRouter.reset();
         m_reservedShortcutTracker.reset();
         m_mouseMoveCoalescer.reset();
@@ -489,7 +513,10 @@ void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
         m_resizeBurstTracker.reset();
         if (m_resizeTimer)
             m_resizeTimer->stop();
-        requestResize();
+        m_resolutionRecovery.reset();
+        syncRecoveryTimer();
+        if (m_process)
+            m_process->requestResize(viewSize());
     } else if (state == FreeRdpProcess::State::Finished) {
         m_mouseMoveCoalescer.reset();
         if (m_mouseMoveTimer)
@@ -497,6 +524,13 @@ void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
         m_resizeBurstTracker.reset();
         if (m_resizeTimer)
             m_resizeTimer->stop();
+        m_resolutionRecovery.reset();
+        if (m_recoveryTimer)
+            m_recoveryTimer->stop();
+        m_resolutionUpdatePending = false;
+        m_waitingForFirstContentFrame = false;
+        m_frameGateActive = false;
+        m_frameGateRemaining = 0;
     }
     if (state == FreeRdpProcess::State::Running || state == FreeRdpProcess::State::Finished)
         m_reconnecting = false;
@@ -510,9 +544,27 @@ void QtRdpSessionWidget::consumeFrame()
     if (!m_process)
         return;
 
-    if (m_process->consumeFrameIfNewer(m_frameGeneration, m_frame)) {
-        if (m_state == FreeRdpProcess::State::Running)
+    FrameBuffer nextFrame;
+    if (m_process->consumeFrameIfNewer(m_frameGeneration, nextFrame)) {
+        const rdp::session_view::FrameArrivalDecision frameDecision =
+            rdp::session_view::frameArrivalDecision(
+                rdp::session_view::FrameGateState{m_frameGateActive,
+                                                  m_frameGateRemaining,
+                                                  m_waitingForFirstContentFrame,
+                                                  m_resolutionUpdatePending});
+        m_frameGateActive = frameDecision.state.active;
+        m_frameGateRemaining = frameDecision.state.remaining;
+        m_waitingForFirstContentFrame = frameDecision.state.waitingForFirstContentFrame;
+        m_resolutionUpdatePending = frameDecision.state.resolutionUpdatePending;
+
+        if (frameDecision.renderFrame)
+            m_frame = std::move(nextFrame);
+
+        if (frameDecision.hideOverlay && !m_frame.empty())
             m_overlayText.clear();
+        if (m_resolutionRecovery.active())
+            m_resolutionRecovery.onFrameProgress(frameDecision.resolutionFrameProgress);
+        syncRecoveryTimer();
         update();
     }
 }
@@ -527,6 +579,37 @@ void QtRdpSessionWidget::updateCursor()
     destroyCursorInfo(cursor);
 }
 
+void QtRdpSessionWidget::beginResolutionUpdate()
+{
+    m_resolutionUpdatePending = true;
+    m_frameGateActive = true;
+    m_frameGateRemaining = rdp::session_view::initialFrameDiscardCount(true);
+    m_resolutionRecovery.begin(isConnected());
+    syncRecoveryTimer();
+    m_overlayText = QString::fromStdWString(rdp::session_view::startOverlayText(true));
+    update();
+}
+
+void QtRdpSessionWidget::syncRecoveryTimer()
+{
+    if (!m_recoveryTimer)
+        return;
+
+    if (m_resolutionRecovery.active()) {
+        if (!m_recoveryTimer->isActive())
+            m_recoveryTimer->start();
+    } else {
+        m_recoveryTimer->stop();
+    }
+}
+
+void QtRdpSessionWidget::handleRecoveryTimer()
+{
+    if (m_resolutionRecovery.onTimeout())
+        reconnect();
+    syncRecoveryTimer();
+}
+
 void QtRdpSessionWidget::requestResize()
 {
     if (!m_process || m_state != FreeRdpProcess::State::Running || width() <= 0 || height() <= 0)
@@ -536,6 +619,7 @@ void QtRdpSessionWidget::requestResize()
     if (!m_resizeBurstTracker.onResize(size))
         return;
 
+    beginResolutionUpdate();
     m_process->requestResize(size);
     if (m_resizeTimer)
         m_resizeTimer->start();
@@ -552,6 +636,7 @@ void QtRdpSessionWidget::handleResizeTimer()
 
     const SizeI size = viewSize();
     if (m_resizeBurstTracker.onTimeout(size)) {
+        beginResolutionUpdate();
         m_process->requestResize(size);
         return;
     }
