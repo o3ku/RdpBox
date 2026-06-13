@@ -8,6 +8,14 @@ add_compile_definitions(
     _WIN32_WINNT=0x0A00
 )
 
+function(rdpbox_prepend_test_runtime_path test_name runtime_target)
+    if(WIN32)
+        set_tests_properties(${test_name} PROPERTIES
+            ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:${runtime_target}>"
+        )
+    endif()
+endfunction()
+
 add_executable(RdpResizeBurstTrackerTests
     rdp/RdpResizeBurstTrackerTests.cpp
     ${CMAKE_SOURCE_DIR}/src/rdp/RdpResizeBurstTracker.cpp
@@ -632,3 +640,4 @@ target_link_libraries(QtWindowChromeBehaviorTests PRIVATE
 )
 
 add_test(NAME QtWindowChromeBehaviorTests COMMAND QtWindowChromeBehaviorTests)
+rdpbox_prepend_test_runtime_path(QtWindowChromeBehaviorTests Qt5::Core)

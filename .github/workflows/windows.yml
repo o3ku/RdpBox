@@ -128,4 +128,4 @@ jobs:
             "-DVCPKG_INSTALLED_DIR=$env:VCPKG_INSTALLED_DIR"
 
       - name: Build release
-        run: cmake --build build/msvc-release --parallel
+        run: cmake --build build/msvc-release --target RdpBox --parallel
