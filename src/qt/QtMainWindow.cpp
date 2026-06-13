@@ -28,6 +28,7 @@
 #include <QFrame>
 #include <QGridLayout>
 #include <QIcon>
+#include <QKeyEvent>
 #include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
@@ -279,6 +280,7 @@ class ProfileListWidget final : public QListWidget
 {
 public:
     using DropCallback = std::function<void(int sourceRow, int insertIndex)>;
+    using KeyboardMoveCallback = std::function<bool(int delta)>;
 
     explicit ProfileListWidget(QWidget *parent = nullptr)
         : QListWidget(parent)
@@ -290,7 +292,30 @@ public:
         m_dropCallback = std::move(callback);
     }
 
+    void setKeyboardMoveCallback(KeyboardMoveCallback callback)
+    {
+        m_keyboardMoveCallback = std::move(callback);
+    }
+
 protected:
+    void keyPressEvent(QKeyEvent *event) override
+    {
+        if (event && event->modifiers() == Qt::NoModifier) {
+            int delta = 0;
+            if (event->key() == Qt::Key_Up)
+                delta = -1;
+            else if (event->key() == Qt::Key_Down)
+                delta = 1;
+
+            if (delta != 0 && m_keyboardMoveCallback && m_keyboardMoveCallback(delta)) {
+                event->accept();
+                return;
+            }
+        }
+
+        QListWidget::keyPressEvent(event);
+    }
+
     void startDrag(Qt::DropActions supportedActions) override
     {
         const QList<QListWidgetItem *> selected = selectedItems();
@@ -346,6 +371,7 @@ private:
     }
 
     DropCallback m_dropCallback;
+    KeyboardMoveCallback m_keyboardMoveCallback;
     int m_dragSourceRow = -1;
 };
 }
@@ -496,6 +522,9 @@ void QtMainWindow::buildUi()
     auto *profileList = new ProfileListWidget(m_sidebar);
     profileList->setDropCallback([this](int sourceRow, int insertIndex) {
         moveProfileByDrop(sourceRow, insertIndex);
+    });
+    profileList->setKeyboardMoveCallback([this](int delta) {
+        return moveSelectedProfileBy(delta);
     });
     m_profileList = profileList;
     m_profileList->setUniformItemSizes(true);
@@ -1035,37 +1064,38 @@ void QtMainWindow::deleteSelectedProfile()
     refreshProfileList();
 }
 
-void QtMainWindow::moveSelectedProfileBy(int delta)
+bool QtMainWindow::moveSelectedProfileBy(int delta)
 {
     if (!m_profileList)
-        return;
+        return false;
 
     const std::vector<int> selectedRows = selectedProfileRows();
     if (selectedRows.size() != 1)
-        return;
+        return false;
 
     const int currentRow = selectedRows.front();
     const std::vector<Profile> visibleProfiles = currentVisibleProfiles();
     const std::optional<int> targetRow =
         targetSelectionIndex(currentRow, static_cast<int>(visibleProfiles.size()), delta);
     if (!targetRow.has_value())
-        return;
+        return false;
 
     const Profile movedProfile =
         currentRow >= 0 && currentRow < static_cast<int>(visibleProfiles.size())
             ? visibleProfiles[static_cast<std::size_t>(currentRow)]
             : Profile();
     if (!movedProfile.isValid())
-        return;
+        return false;
 
     const int insertIndex = delta > 0 ? *targetRow + 1 : *targetRow;
     const std::size_t targetIndex =
         repositoryTargetIndexForVisibleInsertIndex(m_repository.profiles(), visibleProfiles, insertIndex);
     if (!m_repository.moveProfile(movedProfile.name, targetIndex))
-        return;
+        return false;
 
     refreshProfileList();
     selectProfileByName(movedProfile.name);
+    return true;
 }
 
 void QtMainWindow::moveProfileByDrop(int sourceRow, int insertIndex)
