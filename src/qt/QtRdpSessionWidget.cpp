@@ -393,6 +393,11 @@ void QtRdpSessionWidget::mousePressEvent(QMouseEvent *event)
     sendMouseButton(event, true);
 }
 
+void QtRdpSessionWidget::mouseDoubleClickEvent(QMouseEvent *event)
+{
+    mousePressEvent(event);
+}
+
 void QtRdpSessionWidget::mouseReleaseEvent(QMouseEvent *event)
 {
     flushPendingMouseMove();
