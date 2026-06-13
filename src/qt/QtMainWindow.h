@@ -85,6 +85,7 @@ private:
     std::vector<std::wstring> openProfileNames() const;
     bool confirmLaunchDownloadedUpdate();
     bool launchDownloadedUpdate() const;
+    void handleTabMoved(int fromIndex, int toIndex);
     void showTabContextMenu(const QPoint &tabBarPoint);
     void reconnectSessionTab(int index);
     void connectSelectedProfiles();
@@ -134,6 +135,7 @@ private:
     std::uint64_t m_updateCheckGeneration = 0;
     std::uint64_t m_updateDownloadGeneration = 0;
     bool m_restoringWindowState = false;
+    bool m_adjustingTabMove = false;
     bool m_isFullScreen = false;
     bool m_wasMaximizedBeforeFullScreen = false;
 };
