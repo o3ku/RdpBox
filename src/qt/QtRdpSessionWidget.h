@@ -22,6 +22,8 @@ public:
     void connectToHost();
     void reconnect();
     bool isConnected() const;
+    FreeRdpProcess::State state() const;
+    FreeRdpProcess::ConnectionInfo connectionInfo() const;
     void setStateChangedCallback(std::function<void(FreeRdpProcess::State)> callback);
 
 protected:

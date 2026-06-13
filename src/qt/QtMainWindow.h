@@ -89,6 +89,7 @@ private:
     void handleTabMoved(int fromIndex, int toIndex);
     void showTabContextMenu(const QPoint &tabBarPoint);
     void reconnectSessionTab(int index);
+    void refreshSessionTabStatuses();
     void connectSelectedProfiles();
     void openConnectionsByName(const std::vector<std::wstring> &connectionNames);
     Profile selectedProfile() const;
@@ -129,6 +130,7 @@ private:
     QTabWidget *m_tabs = nullptr;
     QLabel *m_statusLabel = nullptr;
     QTimer *m_updateCheckTimer = nullptr;
+    QTimer *m_tabStatusTimer = nullptr;
     updater::ReleaseAsset m_updateRelease;
     ui::UpdateUiState m_updateState = ui::UpdateUiState::Hidden;
     bool m_updateCheckInFlight = false;
