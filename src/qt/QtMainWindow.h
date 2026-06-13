@@ -84,6 +84,7 @@ private:
                                        const std::wstring &errorMessage);
     std::wstring downloadedUpdatePath() const;
     std::vector<std::wstring> openProfileNames() const;
+    std::vector<std::wstring> connectedProfileNames() const;
     bool confirmLaunchDownloadedUpdate();
     bool launchDownloadedUpdate() const;
     void handleTabMoved(int fromIndex, int toIndex);

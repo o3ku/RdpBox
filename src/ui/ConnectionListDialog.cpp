@@ -290,7 +290,7 @@ void ConnectionListDialog::refreshList(const std::vector<Profile> &profiles)
         list->InsertItem(idx, name);
         list->SetItemText(idx, 1, host);
         list->SetItemText(idx, 2, portStr);
-        list->SetItemText(idx, 3, isProfileConnected(p.name, m_connectedProfileNames) ? L"Connected" : L"");
+        list->SetItemText(idx, 3, connectionListStatusText(p.name, m_connectedProfileNames).c_str());
         list->SetItemData(idx, static_cast<DWORD_PTR>(idx));
     }
 

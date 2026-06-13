@@ -27,6 +27,8 @@ int main()
     assert(isProfileConnected(L"beta", connectedNames));
     assert(!isProfileConnected(L"Beta", connectedNames));
     assert(!isProfileConnected(L"gamma", connectedNames));
+    assert(connectionListStatusText(L"beta", connectedNames) == L"Connected");
+    assert(connectionListStatusText(L"gamma", connectedNames).empty());
 
     {
         const ConnectionListButtonState state =

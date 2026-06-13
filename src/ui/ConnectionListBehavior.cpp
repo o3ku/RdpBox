@@ -9,6 +9,13 @@ bool isProfileConnected(const std::wstring &profileName,
         != connectedProfileNames.end();
 }
 
+std::wstring connectionListStatusText(
+    const std::wstring &profileName,
+    const std::vector<std::wstring> &connectedProfileNames)
+{
+    return isProfileConnected(profileName, connectedProfileNames) ? L"Connected" : L"";
+}
+
 ConnectionListButtonState connectionListButtonState(
     const std::vector<Profile> &visibleProfiles,
     const std::vector<int> &selectedIndices,
