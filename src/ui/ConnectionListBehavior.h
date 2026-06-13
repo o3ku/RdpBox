@@ -34,6 +34,12 @@ std::vector<std::wstring> connectableProfileNamesForSelection(
 
 bool shouldActivateConnectionListSelection(bool hasKeyboardModifiers, bool isEnterKey);
 
+std::optional<int> keyboardMoveDeltaForConnectionList(bool controlDown,
+                                                      bool altDown,
+                                                      bool shiftDown,
+                                                      bool upKey,
+                                                      bool downKey);
+
 std::vector<int> retainedSelectionRowsForProfiles(
     const std::vector<Profile> &visibleProfiles,
     const std::vector<std::wstring> &preferredProfileNames);

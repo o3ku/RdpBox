@@ -81,6 +81,16 @@ int main()
     }
 
     {
+        assert(keyboardMoveDeltaForConnectionList(true, false, false, true, false).value() == -1);
+        assert(keyboardMoveDeltaForConnectionList(true, false, false, false, true).value() == 1);
+        assert(!keyboardMoveDeltaForConnectionList(false, false, false, true, false).has_value());
+        assert(!keyboardMoveDeltaForConnectionList(true, true, false, true, false).has_value());
+        assert(!keyboardMoveDeltaForConnectionList(true, false, true, true, false).has_value());
+        assert(!keyboardMoveDeltaForConnectionList(true, false, false, false, false).has_value());
+        assert(!keyboardMoveDeltaForConnectionList(true, false, false, true, true).has_value());
+    }
+
+    {
         const auto rows = retainedSelectionRowsForProfiles(visibleProfiles, {L"gamma", L"alpha"});
         assert(rows.size() == 2);
         assert(rows[0] == 0);
