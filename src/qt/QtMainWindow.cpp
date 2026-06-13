@@ -7,6 +7,7 @@
 #include "qt/QtRdpSessionWidget.h"
 #include "qt/QtWindowChromeBehavior.h"
 #include "ui/ConnectionListBehavior.h"
+#include "ui/MainWindowSessionBehavior.h"
 #include "ui/MainWindowUpdateBehavior.h"
 #include "ui/WindowStateScaling.h"
 
@@ -1581,11 +1582,10 @@ void QtMainWindow::connectSelectedProfiles()
 
 void QtMainWindow::openConnectionsByName(const std::vector<std::wstring> &connectionNames)
 {
-    for (const std::wstring &name : connectionNames) {
-        const Profile profile = m_repository.profileByName(name);
-        if (profile.isValid())
-            addSessionTab(profile);
-    }
+    const ui::MainWindowOpenPlan plan =
+        ui::openPlanForConnectionNames(connectionNames, m_repository.profiles());
+    for (const Profile &profile : plan.profilesToOpen)
+        addSessionTab(profile);
 }
 
 Profile QtMainWindow::selectedProfile() const
@@ -1658,6 +1658,9 @@ void QtMainWindow::selectProfileByName(const std::wstring &profileName)
 
 void QtMainWindow::addSessionTab(const Profile &profile)
 {
+    if (!shouldOpenProfileSession(profile))
+        return;
+
     const int existingIndex = sessionTabIndexForProfileName(profile.name);
     if (existingIndex >= 0) {
         m_tabs->setCurrentIndex(existingIndex);
@@ -1763,7 +1766,7 @@ QWidget *QtMainWindow::createSessionPage(const Profile &profile)
         case FreeRdpProcess::State::Running:
             statusLabel->setText(QObject::tr("Connected"));
             touchLastConnectedAt(profile);
-            if (profile.fullScreenOnConnect && !m_isFullScreen)
+            if (ui::connectionCompletedPlan(profile, m_isFullScreen).enterFullScreen)
                 setFullScreen(true);
             break;
         case FreeRdpProcess::State::Finished:
