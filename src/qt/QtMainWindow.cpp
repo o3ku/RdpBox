@@ -422,6 +422,7 @@ QtMainWindow::QtMainWindow(std::vector<std::wstring> startupConnectionNames,
     setAttribute(Qt::WA_NativeWindow);
 #endif
     setWindowTitle(QStringLiteral("RdpBox"));
+    setWindowIcon(QApplication::windowIcon());
     resize(1180, 760);
     buildUi();
     installShortcuts();
@@ -1273,6 +1274,7 @@ void QtMainWindow::showAboutDialog()
 {
     QDialog dialog(this);
     dialog.setWindowTitle(tr("About RdpBox"));
+    dialog.setWindowIcon(windowIcon());
     dialog.setModal(true);
 
     auto *layout = new QGridLayout(&dialog);

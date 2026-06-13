@@ -72,6 +72,7 @@ set(RDPBOX_QT_SOURCES
     qt/QtWindowChromeBehavior.cpp
     qt/QtProfileDialog.h
     qt/QtProfileDialog.cpp
+    resources/qt_resources.qrc
     common/AppPaths.h
     common/AppPaths.cpp
     common/ConnectionLaunchArgs.h
@@ -263,7 +264,10 @@ set(RDPBOX_SOURCES
 
 add_executable(RdpBox WIN32 ${RDPBOX_QT_SOURCES})
 
-set_target_properties(RdpBox PROPERTIES AUTOMOC ON)
+set_target_properties(RdpBox PROPERTIES
+    AUTOMOC ON
+    AUTORCC ON
+)
 
 target_compile_definitions(RdpBox PRIVATE
     UNICODE

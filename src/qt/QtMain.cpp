@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QFont>
 #include <QGuiApplication>
+#include <QIcon>
 #include <QStringList>
 
 #include <windows.h>
@@ -83,6 +84,9 @@ int main(int argc, char *argv[])
     QApplication::setApplicationName(QStringLiteral("RdpBox"));
     QApplication::setApplicationVersion(QString::fromWCharArray(RDPBOX_VERSION));
     QApplication::setOrganizationName(QStringLiteral("RdpBox"));
+    const QIcon appIcon(QStringLiteral(":/rdpbox/logo.png"));
+    if (!appIcon.isNull())
+        QApplication::setWindowIcon(appIcon);
     applyApplicationStyle(application);
 
     QtMainWindow window(parseStartupConnections(application.arguments()));
