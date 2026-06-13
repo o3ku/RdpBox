@@ -16,6 +16,20 @@ find_package(nlohmann_json CONFIG REQUIRED)
 find_package(cJSON CONFIG REQUIRED)
 find_package(Qt5 5.15 CONFIG REQUIRED COMPONENTS Widgets)
 
+set(RDPBOX_QWINDOWKIT "AUTO" CACHE STRING "QWindowKit integration: AUTO, ON, or OFF.")
+set_property(CACHE RDPBOX_QWINDOWKIT PROPERTY STRINGS AUTO ON OFF)
+set(RDPBOX_QWINDOWKIT_ALLOWED_VALUES AUTO ON OFF)
+string(TOUPPER "${RDPBOX_QWINDOWKIT}" RDPBOX_QWINDOWKIT_MODE)
+if(NOT RDPBOX_QWINDOWKIT_MODE IN_LIST RDPBOX_QWINDOWKIT_ALLOWED_VALUES)
+    message(FATAL_ERROR "RDPBOX_QWINDOWKIT must be AUTO, ON, or OFF.")
+endif()
+if(NOT RDPBOX_QWINDOWKIT_MODE STREQUAL "OFF")
+    find_package(QWindowKit CONFIG QUIET COMPONENTS Widgets)
+    if(RDPBOX_QWINDOWKIT_MODE STREQUAL "ON" AND NOT TARGET QWindowKit::Widgets)
+        message(FATAL_ERROR "RDPBOX_QWINDOWKIT=ON requires QWindowKit::Widgets. Set QWindowKit_DIR or use RDPBOX_QWINDOWKIT=AUTO/OFF.")
+    endif()
+endif()
+
 find_package(FreeRDP CONFIG REQUIRED)
 find_package(FreeRDP-Client CONFIG REQUIRED)
 find_package(WinPR CONFIG REQUIRED)
@@ -92,6 +106,10 @@ set(RDPBOX_QT_SOURCES
     rdp/WindowsClipboardBackendWindow.cpp
     rdp/WindowsClipboardBehavior.h
     rdp/WindowsClipboardBehavior.cpp
+    ui/ConnectionListBehavior.h
+    ui/ConnectionListBehavior.cpp
+    ui/MainWindowUpdateBehavior.h
+    ui/MainWindowUpdateBehavior.cpp
     ui/WindowStateScaling.h
     ui/WindowStateScaling.cpp
     resources/resource.h
@@ -264,6 +282,14 @@ target_link_libraries(RdpBox PRIVATE
     User32
     Gdi32
 )
+
+if(TARGET QWindowKit::Widgets)
+    target_compile_definitions(RdpBox PRIVATE RDPBOX_USE_QWINDOWKIT)
+    target_link_libraries(RdpBox PRIVATE QWindowKit::Widgets)
+    message(STATUS "RdpBox Qt chrome: QWindowKit::Widgets")
+else()
+    message(STATUS "RdpBox Qt chrome: native Win32 hit-test fallback")
+endif()
 
 if(TARGET Qt5::WinMain)
     target_link_libraries(RdpBox PRIVATE Qt5::WinMain)

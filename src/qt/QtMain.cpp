@@ -6,6 +6,7 @@
 #include <QApplication>
 #include <QFile>
 #include <QFont>
+#include <QGuiApplication>
 #include <QStringList>
 
 #include <windows.h>
@@ -64,6 +65,10 @@ void applyApplicationStyle(QApplication &application)
 
 int main(int argc, char *argv[])
 {
+#ifdef RDPBOX_USE_QWINDOWKIT
+    QGuiApplication::setAttribute(Qt::AA_DontCreateNativeWidgetSiblings);
+#endif
+
     HANDLE mutex = ::CreateMutexW(nullptr, TRUE, L"RdpBox_SingleInstance");
     if (mutex && ::GetLastError() == ERROR_ALREADY_EXISTS) {
         ::CloseHandle(mutex);
