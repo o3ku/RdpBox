@@ -108,6 +108,8 @@ set(RDPBOX_QT_SOURCES
     rdp/RdpReservedShortcutTracker.cpp
     rdp/RdpResizeBurstTracker.h
     rdp/RdpResizeBurstTracker.cpp
+    rdp/RdpResolutionRecovery.h
+    rdp/RdpResolutionRecovery.cpp
     rdp/RdpSessionViewBehavior.h
     rdp/RdpSessionViewBehavior.cpp
     rdp/WindowsClipboardBackend.h
