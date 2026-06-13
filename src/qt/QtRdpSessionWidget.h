@@ -4,6 +4,7 @@
 #include "profiles/Profile.h"
 #include "rdp/FreeRdpProcess.h"
 #include "rdp/RdpKeyboardInputRouter.h"
+#include "rdp/RdpMouseMoveCoalescer.h"
 #include "rdp/RdpResizeBurstTracker.h"
 
 #include <QWidget>
@@ -50,6 +51,8 @@ private:
     void updateCursor();
     void requestResize();
     void handleResizeTimer();
+    void flushPendingMouseMove();
+    void handleMouseMoveTimer();
     bool confirmCertificate(const FreeRdpProcess::CertificateChallenge &challenge);
     SizeI viewSize() const;
     PointI pointFromMouseEvent(const QMouseEvent *event) const;
@@ -70,7 +73,9 @@ private:
     QString m_overlayText;
     std::function<void(FreeRdpProcess::State)> m_stateChanged;
     RdpKeyboardInputRouter m_keyboardRouter;
+    RdpMouseMoveCoalescer m_mouseMoveCoalescer;
     RdpResizeBurstTracker m_resizeBurstTracker;
+    QTimer *m_mouseMoveTimer = nullptr;
     QTimer *m_resizeTimer = nullptr;
     unsigned int m_pressedMouseButtons = 0;
     PointI m_lastPointerPoint;

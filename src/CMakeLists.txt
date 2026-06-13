@@ -97,6 +97,8 @@ set(RDPBOX_QT_SOURCES
     rdp/RdpInputModifiers.cpp
     rdp/RdpKeyboardInputRouter.h
     rdp/RdpKeyboardInputRouter.cpp
+    rdp/RdpMouseMoveCoalescer.h
+    rdp/RdpMouseMoveCoalescer.cpp
     rdp/RdpModifierSyncTracker.h
     rdp/RdpModifierSyncTracker.cpp
     rdp/RdpReconnectInteraction.h
