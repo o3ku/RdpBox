@@ -7,6 +7,7 @@
 #include "rdp/RdpInputModifiers.h"
 #include "rdp/RdpReconnectInteraction.h"
 #include "rdp/RdpSessionViewBehavior.h"
+#include "ui/MainWindowShortcuts.h"
 
 #include <QFocusEvent>
 #include <QImage>
@@ -209,6 +210,7 @@ void QtRdpSessionWidget::connectToHost()
         return;
 
     m_keyboardRouter.reset();
+    m_reservedShortcutTracker.reset();
     m_pressedMouseButtons = 0;
     m_hasLastPointerPoint = false;
     m_frameGeneration = 0;
@@ -265,6 +267,11 @@ FreeRdpProcess::ConnectionInfo QtRdpSessionWidget::connectionInfo() const
 void QtRdpSessionWidget::setStateChangedCallback(std::function<void(FreeRdpProcess::State)> callback)
 {
     m_stateChanged = std::move(callback);
+}
+
+void QtRdpSessionWidget::noteConsumedLocalShortcutKey(unsigned int virtualKey)
+{
+    m_reservedShortcutTracker.noteHandledKeyDown(virtualKey);
 }
 
 void QtRdpSessionWidget::paintEvent(QPaintEvent *event)
@@ -458,6 +465,7 @@ void QtRdpSessionWidget::stopProcess(bool showDisconnectedOverlay)
     if (m_resizeTimer)
         m_resizeTimer->stop();
     m_resizeBurstTracker.reset();
+    m_reservedShortcutTracker.reset();
     m_process->stop();
     if (showDisconnectedOverlay)
         updateState(FreeRdpProcess::State::Finished);
@@ -473,6 +481,8 @@ void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
             m_overlayText = QString::fromStdWString(rdp::session_view::finishedOverlayText(error));
     }
     if (state == FreeRdpProcess::State::Running) {
+        m_keyboardRouter.reset();
+        m_reservedShortcutTracker.reset();
         m_mouseMoveCoalescer.reset();
         if (m_mouseMoveTimer)
             m_mouseMoveTimer->stop();
@@ -685,6 +695,18 @@ void QtRdpSessionWidget::sendKeyEvent(QKeyEvent *event, bool down)
         return;
 
     const unsigned int virtualKey = static_cast<unsigned int>(event->nativeVirtualKey());
+    const bool controlDown = (physicalKeyboardModifiers() & ModifierControl) != 0;
+    const bool altDown = (physicalKeyboardModifiers() & ModifierAlt) != 0;
+    if (down && ui::isReservedMainWindowShortcut(controlDown, altDown, virtualKey)) {
+        m_reservedShortcutTracker.noteHandledKeyDown(virtualKey);
+        event->ignore();
+        return;
+    }
+    if (!down && m_reservedShortcutTracker.consumeHandledKeyUp(virtualKey)) {
+        event->accept();
+        return;
+    }
+
     const auto key = keyIdentifierFromVirtualKey(virtualKey);
     if (!key) {
         event->ignore();
@@ -747,8 +769,10 @@ void QtRdpSessionWidget::releaseAllPressedKeys()
 {
     if (!m_process || m_process->state() != FreeRdpProcess::State::Running) {
         m_keyboardRouter.reset();
+        m_reservedShortcutTracker.reset();
         return;
     }
 
     sendKeyboardActions(m_keyboardRouter.releaseAllPressedKeys());
+    m_reservedShortcutTracker.reset();
 }
