@@ -1,6 +1,7 @@
 #include "qt/QtRdpSessionWidget.h"
 
 #include "rdp/FreeRdpProcessNative.h"
+#include "rdp/RdpCertificatePromptBehavior.h"
 #include "rdp/RdpCursorClassifier.h"
 #include "rdp/RdpInputEventUtil.h"
 #include "rdp/RdpInputModifiers.h"
@@ -25,6 +26,20 @@ namespace
 {
 constexpr int kMouseMoveTimerIntervalMs = 16;
 constexpr int kResizeTimerIntervalMs = 50;
+
+rdp::certificate_prompt::Challenge promptChallengeFromProcessChallenge(
+    const FreeRdpProcess::CertificateChallenge &challenge)
+{
+    return rdp::certificate_prompt::Challenge{
+        challenge.host,
+        challenge.port,
+        challenge.commonName,
+        challenge.subject,
+        challenge.issuer,
+        challenge.fingerprint,
+        challenge.changed,
+    };
+}
 
 QString stateText(FreeRdpProcess::State state, bool reconnecting)
 {
@@ -573,14 +588,18 @@ void QtRdpSessionWidget::handleMouseMoveTimer()
 
 bool QtRdpSessionWidget::confirmCertificate(const FreeRdpProcess::CertificateChallenge &challenge)
 {
-    const QString text = tr("The remote certificate for %1:%2 could not be verified.")
-        .arg(QString::fromStdWString(challenge.host))
-        .arg(challenge.port);
-    return QMessageBox::question(this,
-                                  tr("Certificate"),
-                                  text,
-                                  QMessageBox::Yes | QMessageBox::No,
-                                  QMessageBox::No) == QMessageBox::Yes;
+    const auto prompt = rdp::certificate_prompt::promptForChallenge(
+        promptChallengeFromProcessChallenge(challenge));
+
+    QMessageBox messageBox(this);
+    messageBox.setWindowTitle(tr("Verify Certificate"));
+    messageBox.setText(QString::fromStdWString(prompt.message));
+    messageBox.setIcon(prompt.icon == rdp::certificate_prompt::PromptIcon::Warning
+                           ? QMessageBox::Warning
+                           : QMessageBox::Question);
+    messageBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+    messageBox.setDefaultButton(QMessageBox::No);
+    return messageBox.exec() == QMessageBox::Yes;
 }
 
 SizeI QtRdpSessionWidget::viewSize() const

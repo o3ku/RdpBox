@@ -89,6 +89,8 @@ set(RDPBOX_QT_SOURCES
     rdp/PlatformClipboardBackend.h
     rdp/RdpClipboardBridge.h
     rdp/RdpClipboardBridge.cpp
+    rdp/RdpCertificatePromptBehavior.h
+    rdp/RdpCertificatePromptBehavior.cpp
     rdp/RdpCursorClassifier.h
     rdp/RdpCursorClassifier.cpp
     rdp/RdpInputEventUtil.h
