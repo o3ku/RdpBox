@@ -3,6 +3,7 @@
 #include "profiles/Profile.h"
 #include "profiles/ProfileRepository.h"
 #include "common/UpdateClient.h"
+#include "rdp/FreeRdpProcess.h"
 #include "ui/MainWindowUpdateBehavior.h"
 
 #include <QMainWindow>
@@ -97,6 +98,7 @@ private:
     std::vector<Profile> currentVisibleProfiles() const;
     void selectProfileByName(const std::wstring &profileName);
     void addSessionTab(const Profile &profile);
+    void updateSessionTabState(const std::wstring &profileName, FreeRdpProcess::State state);
     int sessionTabIndexForProfileName(const std::wstring &profileName) const;
     QtRdpSessionWidget *sessionWidgetForTab(int index) const;
     QWidget *createHomePage() const;
