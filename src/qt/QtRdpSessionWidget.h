@@ -5,6 +5,7 @@
 #include "rdp/FreeRdpProcess.h"
 #include "rdp/RdpKeyboardInputRouter.h"
 #include "rdp/RdpMouseMoveCoalescer.h"
+#include "rdp/RdpReservedShortcutTracker.h"
 #include "rdp/RdpResizeBurstTracker.h"
 
 #include <QWidget>
@@ -29,6 +30,7 @@ public:
     FreeRdpProcess::State state() const;
     FreeRdpProcess::ConnectionInfo connectionInfo() const;
     void setStateChangedCallback(std::function<void(FreeRdpProcess::State)> callback);
+    void noteConsumedLocalShortcutKey(unsigned int virtualKey);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -73,6 +75,7 @@ private:
     QString m_overlayText;
     std::function<void(FreeRdpProcess::State)> m_stateChanged;
     RdpKeyboardInputRouter m_keyboardRouter;
+    RdpReservedShortcutTracker m_reservedShortcutTracker;
     RdpMouseMoveCoalescer m_mouseMoveCoalescer;
     RdpResizeBurstTracker m_resizeBurstTracker;
     QTimer *m_mouseMoveTimer = nullptr;

@@ -727,6 +727,8 @@ void QtMainWindow::installShortcuts()
 
     if (ui::shortcutActionForKey(WM_KEYDOWN, true, false, 'P') == ui::MainWindowShortcutAction::OpenConnections) {
         bindShortcut(QKeySequence(Qt::CTRL | Qt::Key_P), [this]() {
+            if (QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(m_tabs ? m_tabs->currentIndex() : -1))
+                sessionWidget->noteConsumedLocalShortcutKey('P');
             focusConnections();
         });
     }
