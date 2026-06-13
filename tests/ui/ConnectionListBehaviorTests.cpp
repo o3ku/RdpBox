@@ -75,6 +75,12 @@ int main()
     }
 
     {
+        assert(shouldActivateConnectionListSelection(false, true));
+        assert(!shouldActivateConnectionListSelection(true, true));
+        assert(!shouldActivateConnectionListSelection(false, false));
+    }
+
+    {
         const auto rows = retainedSelectionRowsForProfiles(visibleProfiles, {L"gamma", L"alpha"});
         assert(rows.size() == 2);
         assert(rows[0] == 0);

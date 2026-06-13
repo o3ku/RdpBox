@@ -290,6 +290,7 @@ class ProfileListWidget final : public QListWidget
 public:
     using DropCallback = std::function<void(int sourceRow, int insertIndex)>;
     using KeyboardMoveCallback = std::function<bool(int delta)>;
+    using ActivateCallback = std::function<void()>;
 
     explicit ProfileListWidget(QWidget *parent = nullptr)
         : QListWidget(parent)
@@ -306,9 +307,24 @@ public:
         m_keyboardMoveCallback = std::move(callback);
     }
 
+    void setActivateCallback(ActivateCallback callback)
+    {
+        m_activateCallback = std::move(callback);
+    }
+
 protected:
     void keyPressEvent(QKeyEvent *event) override
     {
+        if (event) {
+            const bool isEnterKey = event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter;
+            if (shouldActivateConnectionListSelection(event->modifiers() != Qt::NoModifier, isEnterKey)
+                && m_activateCallback) {
+                m_activateCallback();
+                event->accept();
+                return;
+            }
+        }
+
         if (event && event->modifiers() == Qt::NoModifier) {
             int delta = 0;
             if (event->key() == Qt::Key_Up)
@@ -381,6 +397,7 @@ private:
 
     DropCallback m_dropCallback;
     KeyboardMoveCallback m_keyboardMoveCallback;
+    ActivateCallback m_activateCallback;
     int m_dragSourceRow = -1;
 };
 }
@@ -534,6 +551,9 @@ void QtMainWindow::buildUi()
     });
     profileList->setKeyboardMoveCallback([this](int delta) {
         return moveSelectedProfileBy(delta);
+    });
+    profileList->setActivateCallback([this]() {
+        connectSelectedProfiles();
     });
     m_profileList = profileList;
     m_profileList->setUniformItemSizes(true);

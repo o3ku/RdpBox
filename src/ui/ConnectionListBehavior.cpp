@@ -63,6 +63,11 @@ std::vector<std::wstring> connectableProfileNamesForSelection(
     return names;
 }
 
+bool shouldActivateConnectionListSelection(bool hasKeyboardModifiers, bool isEnterKey)
+{
+    return isEnterKey && !hasKeyboardModifiers;
+}
+
 std::vector<int> retainedSelectionRowsForProfiles(
     const std::vector<Profile> &visibleProfiles,
     const std::vector<std::wstring> &preferredProfileNames)
