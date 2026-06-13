@@ -498,7 +498,11 @@ void QtMainWindow::buildUi()
         closeSessionTab(index);
     });
     if (QTabBar *bar = m_tabs->tabBar()) {
+        bar->setMovable(true);
         bar->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(bar, &QTabBar::tabMoved, this, [this](int fromIndex, int toIndex) {
+            handleTabMoved(fromIndex, toIndex);
+        });
         connect(bar, &QTabBar::customContextMenuRequested, this, [this](const QPoint &point) {
             showTabContextMenu(point);
         });
@@ -1476,6 +1480,24 @@ bool QtMainWindow::launchDownloadedUpdate() const
     ::CloseHandle(processInfo.hThread);
     ::CloseHandle(processInfo.hProcess);
     return true;
+}
+
+void QtMainWindow::handleTabMoved(int fromIndex, int toIndex)
+{
+    if (m_adjustingTabMove || !m_tabs || !m_tabs->tabBar())
+        return;
+
+    if (fromIndex != 0 && toIndex != 0)
+        return;
+
+    QTabBar *bar = m_tabs->tabBar();
+    m_adjustingTabMove = true;
+    if (fromIndex == 0)
+        bar->moveTab(toIndex, 0);
+    else
+        bar->moveTab(0, 1);
+    m_adjustingTabMove = false;
+    configureHomeTab();
 }
 
 void QtMainWindow::showTabContextMenu(const QPoint &tabBarPoint)
