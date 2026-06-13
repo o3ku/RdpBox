@@ -78,6 +78,34 @@ QString profileSubtitle(const Profile &profile)
     return subtitle;
 }
 
+QString sessionStateText(FreeRdpProcess::State state)
+{
+    switch (state) {
+    case FreeRdpProcess::State::Starting:
+        return QObject::tr("Connecting");
+    case FreeRdpProcess::State::Running:
+        return QObject::tr("Connected");
+    case FreeRdpProcess::State::Idle:
+    case FreeRdpProcess::State::Finished:
+        return QObject::tr("Disconnected");
+    }
+    return QObject::tr("Disconnected");
+}
+
+QString sessionTabTitle(const Profile &profile, FreeRdpProcess::State state)
+{
+    if (state == FreeRdpProcess::State::Running)
+        return profileTitle(profile);
+
+    return QStringLiteral("%1 - %2").arg(profileTitle(profile), sessionStateText(state));
+}
+
+QString sessionTabTooltip(const Profile &profile, FreeRdpProcess::State state)
+{
+    return QStringLiteral("%1\n%2")
+        .arg(profileSubtitle(profile), sessionStateText(state));
+}
+
 QString aboutVersionText()
 {
     return QStringLiteral("RdpBox %1").arg(QString::fromWCharArray(RDPBOX_VERSION));
@@ -1640,7 +1668,22 @@ void QtMainWindow::addSessionTab(const Profile &profile)
     const int index = m_tabs->addTab(page, profileTitle(profile));
     if (m_tabs->tabBar())
         m_tabs->tabBar()->setTabData(index, QString::fromStdWString(profile.name));
+    updateSessionTabState(profile.name, FreeRdpProcess::State::Idle);
     m_tabs->setCurrentIndex(index);
+}
+
+void QtMainWindow::updateSessionTabState(const std::wstring &profileName, FreeRdpProcess::State state)
+{
+    const int index = sessionTabIndexForProfileName(profileName);
+    if (index <= 0 || !m_tabs)
+        return;
+
+    const Profile profile = m_repository.profileByName(profileName);
+    if (!profile.isValid())
+        return;
+
+    m_tabs->setTabText(index, sessionTabTitle(profile, state));
+    m_tabs->setTabToolTip(index, sessionTabTooltip(profile, state));
 }
 
 int QtMainWindow::sessionTabIndexForProfileName(const std::wstring &profileName) const
@@ -1709,6 +1752,7 @@ QWidget *QtMainWindow::createSessionPage(const Profile &profile)
     auto *surface = new QtRdpSessionWidget(profile, page);
     surface->setObjectName(QStringLiteral("sessionSurface"));
     surface->setStateChangedCallback([this, profile, statusLabel](FreeRdpProcess::State state) {
+        updateSessionTabState(profile.name, state);
         switch (state) {
         case FreeRdpProcess::State::Idle:
             statusLabel->setText(QObject::tr("Disconnected"));
