@@ -326,13 +326,19 @@ protected:
         }
 
         if (event && event->modifiers() == Qt::NoModifier) {
-            int delta = 0;
-            if (event->key() == Qt::Key_Up)
-                delta = -1;
-            else if (event->key() == Qt::Key_Down)
-                delta = 1;
+            QListWidget::keyPressEvent(event);
+            return;
+        }
 
-            if (delta != 0 && m_keyboardMoveCallback && m_keyboardMoveCallback(delta)) {
+        if (event) {
+            const Qt::KeyboardModifiers modifiers = event->modifiers();
+            const std::optional<int> delta = keyboardMoveDeltaForConnectionList(
+                modifiers.testFlag(Qt::ControlModifier),
+                modifiers.testFlag(Qt::AltModifier),
+                modifiers.testFlag(Qt::ShiftModifier),
+                event->key() == Qt::Key_Up,
+                event->key() == Qt::Key_Down);
+            if (delta.has_value() && m_keyboardMoveCallback && m_keyboardMoveCallback(*delta)) {
                 event->accept();
                 return;
             }

@@ -68,6 +68,20 @@ bool shouldActivateConnectionListSelection(bool hasKeyboardModifiers, bool isEnt
     return isEnterKey && !hasKeyboardModifiers;
 }
 
+std::optional<int> keyboardMoveDeltaForConnectionList(bool controlDown,
+                                                      bool altDown,
+                                                      bool shiftDown,
+                                                      bool upKey,
+                                                      bool downKey)
+{
+    if (!controlDown || altDown || shiftDown)
+        return std::nullopt;
+    if (upKey == downKey)
+        return std::nullopt;
+
+    return upKey ? -1 : 1;
+}
+
 std::vector<int> retainedSelectionRowsForProfiles(
     const std::vector<Profile> &visibleProfiles,
     const std::vector<std::wstring> &preferredProfileNames)
