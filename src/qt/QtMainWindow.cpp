@@ -17,6 +17,7 @@
 #include <QCloseEvent>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDropEvent>
 #include <QEvent>
 #include <QFrame>
 #include <QGridLayout>
@@ -46,12 +47,15 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <array>
 #include <cwchar>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <thread>
+#include <utility>
 
 namespace
 {
@@ -201,6 +205,80 @@ bool activeMonitorInfo(RECT &monitorRect, RECT &workArea)
     workArea = info.rcWork;
     return true;
 }
+
+class ProfileListWidget final : public QListWidget
+{
+public:
+    using DropCallback = std::function<void(int sourceRow, int insertIndex)>;
+
+    explicit ProfileListWidget(QWidget *parent = nullptr)
+        : QListWidget(parent)
+    {
+    }
+
+    void setDropCallback(DropCallback callback)
+    {
+        m_dropCallback = std::move(callback);
+    }
+
+protected:
+    void startDrag(Qt::DropActions supportedActions) override
+    {
+        const QList<QListWidgetItem *> selected = selectedItems();
+        if (selected.size() != 1)
+            return;
+
+        m_dragSourceRow = row(selected.front());
+        QListWidget::startDrag(supportedActions);
+        m_dragSourceRow = -1;
+    }
+
+    void dropEvent(QDropEvent *event) override
+    {
+        if (!event)
+            return;
+
+        if (m_dragSourceRow < 0 || selectedItems().size() != 1 || !m_dropCallback) {
+            QListWidget::dropEvent(event);
+            return;
+        }
+
+        const int sourceRow = m_dragSourceRow;
+        const int insertIndex = dropInsertIndex(event->pos());
+        event->setDropAction(Qt::MoveAction);
+        event->accept();
+        m_dragSourceRow = -1;
+        m_dropCallback(sourceRow, insertIndex);
+    }
+
+private:
+    int dropInsertIndex(const QPoint &point) const
+    {
+        if (count() <= 0)
+            return 0;
+
+        const QListWidgetItem *item = itemAt(point);
+        if (!item)
+            return point.y() < 0 ? 0 : count();
+
+        const int itemRow = row(item);
+        const QRect itemRect = visualItemRect(item);
+        const int topThreshold = itemRect.top() + itemRect.height() / 3;
+        const int bottomThreshold = itemRect.bottom() - itemRect.height() / 3;
+
+        if (m_dragSourceRow >= 0) {
+            if (itemRow > m_dragSourceRow)
+                return point.y() < topThreshold ? itemRow : itemRow + 1;
+            if (itemRow < m_dragSourceRow)
+                return point.y() > bottomThreshold ? itemRow + 1 : itemRow;
+        }
+
+        return point.y() < itemRect.center().y() ? itemRow : itemRow + 1;
+    }
+
+    DropCallback m_dropCallback;
+    int m_dragSourceRow = -1;
+};
 }
 
 QtMainWindow::QtMainWindow(std::vector<std::wstring> startupConnectionNames,
@@ -317,9 +395,18 @@ void QtMainWindow::buildUi()
     m_searchEdit = new QLineEdit(m_sidebar);
     m_searchEdit->setPlaceholderText(tr("Search"));
 
-    m_profileList = new QListWidget(m_sidebar);
+    auto *profileList = new ProfileListWidget(m_sidebar);
+    profileList->setDropCallback([this](int sourceRow, int insertIndex) {
+        moveProfileByDrop(sourceRow, insertIndex);
+    });
+    m_profileList = profileList;
     m_profileList->setUniformItemSizes(true);
     m_profileList->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_profileList->setDragEnabled(true);
+    m_profileList->setAcceptDrops(true);
+    m_profileList->setDragDropMode(QAbstractItemView::InternalMove);
+    m_profileList->setDefaultDropAction(Qt::MoveAction);
+    m_profileList->setDropIndicatorShown(true);
 
     auto *primaryButtons = new QHBoxLayout;
     auto *newButton = new QPushButton(style()->standardIcon(QStyle::SP_FileIcon), tr("New"), m_sidebar);
@@ -849,6 +936,25 @@ void QtMainWindow::moveSelectedProfileBy(int delta)
         return;
 
     const int insertIndex = delta > 0 ? *targetRow + 1 : *targetRow;
+    const std::size_t targetIndex =
+        repositoryTargetIndexForVisibleInsertIndex(m_repository.profiles(), visibleProfiles, insertIndex);
+    if (!m_repository.moveProfile(movedProfile.name, targetIndex))
+        return;
+
+    refreshProfileList();
+    selectProfileByName(movedProfile.name);
+}
+
+void QtMainWindow::moveProfileByDrop(int sourceRow, int insertIndex)
+{
+    const std::vector<Profile> visibleProfiles = currentVisibleProfiles();
+    if (sourceRow < 0 || sourceRow >= static_cast<int>(visibleProfiles.size()))
+        return;
+
+    const Profile movedProfile = visibleProfiles[static_cast<std::size_t>(sourceRow)];
+    if (!movedProfile.isValid())
+        return;
+
     const std::size_t targetIndex =
         repositoryTargetIndexForVisibleInsertIndex(m_repository.profiles(), visibleProfiles, insertIndex);
     if (!m_repository.moveProfile(movedProfile.name, targetIndex))
@@ -1492,6 +1598,7 @@ void QtMainWindow::selectProfileByName(const std::wstring &profileName)
             continue;
 
         if (QString::compare(item->data(Qt::UserRole).toString(), name, Qt::CaseInsensitive) == 0) {
+            m_profileList->clearSelection();
             m_profileList->setCurrentRow(row);
             m_profileList->scrollToItem(item);
             return;
