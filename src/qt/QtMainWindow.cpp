@@ -749,7 +749,10 @@ void QtMainWindow::installShortcuts()
 
 void QtMainWindow::refreshProfileList()
 {
+    const std::vector<std::wstring> previousSelection = selectedProfileNames();
     const std::vector<Profile> profiles = currentVisibleProfiles();
+    const std::vector<int> retainedRows =
+        retainedSelectionRowsForProfiles(profiles, previousSelection);
 
     m_profileList->clear();
     for (const Profile &profile : profiles) {
@@ -757,6 +760,14 @@ void QtMainWindow::refreshProfileList()
         item->setText(profileTitle(profile) + QStringLiteral("\n") + profileSubtitle(profile));
         item->setData(Qt::UserRole, QString::fromStdWString(profile.name));
         item->setSizeHint(QSize(0, 54));
+    }
+
+    if (!retainedRows.empty()) {
+        m_profileList->setCurrentRow(retainedRows.front());
+        for (int row : retainedRows) {
+            if (QListWidgetItem *item = m_profileList->item(row))
+                item->setSelected(true);
+        }
     }
 
     m_statusLabel->setText(tr("%n connection(s)", nullptr, static_cast<int>(m_repository.profiles().size())));
@@ -941,12 +952,14 @@ void QtMainWindow::addProfile()
     if (dialog.exec() != QDialog::Accepted)
         return;
 
-    if (!m_repository.addProfile(dialog.profile())) {
+    const Profile profile = dialog.profile();
+    if (!m_repository.addProfile(profile)) {
         QMessageBox::warning(this, tr("Connection"), tr("A connection with this name already exists."));
         return;
     }
 
     refreshProfileList();
+    selectProfileByName(profile.name);
 }
 
 void QtMainWindow::editSelectedProfile()
@@ -961,12 +974,14 @@ void QtMainWindow::editSelectedProfile()
     if (dialog.exec() != QDialog::Accepted)
         return;
 
-    if (!m_repository.updateProfile(currentName, dialog.profile())) {
+    const Profile profile = dialog.profile();
+    if (!m_repository.updateProfile(currentName, profile)) {
         QMessageBox::warning(this, tr("Connection"), tr("A connection with this name already exists."));
         return;
     }
 
     refreshProfileList();
+    selectProfileByName(profile.name);
 }
 
 void QtMainWindow::duplicateSelectedProfile()
@@ -1732,10 +1747,12 @@ std::vector<int> QtMainWindow::selectedProfileRows() const
 std::vector<std::wstring> QtMainWindow::selectedProfileNames() const
 {
     std::vector<std::wstring> names;
-    const std::vector<Profile> profiles = currentVisibleProfiles();
-    for (int row : selectedProfileRows()) {
-        if (row >= 0 && row < static_cast<int>(profiles.size()))
-            names.push_back(profiles[static_cast<std::size_t>(row)].name);
+    if (!m_profileList)
+        return names;
+
+    for (const QListWidgetItem *item : m_profileList->selectedItems()) {
+        if (item)
+            names.push_back(item->data(Qt::UserRole).toString().toStdWString());
     }
     return names;
 }

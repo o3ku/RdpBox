@@ -56,6 +56,25 @@ std::vector<std::wstring> connectableProfileNamesForSelection(
     return names;
 }
 
+std::vector<int> retainedSelectionRowsForProfiles(
+    const std::vector<Profile> &visibleProfiles,
+    const std::vector<std::wstring> &preferredProfileNames)
+{
+    std::vector<int> rows;
+    for (int index = 0; index < static_cast<int>(visibleProfiles.size()); ++index) {
+        const std::wstring &name = visibleProfiles[static_cast<std::size_t>(index)].name;
+        if (std::find(preferredProfileNames.begin(), preferredProfileNames.end(), name)
+            != preferredProfileNames.end()) {
+            rows.push_back(index);
+        }
+    }
+
+    if (rows.empty() && !visibleProfiles.empty())
+        rows.push_back(0);
+
+    return rows;
+}
+
 Profile duplicateProfileDraft(const Profile &profile)
 {
     Profile duplicate = profile;

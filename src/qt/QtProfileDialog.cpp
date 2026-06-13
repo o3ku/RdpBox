@@ -58,7 +58,7 @@ void QtProfileDialog::setProfile(const Profile &profile)
     m_profile = profile;
     m_nameEdit->setText(QString::fromStdWString(profile.name));
     m_hostEdit->setText(QString::fromStdWString(profile.host));
-    m_portEdit->setValue(profile.port);
+    m_portEdit->setValue(normalizedProfilePort(profile.port));
     m_domainEdit->setText(QString::fromStdWString(profile.domain));
     m_usernameEdit->setText(QString::fromStdWString(profile.username));
     m_passwordEdit->setText(QString::fromStdWString(profile.password));

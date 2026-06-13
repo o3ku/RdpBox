@@ -28,6 +28,10 @@ std::vector<std::wstring> connectableProfileNamesForSelection(
     const std::vector<int> &selectedIndices,
     const std::vector<std::wstring> &connectedProfileNames);
 
+std::vector<int> retainedSelectionRowsForProfiles(
+    const std::vector<Profile> &visibleProfiles,
+    const std::vector<std::wstring> &preferredProfileNames);
+
 Profile duplicateProfileDraft(const Profile &profile);
 
 std::size_t repositoryTargetIndexForVisibleInsertIndex(
