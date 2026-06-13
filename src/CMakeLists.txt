@@ -99,6 +99,9 @@ set(RDPBOX_QT_SOURCES
     rdp/RdpKeyboardInputRouter.cpp
     rdp/RdpModifierSyncTracker.h
     rdp/RdpModifierSyncTracker.cpp
+    rdp/RdpReconnectInteraction.h
+    rdp/RdpSessionViewBehavior.h
+    rdp/RdpSessionViewBehavior.cpp
     rdp/WindowsClipboardBackend.h
     rdp/WindowsClipboardBackend.cpp
     rdp/WindowsClipboardBackendDataObject.cpp

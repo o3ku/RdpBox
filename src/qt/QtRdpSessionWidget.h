@@ -70,4 +70,5 @@ private:
     unsigned int m_pressedMouseButtons = 0;
     PointI m_lastPointerPoint;
     bool m_hasLastPointerPoint = false;
+    bool m_reconnecting = false;
 };
