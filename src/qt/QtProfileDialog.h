@@ -20,6 +20,7 @@ protected:
     void accept() override;
 
 private:
+    Profile m_profile;
     QLineEdit *m_nameEdit = nullptr;
     QLineEdit *m_hostEdit = nullptr;
     QSpinBox *m_portEdit = nullptr;
