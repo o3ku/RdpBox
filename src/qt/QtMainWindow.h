@@ -55,7 +55,7 @@ private:
     bool restoreWindowState();
     int nativeHitTestForPoint(const QPoint &windowPoint) const;
     void configureWindowChrome();
-    void addProfile();
+    void addProfile(bool connectAfterAdd = false);
     void editSelectedProfile();
     void duplicateSelectedProfile();
     void deleteSelectedProfile();

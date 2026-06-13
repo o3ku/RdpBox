@@ -585,7 +585,7 @@ void MainWindow::showLogoMenu()
 
     CMenu menu;
     menu.CreatePopupMenu();
-    menu.AppendMenu(MF_STRING, ID_MAIN_NEW, L"New");
+    menu.AppendMenu(MF_STRING, ID_MAIN_NEW, L"New\tCtrl+N");
     menu.AppendMenu(MF_STRING, ID_MAIN_CONNECTIONS, L"Connections\tCtrl+P");
     menu.AppendMenu(MF_SEPARATOR);
     menu.AppendMenu(MF_STRING, ID_MAIN_ABOUT, L"About");
