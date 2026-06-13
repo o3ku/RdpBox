@@ -110,6 +110,8 @@ set(RDPBOX_QT_SOURCES
     ui/ConnectionListBehavior.cpp
     ui/ProfileEditBehavior.h
     ui/ProfileEditBehavior.cpp
+    ui/MainWindowSessionBehavior.h
+    ui/MainWindowSessionBehavior.cpp
     ui/MainWindowUpdateBehavior.h
     ui/MainWindowUpdateBehavior.cpp
     ui/WindowStateScaling.h
