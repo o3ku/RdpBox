@@ -27,6 +27,7 @@ public:
     void connectToHost();
     void reconnect();
     void handleHostResume(bool autoReconnect);
+    void handleBecameVisible();
     bool isConnected() const;
     FreeRdpProcess::State state() const;
     FreeRdpProcess::ConnectionInfo connectionInfo() const;
