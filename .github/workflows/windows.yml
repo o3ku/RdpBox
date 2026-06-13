@@ -46,10 +46,6 @@ jobs:
           if (-not $env:VCToolsInstallDir) {
             throw "VCToolsInstallDir is not set."
           }
-          $mfcHeader = Join-Path $env:VCToolsInstallDir "atlmfc\include\afxwin.h"
-          if (-not (Test-Path $mfcHeader)) {
-            throw "MFC headers were not found at $mfcHeader."
-          }
 
       - name: Locate vcpkg
         shell: pwsh
