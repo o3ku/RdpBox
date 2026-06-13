@@ -202,6 +202,19 @@ void QtRdpSessionWidget::reconnect()
     connectToHost();
 }
 
+void QtRdpSessionWidget::handleHostResume(bool autoReconnect)
+{
+    if (!m_profile.isValid())
+        return;
+
+    if (autoReconnect) {
+        reconnect();
+        return;
+    }
+
+    stopProcess(true);
+}
+
 bool QtRdpSessionWidget::isConnected() const
 {
     return m_state == FreeRdpProcess::State::Running;
@@ -374,7 +387,7 @@ void QtRdpSessionWidget::clearProcessCallbacks()
     m_process->setCertificateChallengeCallback({});
 }
 
-void QtRdpSessionWidget::stopProcess()
+void QtRdpSessionWidget::stopProcess(bool showDisconnectedOverlay)
 {
     if (!m_process)
         return;
@@ -383,6 +396,8 @@ void QtRdpSessionWidget::stopProcess()
     releaseAllPressedKeys();
     clearProcessCallbacks();
     m_process->stop();
+    if (showDisconnectedOverlay)
+        updateState(FreeRdpProcess::State::Finished);
 }
 
 void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)

@@ -90,6 +90,7 @@ private:
     void showTabContextMenu(const QPoint &tabBarPoint);
     void reconnectSessionTab(int index);
     void refreshSessionTabStatuses();
+    void handleHostResume();
     void connectSelectedProfiles();
     void openConnectionsByName(const std::vector<std::wstring> &connectionNames);
     Profile selectedProfile() const;

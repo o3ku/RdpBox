@@ -21,6 +21,7 @@ public:
 
     void connectToHost();
     void reconnect();
+    void handleHostResume(bool autoReconnect);
     bool isConnected() const;
     FreeRdpProcess::State state() const;
     FreeRdpProcess::ConnectionInfo connectionInfo() const;
@@ -41,7 +42,7 @@ protected:
 private:
     void bindProcessCallbacks();
     void clearProcessCallbacks();
-    void stopProcess();
+    void stopProcess(bool showDisconnectedOverlay = false);
     void updateState(FreeRdpProcess::State state);
     void consumeFrame();
     void updateCursor();
