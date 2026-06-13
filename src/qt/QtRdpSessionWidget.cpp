@@ -14,6 +14,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QResizeEvent>
+#include <QTimer>
 #include <QWheelEvent>
 
 #include <algorithm>
@@ -22,6 +23,8 @@
 
 namespace
 {
+constexpr int kResizeTimerIntervalMs = 50;
+
 QString stateText(FreeRdpProcess::State state, bool reconnecting)
 {
     switch (state) {
@@ -166,6 +169,11 @@ QtRdpSessionWidget::QtRdpSessionWidget(Profile profile, QWidget *parent)
     setAttribute(Qt::WA_NoSystemBackground);
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
+    m_resizeTimer = new QTimer(this);
+    m_resizeTimer->setInterval(kResizeTimerIntervalMs);
+    connect(m_resizeTimer, &QTimer::timeout, this, [this]() {
+        handleResizeTimer();
+    });
     bindProcessCallbacks();
 }
 
@@ -411,6 +419,9 @@ void QtRdpSessionWidget::stopProcess(bool showDisconnectedOverlay)
     releasePressedMouseButtons();
     releaseAllPressedKeys();
     clearProcessCallbacks();
+    if (m_resizeTimer)
+        m_resizeTimer->stop();
+    m_resizeBurstTracker.reset();
     m_process->stop();
     if (showDisconnectedOverlay)
         updateState(FreeRdpProcess::State::Finished);
@@ -424,6 +435,16 @@ void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
         const std::string error = m_process->lastDisconnectError();
         if (!error.empty())
             m_overlayText = QString::fromStdWString(rdp::session_view::finishedOverlayText(error));
+    }
+    if (state == FreeRdpProcess::State::Running) {
+        m_resizeBurstTracker.reset();
+        if (m_resizeTimer)
+            m_resizeTimer->stop();
+        requestResize();
+    } else if (state == FreeRdpProcess::State::Finished) {
+        m_resizeBurstTracker.reset();
+        if (m_resizeTimer)
+            m_resizeTimer->stop();
     }
     if (state == FreeRdpProcess::State::Running || state == FreeRdpProcess::State::Finished)
         m_reconnecting = false;
@@ -456,8 +477,35 @@ void QtRdpSessionWidget::updateCursor()
 
 void QtRdpSessionWidget::requestResize()
 {
-    if (m_process && width() > 0 && height() > 0)
-        m_process->requestResize(viewSize());
+    if (!m_process || m_state != FreeRdpProcess::State::Running || width() <= 0 || height() <= 0)
+        return;
+
+    const SizeI size = viewSize();
+    if (!m_resizeBurstTracker.onResize(size))
+        return;
+
+    m_process->requestResize(size);
+    if (m_resizeTimer)
+        m_resizeTimer->start();
+}
+
+void QtRdpSessionWidget::handleResizeTimer()
+{
+    if (!m_process || m_state != FreeRdpProcess::State::Running) {
+        if (m_resizeTimer)
+            m_resizeTimer->stop();
+        m_resizeBurstTracker.reset();
+        return;
+    }
+
+    const SizeI size = viewSize();
+    if (m_resizeBurstTracker.onTimeout(size)) {
+        m_process->requestResize(size);
+        return;
+    }
+
+    if (m_resizeTimer)
+        m_resizeTimer->stop();
 }
 
 bool QtRdpSessionWidget::confirmCertificate(const FreeRdpProcess::CertificateChallenge &challenge)
