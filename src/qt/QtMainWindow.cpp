@@ -6,6 +6,7 @@
 #include "qt/QtProfileDialog.h"
 #include "qt/QtRdpSessionWidget.h"
 #include "qt/QtWindowChromeBehavior.h"
+#include "session/SessionResumePolicy.h"
 #include "ui/ConnectionListBehavior.h"
 #include "ui/MainWindowSessionBehavior.h"
 #include "ui/MainWindowTabBehavior.h"
@@ -410,14 +411,28 @@ bool QtMainWindow::eventFilter(QObject *object, QEvent *event)
 
 bool QtMainWindow::nativeEvent(const QByteArray &eventType, void *message, long *result)
 {
-#ifdef RDPBOX_USE_QWINDOWKIT
-    return QMainWindow::nativeEvent(eventType, message, result);
-#else
     if (eventType != "windows_generic_MSG" && eventType != "windows_dispatcher_MSG")
         return QMainWindow::nativeEvent(eventType, message, result);
 
     MSG *msg = static_cast<MSG *>(message);
-    if (!msg || msg->message != WM_NCHITTEST)
+    if (!msg)
+        return QMainWindow::nativeEvent(eventType, message, result);
+
+    if (msg->message == WM_POWERBROADCAST) {
+        const ui::MainWindowPowerBroadcastPlan plan =
+            ui::powerBroadcastPlan(static_cast<unsigned int>(msg->wParam),
+                                   m_tabs && m_tabs->count() > 1);
+        if (plan.handleHostResume)
+            handleHostResume();
+        if (result)
+            *result = TRUE;
+        return true;
+    }
+
+#ifdef RDPBOX_USE_QWINDOWKIT
+    return QMainWindow::nativeEvent(eventType, message, result);
+#else
+    if (msg->message != WM_NCHITTEST)
         return QMainWindow::nativeEvent(eventType, message, result);
 
     const POINTS screenPoint = MAKEPOINTS(msg->lParam);
@@ -1629,6 +1644,25 @@ void QtMainWindow::refreshSessionTabStatuses()
             m_tabs->tabBar()->tabData(index).toString().toStdWString(),
             sessionWidget->state());
     }
+}
+
+void QtMainWindow::handleHostResume()
+{
+    if (!m_tabs)
+        return;
+
+    const int activeSessionIndex = m_tabs->currentIndex() > 0 ? m_tabs->currentIndex() - 1 : -1;
+    for (int tabIndex = 1; tabIndex < m_tabs->count(); ++tabIndex) {
+        QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(tabIndex);
+        if (!sessionWidget)
+            continue;
+
+        const bool autoReconnect =
+            sessionResumeActionForTab(tabIndex - 1, activeSessionIndex)
+            == SessionResumeAction::AutoReconnect;
+        sessionWidget->handleHostResume(autoReconnect);
+    }
+    refreshSessionTabStatuses();
 }
 
 void QtMainWindow::connectSelectedProfiles()
