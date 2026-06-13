@@ -4,6 +4,7 @@
 #include "profiles/Profile.h"
 #include "rdp/FreeRdpProcess.h"
 #include "rdp/RdpKeyboardInputRouter.h"
+#include "rdp/RdpResizeBurstTracker.h"
 
 #include <QWidget>
 
@@ -12,6 +13,7 @@
 #include <vector>
 
 class QLabel;
+class QTimer;
 
 class QtRdpSessionWidget : public QWidget
 {
@@ -47,6 +49,7 @@ private:
     void consumeFrame();
     void updateCursor();
     void requestResize();
+    void handleResizeTimer();
     bool confirmCertificate(const FreeRdpProcess::CertificateChallenge &challenge);
     SizeI viewSize() const;
     PointI pointFromMouseEvent(const QMouseEvent *event) const;
@@ -67,6 +70,8 @@ private:
     QString m_overlayText;
     std::function<void(FreeRdpProcess::State)> m_stateChanged;
     RdpKeyboardInputRouter m_keyboardRouter;
+    RdpResizeBurstTracker m_resizeBurstTracker;
+    QTimer *m_resizeTimer = nullptr;
     unsigned int m_pressedMouseButtons = 0;
     PointI m_lastPointerPoint;
     bool m_hasLastPointerPoint = false;

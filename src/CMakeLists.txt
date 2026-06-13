@@ -100,6 +100,8 @@ set(RDPBOX_QT_SOURCES
     rdp/RdpModifierSyncTracker.h
     rdp/RdpModifierSyncTracker.cpp
     rdp/RdpReconnectInteraction.h
+    rdp/RdpResizeBurstTracker.h
+    rdp/RdpResizeBurstTracker.cpp
     rdp/RdpSessionViewBehavior.h
     rdp/RdpSessionViewBehavior.cpp
     rdp/WindowsClipboardBackend.h
