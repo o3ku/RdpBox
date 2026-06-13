@@ -8,6 +8,7 @@
 #include "qt/QtWindowChromeBehavior.h"
 #include "ui/ConnectionListBehavior.h"
 #include "ui/MainWindowSessionBehavior.h"
+#include "ui/MainWindowTabBehavior.h"
 #include "ui/MainWindowUpdateBehavior.h"
 #include "ui/WindowStateScaling.h"
 
@@ -16,6 +17,7 @@
 #include <QBoxLayout>
 #include <QByteArray>
 #include <QCloseEvent>
+#include <QColor>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDropEvent>
@@ -23,6 +25,7 @@
 #include <QFrame>
 #include <QGridLayout>
 #include <QGroupBox>
+#include <QIcon>
 #include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
@@ -31,8 +34,10 @@
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QMouseEvent>
+#include <QPainter>
 #include <QPointer>
 #include <QPushButton>
+#include <QPixmap>
 #include <QShortcut>
 #include <QSplitter>
 #include <QStatusBar>
@@ -105,6 +110,39 @@ QString sessionTabTooltip(const Profile &profile, FreeRdpProcess::State state)
 {
     return QStringLiteral("%1\n%2")
         .arg(profileSubtitle(profile), sessionStateText(state));
+}
+
+ui::MainWindowConnectionInfo mainWindowConnectionInfo(const FreeRdpProcess::ConnectionInfo &info)
+{
+    return ui::MainWindowConnectionInfo{info.codecName, info.rtt, info.rttAvailable};
+}
+
+QIcon sessionStatusIcon(ui::MainWindowTabStatus status)
+{
+    QColor color;
+    switch (status) {
+    case ui::MainWindowTabStatus::ConnectedGood:
+        color = QColor(34, 197, 94);
+        break;
+    case ui::MainWindowTabStatus::ConnectedWarn:
+        color = QColor(245, 158, 11);
+        break;
+    case ui::MainWindowTabStatus::ConnectedBad:
+        color = QColor(239, 68, 68);
+        break;
+    case ui::MainWindowTabStatus::Inactive:
+    default:
+        return {};
+    }
+
+    QPixmap pixmap(12, 12);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(color);
+    painter.drawEllipse(2, 2, 8, 8);
+    return QIcon(pixmap);
 }
 
 QString aboutVersionText()
@@ -340,6 +378,13 @@ QtMainWindow::QtMainWindow(std::vector<std::wstring> startupConnectionNames,
     QTimer::singleShot(0, this, [this]() {
         startBackgroundUpdateCheck(false);
     });
+
+    m_tabStatusTimer = new QTimer(this);
+    m_tabStatusTimer->setInterval(2000);
+    connect(m_tabStatusTimer, &QTimer::timeout, this, [this]() {
+        refreshSessionTabStatuses();
+    });
+    m_tabStatusTimer->start();
 
     if (!m_startupConnectionNames.empty()) {
         QTimer::singleShot(0, this, [this]() {
@@ -1539,15 +1584,17 @@ void QtMainWindow::showTabContextMenu(const QPoint &tabBarPoint)
         return;
 
     const bool hasSession = index > 0 && sessionWidgetForTab(index);
+    const ui::TabContextMenuState state =
+        ui::tabContextMenuState(index, m_tabs->currentIndex(), hasSession, m_isFullScreen);
+
     QMenu menu(this);
-    QAction *fullScreenAction = menu.addAction(
-        m_isFullScreen ? tr("Exit Full Screen") : tr("Full Screen"));
-    fullScreenAction->setEnabled(index == m_tabs->currentIndex());
+    QAction *fullScreenAction = menu.addAction(QString::fromStdWString(state.fullScreenText));
+    fullScreenAction->setEnabled(state.fullScreenEnabled);
     menu.addSeparator();
     QAction *reconnectAction = menu.addAction(tr("Reconnect"));
-    reconnectAction->setEnabled(hasSession);
+    reconnectAction->setEnabled(state.reconnectEnabled);
     QAction *closeAction = menu.addAction(tr("Close"));
-    closeAction->setEnabled(index > 0);
+    closeAction->setEnabled(state.closeEnabled);
 
     QAction *selected = menu.exec(m_tabs->tabBar()->mapToGlobal(tabBarPoint));
     if (!selected)
@@ -1566,6 +1613,22 @@ void QtMainWindow::reconnectSessionTab(int index)
 {
     if (QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(index))
         sessionWidget->reconnect();
+}
+
+void QtMainWindow::refreshSessionTabStatuses()
+{
+    if (!m_tabs || !m_tabs->tabBar())
+        return;
+
+    for (int index = 1; index < m_tabs->count(); ++index) {
+        QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(index);
+        if (!sessionWidget)
+            continue;
+
+        updateSessionTabState(
+            m_tabs->tabBar()->tabData(index).toString().toStdWString(),
+            sessionWidget->state());
+    }
 }
 
 void QtMainWindow::connectSelectedProfiles()
@@ -1685,8 +1748,20 @@ void QtMainWindow::updateSessionTabState(const std::wstring &profileName, FreeRd
     if (!profile.isValid())
         return;
 
+    const QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(index);
+    const FreeRdpProcess::ConnectionInfo info =
+        sessionWidget ? sessionWidget->connectionInfo() : FreeRdpProcess::ConnectionInfo{};
+    const ui::MainWindowConnectionInfo uiInfo = mainWindowConnectionInfo(info);
+    const bool connected = sessionWidget && sessionWidget->isConnected();
+
+    QString tooltip = sessionTabTooltip(profile, state);
+    const QString connectionTooltip = QString::fromStdWString(ui::tabTooltipText(uiInfo));
+    if (!connectionTooltip.isEmpty())
+        tooltip += QStringLiteral("\n") + connectionTooltip;
+
     m_tabs->setTabText(index, sessionTabTitle(profile, state));
-    m_tabs->setTabToolTip(index, sessionTabTooltip(profile, state));
+    m_tabs->setTabToolTip(index, tooltip);
+    m_tabs->setTabIcon(index, sessionStatusIcon(ui::tabStatusForConnection(connected, uiInfo)));
 }
 
 int QtMainWindow::sessionTabIndexForProfileName(const std::wstring &profileName) const

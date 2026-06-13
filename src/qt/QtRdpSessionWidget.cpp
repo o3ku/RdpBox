@@ -207,6 +207,16 @@ bool QtRdpSessionWidget::isConnected() const
     return m_state == FreeRdpProcess::State::Running;
 }
 
+FreeRdpProcess::State QtRdpSessionWidget::state() const
+{
+    return m_state;
+}
+
+FreeRdpProcess::ConnectionInfo QtRdpSessionWidget::connectionInfo() const
+{
+    return m_process ? m_process->connectionInfo() : FreeRdpProcess::ConnectionInfo{};
+}
+
 void QtRdpSessionWidget::setStateChangedCallback(std::function<void(FreeRdpProcess::State)> callback)
 {
     m_stateChanged = std::move(callback);
