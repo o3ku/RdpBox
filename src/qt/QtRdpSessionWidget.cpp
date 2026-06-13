@@ -175,6 +175,21 @@ unsigned int mouseButtonBit(MouseButton button)
         return 0;
     }
 }
+
+bool shouldSuppressTextInputMessage(UINT message)
+{
+    return message == WM_IME_SETCONTEXT
+        || message == WM_IME_STARTCOMPOSITION
+        || message == WM_IME_COMPOSITION
+        || message == WM_IME_ENDCOMPOSITION
+        || message == WM_IME_NOTIFY
+        || message == WM_IME_CHAR
+        || message == WM_CHAR
+        || message == WM_SYSCHAR
+        || message == WM_UNICHAR
+        || message == WM_DEADCHAR
+        || message == WM_SYSDEADCHAR;
+}
 }
 
 QtRdpSessionWidget::QtRdpSessionWidget(Profile profile, QWidget *parent)
@@ -185,6 +200,7 @@ QtRdpSessionWidget::QtRdpSessionWidget(Profile profile, QWidget *parent)
 {
     setAttribute(Qt::WA_OpaquePaintEvent);
     setAttribute(Qt::WA_NoSystemBackground);
+    setAttribute(Qt::WA_InputMethodEnabled, false);
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
     m_mouseMoveTimer = new QTimer(this);
@@ -284,6 +300,30 @@ void QtRdpSessionWidget::setStateChangedCallback(std::function<void(FreeRdpProce
 void QtRdpSessionWidget::noteConsumedLocalShortcutKey(unsigned int virtualKey)
 {
     m_reservedShortcutTracker.noteHandledKeyDown(virtualKey);
+}
+
+bool QtRdpSessionWidget::nativeEvent(const QByteArray &eventType, void *message, long *result)
+{
+    static_cast<void>(eventType);
+
+    auto *nativeMessage = static_cast<MSG *>(message);
+    if (!nativeMessage)
+        return false;
+
+    if (nativeMessage->message == WM_MOUSEACTIVATE) {
+        setFocus(Qt::MouseFocusReason);
+        if (result)
+            *result = MA_ACTIVATE;
+        return true;
+    }
+
+    if (shouldSuppressTextInputMessage(nativeMessage->message)) {
+        if (result)
+            *result = 0;
+        return true;
+    }
+
+    return false;
 }
 
 void QtRdpSessionWidget::paintEvent(QPaintEvent *event)
