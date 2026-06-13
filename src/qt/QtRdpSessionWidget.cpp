@@ -4,6 +4,8 @@
 #include "rdp/RdpCursorClassifier.h"
 #include "rdp/RdpInputEventUtil.h"
 #include "rdp/RdpInputModifiers.h"
+#include "rdp/RdpReconnectInteraction.h"
+#include "rdp/RdpSessionViewBehavior.h"
 
 #include <QFocusEvent>
 #include <QImage>
@@ -20,19 +22,19 @@
 
 namespace
 {
-QString stateText(FreeRdpProcess::State state)
+QString stateText(FreeRdpProcess::State state, bool reconnecting)
 {
     switch (state) {
     case FreeRdpProcess::State::Idle:
-        return QObject::tr("Disconnected");
+        return QString::fromStdWString(rdp::session_view::finishedOverlayText({}));
     case FreeRdpProcess::State::Starting:
-        return QObject::tr("Connecting");
+        return QString::fromStdWString(rdp::session_view::startOverlayText(reconnecting));
     case FreeRdpProcess::State::Running:
         return QString();
     case FreeRdpProcess::State::Finished:
-        return QObject::tr("Disconnected");
+        return QString::fromStdWString(rdp::session_view::finishedOverlayText({}));
     }
-    return QObject::tr("Disconnected");
+    return QString::fromStdWString(rdp::session_view::finishedOverlayText({}));
 }
 
 MouseButton mouseButtonFromQt(Qt::MouseButton button)
@@ -158,7 +160,7 @@ QtRdpSessionWidget::QtRdpSessionWidget(Profile profile, QWidget *parent)
     : QWidget(parent),
       m_profile(std::move(profile)),
       m_process(std::make_shared<FreeRdpProcess>()),
-      m_overlayText(stateText(FreeRdpProcess::State::Idle))
+      m_overlayText(stateText(FreeRdpProcess::State::Idle, false))
 {
     setAttribute(Qt::WA_OpaquePaintEvent);
     setAttribute(Qt::WA_NoSystemBackground);
@@ -196,6 +198,7 @@ void QtRdpSessionWidget::connectToHost()
 
 void QtRdpSessionWidget::reconnect()
 {
+    m_reconnecting = true;
     stopProcess();
     m_process = std::make_shared<FreeRdpProcess>();
     bindProcessCallbacks();
@@ -278,6 +281,19 @@ void QtRdpSessionWidget::mouseMoveEvent(QMouseEvent *event)
 void QtRdpSessionWidget::mousePressEvent(QMouseEvent *event)
 {
     setFocus(Qt::MouseFocusReason);
+    if (event && event->button() == Qt::LeftButton) {
+        const bool processFinished = m_process
+            && m_process->state() == FreeRdpProcess::State::Finished;
+        if (shouldReconnectOnPointerDown(m_profile.isValid(),
+                                         isConnected(),
+                                         m_process != nullptr,
+                                         processFinished,
+                                         false)) {
+            reconnect();
+            event->accept();
+            return;
+        }
+    }
     sendMouseButton(event, true);
 }
 
@@ -403,12 +419,14 @@ void QtRdpSessionWidget::stopProcess(bool showDisconnectedOverlay)
 void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
 {
     m_state = state;
-    m_overlayText = stateText(state);
+    m_overlayText = stateText(state, m_reconnecting);
     if (state == FreeRdpProcess::State::Finished && m_process) {
         const std::string error = m_process->lastDisconnectError();
         if (!error.empty())
-            m_overlayText = QString::fromStdString(error);
+            m_overlayText = QString::fromStdWString(rdp::session_view::finishedOverlayText(error));
     }
+    if (state == FreeRdpProcess::State::Running || state == FreeRdpProcess::State::Finished)
+        m_reconnecting = false;
     if (m_stateChanged)
         m_stateChanged(state);
     update();
