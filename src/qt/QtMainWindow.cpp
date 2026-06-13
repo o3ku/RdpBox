@@ -767,6 +767,14 @@ void QtMainWindow::installShortcuts()
             setFullScreen(false);
     });
 
+    if (ui::shortcutActionForKey(WM_KEYDOWN, true, false, 'N') == ui::MainWindowShortcutAction::NewConnection) {
+        bindShortcut(QKeySequence(Qt::CTRL | Qt::Key_N), [this]() {
+            if (QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(m_tabs ? m_tabs->currentIndex() : -1))
+                sessionWidget->noteConsumedLocalShortcutKey('N');
+            addProfile(true);
+        });
+    }
+
     if (ui::shortcutActionForKey(WM_KEYDOWN, true, false, 'P') == ui::MainWindowShortcutAction::OpenConnections) {
         bindShortcut(QKeySequence(Qt::CTRL | Qt::Key_P), [this]() {
             if (QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(m_tabs ? m_tabs->currentIndex() : -1))
@@ -975,7 +983,7 @@ int QtMainWindow::nativeHitTestForPoint(const QPoint &windowPoint) const
     }
 }
 
-void QtMainWindow::addProfile()
+void QtMainWindow::addProfile(bool connectAfterAdd)
 {
     QtProfileDialog dialog(this);
     if (dialog.exec() != QDialog::Accepted)
@@ -989,6 +997,8 @@ void QtMainWindow::addProfile()
 
     refreshProfileList();
     selectProfileByName(profile.name);
+    if (connectAfterAdd)
+        addSessionTab(profile);
 }
 
 void QtMainWindow::editSelectedProfile()
@@ -1195,6 +1205,7 @@ void QtMainWindow::showLogoMenu()
 
     QMenu menu(this);
     QAction *newAction = menu.addAction(tr("New"));
+    newAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_N));
     QAction *connectionsAction = menu.addAction(tr("Connections"));
     connectionsAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_P));
     menu.addSeparator();
@@ -1209,7 +1220,7 @@ void QtMainWindow::showLogoMenu()
         return;
 
     if (selected == newAction) {
-        addProfile();
+        addProfile(true);
     } else if (selected == connectionsAction) {
         focusConnections();
     } else if (selected == checkUpdatesAction) {

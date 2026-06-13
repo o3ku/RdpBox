@@ -25,6 +25,8 @@ inline MainWindowShortcutAction shortcutActionForKey(UINT message,
         return MainWindowShortcutAction::None;
 
     switch (virtualKey) {
+    case 'N':
+        return MainWindowShortcutAction::NewConnection;
     case 'P':
         return MainWindowShortcutAction::OpenConnections;
     default:
