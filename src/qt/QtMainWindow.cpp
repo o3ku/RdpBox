@@ -8,6 +8,7 @@
 #include "qt/QtWindowChromeBehavior.h"
 #include "session/SessionResumePolicy.h"
 #include "ui/ConnectionListBehavior.h"
+#include "ui/MainWindowActivation.h"
 #include "ui/MainWindowSessionBehavior.h"
 #include "ui/MainWindowShortcuts.h"
 #include "ui/MainWindowTabBehavior.h"
@@ -418,6 +419,14 @@ bool QtMainWindow::nativeEvent(const QByteArray &eventType, void *message, long 
     if (!msg)
         return QMainWindow::nativeEvent(eventType, message, result);
 
+    if (msg->message == WM_ACTIVATE) {
+        if (ui::shouldFocusActiveSessionOnActivate(LOWORD(msg->wParam), HIWORD(msg->wParam) != 0)) {
+            if (QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(m_tabs ? m_tabs->currentIndex() : -1))
+                sessionWidget->handleBecameVisible();
+        }
+        return QMainWindow::nativeEvent(eventType, message, result);
+    }
+
     if (msg->message == WM_POWERBROADCAST) {
         const ui::MainWindowPowerBroadcastPlan plan =
             ui::powerBroadcastPlan(static_cast<unsigned int>(msg->wParam),
@@ -585,6 +594,10 @@ void QtMainWindow::buildUi()
     });
     connect(m_tabs, &QTabWidget::tabCloseRequested, this, [this](int index) {
         closeSessionTab(index);
+    });
+    connect(m_tabs, &QTabWidget::currentChanged, this, [this](int index) {
+        if (QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(index))
+            sessionWidget->handleBecameVisible();
     });
     if (QTabBar *bar = m_tabs->tabBar()) {
         bar->setMovable(true);

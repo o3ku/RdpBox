@@ -278,6 +278,11 @@ void QtRdpSessionWidget::handleHostResume(bool autoReconnect)
     stopProcess(true);
 }
 
+void QtRdpSessionWidget::handleBecameVisible()
+{
+    setFocus(Qt::OtherFocusReason);
+}
+
 bool QtRdpSessionWidget::isConnected() const
 {
     return m_state == FreeRdpProcess::State::Running;
