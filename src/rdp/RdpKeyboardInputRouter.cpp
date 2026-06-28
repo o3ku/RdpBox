@@ -128,7 +128,8 @@ bool RdpKeyboardInputRouter::shouldCaptureLowLevelKey(
     const bool passThroughModifierRelease =
         event.keyUp
         && eventModifier != ModifierNone
-        && (m_passThroughModifierReleases & eventModifier) != 0;
+        && (m_passThroughModifierReleases & eventModifier) != 0
+        && isVirtualKeyPhysicallyDown(event.virtualKey, physical);
     const bool captureDeferredModifierRelease =
         m_captureSystemKeysWithoutFocus
         && !event.hasWindowFocus

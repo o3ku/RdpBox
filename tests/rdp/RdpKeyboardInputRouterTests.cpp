@@ -681,6 +681,72 @@ int main()
 
     {
         RdpKeyboardInputRouter router;
+        std::vector<RdpKeyboardInputRouter::KeyAction> actions =
+            router.handleKeyMessage(WM_KEYDOWN,
+                                    VK_LSHIFT,
+                                    keyEvent(VK_LSHIFT, true),
+                                    physical(ModifierShift),
+                                    true);
+        assert(actions.size() == 1);
+        assertAction(actions[0], VK_LSHIFT, true);
+        assert(router.activeKeyboardModifiers() == ModifierShift);
+
+        assert(!router.shouldCaptureLowLevelKey(
+            lowLevelKey(VK_LSHIFT, true, physical(ModifierNone), true),
+            physical(ModifierNone)));
+
+        actions = router.handleKeyMessage(WM_KEYUP,
+                                          VK_LSHIFT,
+                                          keyEvent(VK_LSHIFT, false, true),
+                                          physical(ModifierNone),
+                                          true);
+        assert(actions.size() == 1);
+        assertAction(actions[0], VK_LSHIFT, false);
+        assert(router.activeKeyboardModifiers() == ModifierNone);
+    }
+
+    {
+        RdpKeyboardInputRouter router;
+        std::vector<RdpKeyboardInputRouter::KeyAction> actions =
+            router.synchronizeMouseModifiers(MK_LBUTTON | MK_SHIFT, physical(ModifierShift), true);
+        assert(actions.size() == 1);
+        assertAction(actions[0], VK_LSHIFT, true);
+        assert(actions[0].synchronizedModifier);
+        assert(router.activeKeyboardModifiers() == ModifierShift);
+
+        assert(!router.shouldCaptureLowLevelKey(
+            lowLevelKey(VK_LSHIFT, true, physical(ModifierShift), true),
+            physical(ModifierShift)));
+    }
+
+    {
+        RdpKeyboardInputRouter router;
+        std::vector<RdpKeyboardInputRouter::KeyAction> actions =
+            router.handleKeyMessage(WM_KEYDOWN,
+                                    VK_LCONTROL,
+                                    keyEvent(VK_LCONTROL, true),
+                                    physical(ModifierControl),
+                                    true);
+        assert(actions.size() == 1);
+        assertAction(actions[0], VK_LCONTROL, true);
+        assert(router.activeKeyboardModifiers() == ModifierControl);
+
+        assert(!router.shouldCaptureLowLevelKey(
+            lowLevelKey(VK_LCONTROL, true, physical(ModifierNone), true),
+            physical(ModifierNone)));
+
+        actions = router.handleKeyMessage(WM_KEYUP,
+                                          VK_LCONTROL,
+                                          keyEvent(VK_LCONTROL, false, true),
+                                          physical(ModifierNone),
+                                          true);
+        assert(actions.size() == 1);
+        assertAction(actions[0], VK_LCONTROL, false);
+        assert(router.activeKeyboardModifiers() == ModifierNone);
+    }
+
+    {
+        RdpKeyboardInputRouter router;
         const RdpLowLevelKeyEvent reservedShortcut{
             'P',
             0,
