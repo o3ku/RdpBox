@@ -23,8 +23,9 @@ class QListWidget;
 class QListWidgetItem;
 class QPoint;
 class QPushButton;
+class QStackedWidget;
+class QTabBar;
 class QToolButton;
-class QTabWidget;
 class QTimer;
 class QVBoxLayout;
 class QWidget;
@@ -50,7 +51,6 @@ private:
     void refreshActions();
     void refreshUpdateButton();
     void refreshWindowControls();
-    void configureHomeTab();
     void saveWindowState() const;
     bool restoreWindowState();
     int nativeHitTestForPoint(const QPoint &windowPoint) const;
@@ -65,7 +65,7 @@ private:
     void touchLastConnectedAt(const Profile &profile);
     void toggleFullScreen();
     void setFullScreen(bool enabled);
-    void focusConnections();
+    void showConnectionsDialog();
     void showLogoMenu();
     void showAboutDialog();
     void handleUpdateButtonClicked();
@@ -104,7 +104,6 @@ private:
     void updateSessionTabState(const std::wstring &profileName, FreeRdpProcess::State state);
     int sessionTabIndexForProfileName(const std::wstring &profileName) const;
     QtRdpSessionWidget *sessionWidgetForTab(int index) const;
-    QWidget *createHomePage() const;
     QWidget *createSessionPage(const Profile &profile);
     std::vector<QRect> captionExclusionRects() const;
 
@@ -112,7 +111,7 @@ private:
     std::vector<std::wstring> m_startupConnectionNames;
     QWidget *m_titleBar = nullptr;
     QLabel *m_iconLabel = nullptr;
-    QLabel *m_titleLabel = nullptr;
+    QTabBar *m_tabBar = nullptr;
     QToolButton *m_updateButton = nullptr;
     QToolButton *m_minimizeButton = nullptr;
     QToolButton *m_maximizeButton = nullptr;
@@ -129,7 +128,7 @@ private:
     QPushButton *m_moveUpButton = nullptr;
     QPushButton *m_moveDownButton = nullptr;
     QPushButton *m_connectButton = nullptr;
-    QTabWidget *m_tabs = nullptr;
+    QStackedWidget *m_sessionStack = nullptr;
     QLabel *m_statusLabel = nullptr;
     QTimer *m_updateCheckTimer = nullptr;
     QTimer *m_tabStatusTimer = nullptr;
