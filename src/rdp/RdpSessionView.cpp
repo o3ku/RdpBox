@@ -792,6 +792,11 @@ void CRdpSessionView::OnKillFocus(CWnd *newWnd)
                                    m_keyboardRouter.pressedKeyCount());
     flushPendingMouseMove();
     releasePressedMouseButtons();
+    // Reserved shortcuts (Ctrl+N/Ctrl+P) open a modal dialog that steals focus
+    // before the matching key-up returns here, so the tracked key-up would never
+    // be consumed. Drop the tracked keys on focus loss to avoid swallowing a
+    // later, unrelated key-up for the same virtual key on the remote host.
+    m_reservedShortcutTracker.reset();
     sendKeyboardActions(m_keyboardRouter.handleFocusLost(physicalKeyboardState()));
     if (m_keyboardRouter.captureSystemKeysWithoutFocus()) {
         rdp::trace::logSystemChordNote(L"defer-focus-release",

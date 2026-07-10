@@ -9,6 +9,7 @@
 #include "session/SessionResumePolicy.h"
 #include "ui/ConnectionListBehavior.h"
 #include "ui/MainWindowActivation.h"
+#include "ui/MainWindowLayoutBehavior.h"
 #include "ui/MainWindowSessionBehavior.h"
 #include "ui/MainWindowShortcuts.h"
 #include "ui/MainWindowTabBehavior.h"
@@ -17,6 +18,7 @@
 
 #include <QApplication>
 #include <QAction>
+#include <QAbstractItemView>
 #include <QBoxLayout>
 #include <QByteArray>
 #include <QCloseEvent>
@@ -42,11 +44,11 @@
 #include <QPushButton>
 #include <QPixmap>
 #include <QShortcut>
-#include <QSplitter>
-#include <QStatusBar>
+#include <QStackedWidget>
 #include <QStyle>
 #include <QTabBar>
-#include <QTabWidget>
+#include <QTableWidget>
+#include <QHeaderView>
 #include <QTimer>
 #include <QToolButton>
 
@@ -68,8 +70,6 @@
 
 namespace
 {
-constexpr int kTitleBarHeight = 42;
-constexpr int kResizeBorderWidth = 6;
 constexpr int kUpdateCheckIntervalMs = 24 * 60 * 60 * 1000;
 
 QString profileTitle(const Profile &profile)
@@ -406,6 +406,352 @@ private:
     ActivateCallback m_activateCallback;
     int m_dragSourceRow = -1;
 };
+
+class QtConnectionListDialog final : public QDialog
+{
+public:
+    QtConnectionListDialog(ProfileRepository *repository,
+                           std::vector<std::wstring> connectedProfileNames,
+                           QWidget *parent = nullptr)
+        : QDialog(parent),
+          m_repository(repository),
+          m_connectedProfileNames(std::move(connectedProfileNames))
+    {
+        setWindowTitle(QObject::tr("Connections"));
+        setModal(true);
+        resize(620, 420);
+
+        m_searchEdit = new QLineEdit(this);
+        m_searchEdit->setPlaceholderText(QObject::tr("Search profiles..."));
+
+        m_table = new QTableWidget(this);
+        m_table->setColumnCount(4);
+        m_table->setHorizontalHeaderLabels({
+            QObject::tr("Name"),
+            QObject::tr("Host"),
+            QObject::tr("Port"),
+            QObject::tr("Status"),
+        });
+        m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
+        m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
+        m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        m_table->setShowGrid(false);
+        m_table->setAlternatingRowColors(false);
+        m_table->verticalHeader()->setVisible(false);
+        m_table->horizontalHeader()->setStretchLastSection(false);
+        m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
+        m_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+        m_table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+        m_table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+        m_table->setColumnWidth(0, 150);
+        m_table->setColumnWidth(1, 180);
+
+        m_newButton = new QPushButton(QObject::tr("New"), this);
+        m_editButton = new QPushButton(QObject::tr("Edit"), this);
+        m_duplicateButton = new QPushButton(QObject::tr("Duplicate"), this);
+        m_deleteButton = new QPushButton(QObject::tr("Delete"), this);
+        m_connectButton = new QPushButton(QObject::tr("Connect"), this);
+        m_connectButton->setDefault(true);
+
+        auto *buttonLayout = new QHBoxLayout;
+        buttonLayout->addWidget(m_newButton);
+        buttonLayout->addWidget(m_editButton);
+        buttonLayout->addWidget(m_duplicateButton);
+        buttonLayout->addWidget(m_deleteButton);
+        buttonLayout->addStretch(1);
+        buttonLayout->addWidget(m_connectButton);
+
+        auto *layout = new QVBoxLayout(this);
+        layout->setContentsMargins(12, 12, 12, 12);
+        layout->setSpacing(8);
+        layout->addWidget(m_searchEdit);
+        layout->addWidget(m_table, 1);
+        layout->addLayout(buttonLayout);
+
+        connect(m_searchEdit, &QLineEdit::textChanged, this, [this]() {
+            refreshList();
+        });
+        connect(m_table, &QTableWidget::itemSelectionChanged, this, [this]() {
+            updateButtonStates();
+        });
+        connect(m_table, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem *) {
+            connectSelectedProfiles();
+        });
+        connect(m_newButton, &QPushButton::clicked, this, [this]() {
+            addProfile();
+        });
+        connect(m_editButton, &QPushButton::clicked, this, [this]() {
+            editSelectedProfile();
+        });
+        connect(m_duplicateButton, &QPushButton::clicked, this, [this]() {
+            duplicateSelectedProfiles();
+        });
+        connect(m_deleteButton, &QPushButton::clicked, this, [this]() {
+            deleteSelectedProfiles();
+        });
+        connect(m_connectButton, &QPushButton::clicked, this, [this]() {
+            connectSelectedProfiles();
+        });
+
+        refreshList();
+    }
+
+    const std::vector<std::wstring> &selectedProfileNames() const
+    {
+        return m_selectedProfileNames;
+    }
+
+protected:
+    void accept() override
+    {
+        connectSelectedProfiles();
+    }
+
+private:
+    std::vector<Profile> currentVisibleProfiles() const
+    {
+        if (!m_repository)
+            return {};
+
+        const std::wstring query = m_searchEdit ? m_searchEdit->text().toStdWString() : std::wstring();
+        return query.empty() ? m_repository->profiles() : m_repository->search(query);
+    }
+
+    std::vector<int> selectedRows() const
+    {
+        std::vector<int> rows;
+        if (!m_table)
+            return rows;
+
+        const QModelIndexList indexes = m_table->selectionModel()->selectedRows();
+        rows.reserve(static_cast<std::size_t>(indexes.size()));
+        for (const QModelIndex &index : indexes) {
+            if (index.row() >= 0)
+                rows.push_back(index.row());
+        }
+        std::sort(rows.begin(), rows.end());
+        return rows;
+    }
+
+    void refreshList()
+    {
+        if (!m_table)
+            return;
+
+        const std::vector<std::wstring> previousSelection = selectedProfileNamesForRows(selectedRows());
+        m_currentProfiles = currentVisibleProfiles();
+        const std::vector<int> retainedRows =
+            retainedSelectionRowsForProfiles(m_currentProfiles, previousSelection);
+
+        m_table->setRowCount(static_cast<int>(m_currentProfiles.size()));
+        for (int row = 0; row < static_cast<int>(m_currentProfiles.size()); ++row) {
+            const Profile &profile = m_currentProfiles[static_cast<std::size_t>(row)];
+            setCell(row, 0, QString::fromStdWString(profile.name));
+            setCell(row, 1, QString::fromStdWString(profile.host));
+            setCell(row, 2, QString::number(profile.port));
+            setCell(row, 3, QString::fromStdWString(
+                            connectionListStatusText(profile.name, m_connectedProfileNames)));
+        }
+
+        if (!retainedRows.empty()) {
+            m_table->clearSelection();
+            for (int row : retainedRows)
+                m_table->selectRow(row);
+            m_table->setCurrentCell(retainedRows.front(), 0);
+        } else if (!m_currentProfiles.empty() && selectedRows().empty()) {
+            m_table->selectRow(0);
+            m_table->setCurrentCell(0, 0);
+        }
+        updateButtonStates();
+    }
+
+    void setCell(int row, int column, const QString &text)
+    {
+        auto *item = new QTableWidgetItem(text);
+        item->setData(Qt::UserRole, row);
+        m_table->setItem(row, column, item);
+    }
+
+    std::vector<std::wstring> selectedProfileNamesForRows(const std::vector<int> &rows) const
+    {
+        std::vector<std::wstring> names;
+        for (int row : rows) {
+            if (row >= 0 && row < static_cast<int>(m_currentProfiles.size()))
+                names.push_back(m_currentProfiles[static_cast<std::size_t>(row)].name);
+        }
+        return names;
+    }
+
+    Profile currentProfile() const
+    {
+        const std::vector<int> rows = selectedRows();
+        if (rows.size() != 1)
+            return {};
+
+        const int row = rows.front();
+        if (row < 0 || row >= static_cast<int>(m_currentProfiles.size()))
+            return {};
+
+        return m_currentProfiles[static_cast<std::size_t>(row)];
+    }
+
+    void updateButtonStates()
+    {
+        const ConnectionListButtonState state =
+            connectionListButtonState(m_currentProfiles, selectedRows(), m_connectedProfileNames);
+
+        if (m_editButton)
+            m_editButton->setEnabled(state.editEnabled);
+        if (m_duplicateButton)
+            m_duplicateButton->setEnabled(state.duplicateEnabled);
+        if (m_deleteButton)
+            m_deleteButton->setEnabled(state.deleteEnabled);
+        if (m_connectButton)
+            m_connectButton->setEnabled(state.connectEnabled);
+    }
+
+    void addProfile()
+    {
+        if (!m_repository)
+            return;
+
+        QtProfileDialog dialog(this);
+        if (dialog.exec() != QDialog::Accepted)
+            return;
+
+        const Profile profile = dialog.profile();
+        if (!m_repository->addProfile(profile)) {
+            showNameConflictMessage(profile.name);
+            return;
+        }
+        refreshList();
+        selectProfileByName(profile.name);
+    }
+
+    void editSelectedProfile()
+    {
+        if (!m_repository)
+            return;
+
+        const Profile current = currentProfile();
+        if (!current.isValid())
+            return;
+
+        QtProfileDialog dialog(this);
+        dialog.setProfile(current);
+        if (dialog.exec() != QDialog::Accepted)
+            return;
+
+        const Profile profile = dialog.profile();
+        if (!m_repository->updateProfile(current.name, profile)) {
+            showNameConflictMessage(profile.name);
+            return;
+        }
+        refreshList();
+        selectProfileByName(profile.name);
+    }
+
+    void duplicateSelectedProfiles()
+    {
+        if (!m_repository)
+            return;
+
+        const std::vector<int> rows = selectedRows();
+        if (rows.empty())
+            return;
+
+        std::vector<std::wstring> duplicatedNames;
+        for (int row : rows) {
+            if (row < 0 || row >= static_cast<int>(m_currentProfiles.size()))
+                continue;
+
+            const Profile duplicate =
+                duplicateProfileDraft(m_currentProfiles[static_cast<std::size_t>(row)]);
+            if (!m_repository->addProfile(duplicate)) {
+                showNameConflictMessage(duplicate.name);
+                continue;
+            }
+            duplicatedNames.push_back(duplicate.name);
+        }
+        refreshList();
+        if (!duplicatedNames.empty())
+            selectProfileByName(duplicatedNames.front());
+    }
+
+    void deleteSelectedProfiles()
+    {
+        if (!m_repository)
+            return;
+
+        const std::vector<int> rows = selectedRows();
+        if (rows.empty())
+            return;
+
+        const QString message = rows.size() == 1
+            ? QObject::tr("Delete this connection?")
+            : QObject::tr("Delete %n connections?", nullptr, static_cast<int>(rows.size()));
+        const QMessageBox::StandardButton result = QMessageBox::question(
+            this,
+            QObject::tr("Delete Connection"),
+            message,
+            QMessageBox::Yes | QMessageBox::Cancel,
+            QMessageBox::Cancel);
+        if (result != QMessageBox::Yes)
+            return;
+
+        for (const std::wstring &name : selectedProfileNamesForRows(rows))
+            m_repository->removeProfile(name);
+        refreshList();
+    }
+
+    void connectSelectedProfiles()
+    {
+        m_selectedProfileNames =
+            connectableProfileNamesForSelection(m_currentProfiles, selectedRows(), m_connectedProfileNames);
+        if (m_selectedProfileNames.empty())
+            return;
+
+        QDialog::accept();
+    }
+
+    void selectProfileByName(const std::wstring &profileName)
+    {
+        if (profileName.empty())
+            return;
+
+        for (int row = 0; row < static_cast<int>(m_currentProfiles.size()); ++row) {
+            if (_wcsicmp(m_currentProfiles[static_cast<std::size_t>(row)].name.c_str(),
+                         profileName.c_str()) != 0) {
+                continue;
+            }
+            m_table->clearSelection();
+            m_table->selectRow(row);
+            m_table->scrollToItem(m_table->item(row, 0));
+            return;
+        }
+    }
+
+    void showNameConflictMessage(const std::wstring &name)
+    {
+        QMessageBox::warning(
+            this,
+            QObject::tr("Connection"),
+            QObject::tr("A connection named \"%1\" already exists.")
+                .arg(QString::fromStdWString(name)));
+    }
+
+    ProfileRepository *m_repository = nullptr;
+    std::vector<std::wstring> m_connectedProfileNames;
+    std::vector<std::wstring> m_selectedProfileNames;
+    std::vector<Profile> m_currentProfiles;
+    QLineEdit *m_searchEdit = nullptr;
+    QTableWidget *m_table = nullptr;
+    QPushButton *m_newButton = nullptr;
+    QPushButton *m_editButton = nullptr;
+    QPushButton *m_duplicateButton = nullptr;
+    QPushButton *m_deleteButton = nullptr;
+    QPushButton *m_connectButton = nullptr;
+};
 }
 
 QtMainWindow::QtMainWindow(std::vector<std::wstring> startupConnectionNames,
@@ -480,7 +826,7 @@ bool QtMainWindow::nativeEvent(const QByteArray &eventType, void *message, long 
 
     if (msg->message == WM_ACTIVATE) {
         if (ui::shouldFocusActiveSessionOnActivate(LOWORD(msg->wParam), HIWORD(msg->wParam) != 0)) {
-            if (QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(m_tabs ? m_tabs->currentIndex() : -1))
+            if (QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(m_tabBar ? m_tabBar->currentIndex() : -1))
                 sessionWidget->handleBecameVisible();
         }
         return QMainWindow::nativeEvent(eventType, message, result);
@@ -489,7 +835,7 @@ bool QtMainWindow::nativeEvent(const QByteArray &eventType, void *message, long 
     if (msg->message == WM_POWERBROADCAST) {
         const ui::MainWindowPowerBroadcastPlan plan =
             ui::powerBroadcastPlan(static_cast<unsigned int>(msg->wParam),
-                                   m_tabs && m_tabs->count() > 1);
+                                   m_tabBar && m_tabBar->count() > 0);
         if (plan.handleHostResume)
             handleHostResume();
         if (result)
@@ -535,145 +881,27 @@ void QtMainWindow::buildUi()
     buildTitleBar(shellLayout);
     configureWindowChrome();
 
-    auto *splitter = new QSplitter(Qt::Horizontal, shell);
-    splitter->setChildrenCollapsible(false);
-
-    m_sidebar = new QWidget(splitter);
-    auto *sidebarLayout = new QVBoxLayout(m_sidebar);
-    sidebarLayout->setContentsMargins(14, 14, 14, 14);
-    sidebarLayout->setSpacing(10);
-
-    auto *title = new QLabel(tr("Connections"), m_sidebar);
-    QFont titleFont = title->font();
-    titleFont.setPointSize(titleFont.pointSize() + 2);
-    titleFont.setBold(true);
-    title->setFont(titleFont);
-
-    m_searchEdit = new QLineEdit(m_sidebar);
-    m_searchEdit->setPlaceholderText(tr("Search"));
-
-    auto *profileList = new ProfileListWidget(m_sidebar);
-    profileList->setDropCallback([this](int sourceRow, int insertIndex) {
-        moveProfileByDrop(sourceRow, insertIndex);
-    });
-    profileList->setKeyboardMoveCallback([this](int delta) {
-        return moveSelectedProfileBy(delta);
-    });
-    profileList->setActivateCallback([this]() {
-        connectSelectedProfiles();
-    });
-    m_profileList = profileList;
-    m_profileList->setUniformItemSizes(true);
-    m_profileList->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    m_profileList->setDragEnabled(true);
-    m_profileList->setAcceptDrops(true);
-    m_profileList->setDragDropMode(QAbstractItemView::InternalMove);
-    m_profileList->setDefaultDropAction(Qt::MoveAction);
-    m_profileList->setDropIndicatorShown(true);
-
-    auto *primaryButtons = new QHBoxLayout;
-    auto *newButton = new QPushButton(style()->standardIcon(QStyle::SP_FileIcon), tr("New"), m_sidebar);
-    m_connectButton = new QPushButton(style()->standardIcon(QStyle::SP_ArrowForward), tr("Connect"), m_sidebar);
-    primaryButtons->addWidget(newButton);
-    primaryButtons->addWidget(m_connectButton);
-
-    auto *secondaryButtons = new QHBoxLayout;
-    m_editButton = new QPushButton(style()->standardIcon(QStyle::SP_FileDialogDetailedView), tr("Edit"), m_sidebar);
-    m_duplicateButton = new QPushButton(style()->standardIcon(QStyle::SP_FileDialogNewFolder), tr("Duplicate"), m_sidebar);
-    m_deleteButton = new QPushButton(style()->standardIcon(QStyle::SP_TrashIcon), tr("Delete"), m_sidebar);
-    secondaryButtons->addWidget(m_editButton);
-    secondaryButtons->addWidget(m_duplicateButton);
-    secondaryButtons->addWidget(m_deleteButton);
-
-    auto *orderButtons = new QHBoxLayout;
-    m_moveUpButton = new QPushButton(style()->standardIcon(QStyle::SP_ArrowUp), tr("Up"), m_sidebar);
-    m_moveDownButton = new QPushButton(style()->standardIcon(QStyle::SP_ArrowDown), tr("Down"), m_sidebar);
-    orderButtons->addWidget(m_moveUpButton);
-    orderButtons->addWidget(m_moveDownButton);
-
-    sidebarLayout->addWidget(title);
-    sidebarLayout->addWidget(m_searchEdit);
-    sidebarLayout->addWidget(m_profileList, 1);
-    sidebarLayout->addLayout(primaryButtons);
-    sidebarLayout->addLayout(secondaryButtons);
-    sidebarLayout->addLayout(orderButtons);
-
-    auto *workspace = new QWidget(splitter);
-    auto *workspaceLayout = new QVBoxLayout(workspace);
-    workspaceLayout->setContentsMargins(0, 0, 0, 0);
-    workspaceLayout->setSpacing(0);
-
-    m_tabs = new QTabWidget(workspace);
-    m_tabs->setDocumentMode(true);
-    m_tabs->setTabsClosable(true);
-    m_tabs->addTab(createHomePage(), tr("Home"));
-    configureHomeTab();
-    workspaceLayout->addWidget(m_tabs);
-
-    splitter->addWidget(m_sidebar);
-    splitter->addWidget(workspace);
-    splitter->setStretchFactor(0, 0);
-    splitter->setStretchFactor(1, 1);
-    splitter->setSizes({300, 880});
-
-    shellLayout->addWidget(splitter, 1);
+    m_sessionStack = new QStackedWidget(shell);
+    m_sessionStack->setObjectName(QStringLiteral("sessionHost"));
+    shellLayout->addWidget(m_sessionStack, 1);
     setCentralWidget(shell);
-    m_statusLabel = new QLabel(this);
-    statusBar()->addPermanentWidget(m_statusLabel, 1);
 
-    connect(m_searchEdit, &QLineEdit::textChanged, this, [this]() {
-        refreshProfileList();
-    });
-    connect(m_profileList, &QListWidget::itemSelectionChanged, this, [this]() {
-        refreshActions();
-    });
-    connect(m_profileList, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem *item) {
-        if (!item)
-            return;
-
-        const Profile profile =
-            m_repository.profileByName(item->data(Qt::UserRole).toString().toStdWString());
-        if (profile.isValid())
-            addSessionTab(profile);
-    });
-    connect(newButton, &QPushButton::clicked, this, [this]() {
-        addProfile();
-    });
-    connect(m_editButton, &QPushButton::clicked, this, [this]() {
-        editSelectedProfile();
-    });
-    connect(m_duplicateButton, &QPushButton::clicked, this, [this]() {
-        duplicateSelectedProfile();
-    });
-    connect(m_deleteButton, &QPushButton::clicked, this, [this]() {
-        deleteSelectedProfile();
-    });
-    connect(m_moveUpButton, &QPushButton::clicked, this, [this]() {
-        moveSelectedProfileBy(-1);
-    });
-    connect(m_moveDownButton, &QPushButton::clicked, this, [this]() {
-        moveSelectedProfileBy(1);
-    });
-    connect(m_connectButton, &QPushButton::clicked, this, [this]() {
-        connectSelectedProfiles();
-    });
-    connect(m_tabs, &QTabWidget::tabCloseRequested, this, [this](int index) {
+    connect(m_tabBar, &QTabBar::tabCloseRequested, this, [this](int index) {
         closeSessionTab(index);
     });
-    connect(m_tabs, &QTabWidget::currentChanged, this, [this](int index) {
+    connect(m_tabBar, &QTabBar::currentChanged, this, [this](int index) {
+        if (m_sessionStack && index >= 0 && index < m_sessionStack->count())
+            m_sessionStack->setCurrentIndex(index);
         if (QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(index))
             sessionWidget->handleBecameVisible();
     });
-    if (QTabBar *bar = m_tabs->tabBar()) {
-        bar->setMovable(true);
-        bar->setContextMenuPolicy(Qt::CustomContextMenu);
-        connect(bar, &QTabBar::tabMoved, this, [this](int fromIndex, int toIndex) {
-            handleTabMoved(fromIndex, toIndex);
-        });
-        connect(bar, &QTabBar::customContextMenuRequested, this, [this](const QPoint &point) {
-            showTabContextMenu(point);
-        });
-    }
+    m_tabBar->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_tabBar, &QTabBar::tabMoved, this, [this](int fromIndex, int toIndex) {
+        handleTabMoved(fromIndex, toIndex);
+    });
+    connect(m_tabBar, &QTabBar::customContextMenuRequested, this, [this](const QPoint &point) {
+        showTabContextMenu(point);
+    });
 
     refreshActions();
 }
@@ -682,23 +910,33 @@ void QtMainWindow::buildTitleBar(QVBoxLayout *rootLayout)
 {
     m_titleBar = new QWidget(this);
     m_titleBar->setObjectName(QStringLiteral("titleBar"));
-    m_titleBar->setFixedHeight(kTitleBarHeight);
+    m_titleBar->setFixedHeight(ui::kMainWindowCaptionHeight);
 
     auto *layout = new QHBoxLayout(m_titleBar);
-    layout->setContentsMargins(12, 0, 0, 0);
-    layout->setSpacing(6);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
 
     m_iconLabel = new QLabel(m_titleBar);
-    m_iconLabel->setPixmap(windowIcon().pixmap(20, 20));
-    m_iconLabel->setFixedSize(24, 24);
+    m_iconLabel->setPixmap(windowIcon().pixmap(ui::kMainWindowLogoSize, ui::kMainWindowLogoSize));
+    m_iconLabel->setAlignment(Qt::AlignCenter);
+    m_iconLabel->setFixedSize(ui::kMainWindowLogoLeftPadding
+                                  + ui::kMainWindowLogoSize
+                                  + ui::kMainWindowLogoRightPadding,
+                              ui::kMainWindowCaptionHeight);
     m_iconLabel->setCursor(Qt::PointingHandCursor);
     m_iconLabel->setToolTip(tr("RdpBox"));
     m_iconLabel->installEventFilter(this);
 
-    m_titleLabel = new QLabel(QStringLiteral("RdpBox"), m_titleBar);
-    QFont titleFont = m_titleLabel->font();
-    titleFont.setBold(true);
-    m_titleLabel->setFont(titleFont);
+    m_tabBar = new QTabBar(m_titleBar);
+    m_tabBar->setObjectName(QStringLiteral("captionTabBar"));
+    m_tabBar->setDrawBase(false);
+    m_tabBar->setExpanding(false);
+    m_tabBar->setMovable(true);
+    m_tabBar->setTabsClosable(true);
+    m_tabBar->setDocumentMode(true);
+    m_tabBar->setUsesScrollButtons(true);
+    m_tabBar->setElideMode(Qt::ElideRight);
+    m_tabBar->setFixedHeight(ui::kMainWindowCaptionHeight);
 
     m_updateButton = new QToolButton(m_titleBar);
     m_minimizeButton = new QToolButton(m_titleBar);
@@ -718,9 +956,9 @@ void QtMainWindow::buildTitleBar(QVBoxLayout *rootLayout)
     m_maximizeButton->setToolTip(tr("Maximize"));
     m_closeButton->setToolTip(tr("Close"));
     m_updateButton->setAutoRaise(true);
-    m_updateButton->setFixedSize(64, kTitleBarHeight);
+    m_updateButton->setFixedSize(ui::kMainWindowUpdateButtonWidth, ui::kMainWindowCaptionHeight);
     m_updateButton->setFocusPolicy(Qt::NoFocus);
-    m_updateButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_updateButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
 
     const std::array<QToolButton *, 3> captionButtons = {
         m_minimizeButton,
@@ -729,13 +967,12 @@ void QtMainWindow::buildTitleBar(QVBoxLayout *rootLayout)
     };
     for (QToolButton *button : captionButtons) {
         button->setAutoRaise(true);
-        button->setFixedSize(46, kTitleBarHeight);
+        button->setFixedSize(ui::kMainWindowCaptionButtonWidth, ui::kMainWindowCaptionHeight);
         button->setFocusPolicy(Qt::NoFocus);
     }
 
     layout->addWidget(m_iconLabel);
-    layout->addWidget(m_titleLabel);
-    layout->addStretch(1);
+    layout->addWidget(m_tabBar, 1);
     layout->addWidget(m_updateButton);
     layout->addWidget(m_minimizeButton);
     layout->addWidget(m_maximizeButton);
@@ -770,6 +1007,8 @@ void QtMainWindow::configureWindowChrome()
         m_windowAgent->setSystemButton(QWK::WindowAgentBase::WindowIcon, m_iconLabel);
         m_windowAgent->setHitTestVisible(m_iconLabel, true);
     }
+    if (m_tabBar)
+        m_windowAgent->setHitTestVisible(m_tabBar, true);
     if (m_updateButton)
         m_windowAgent->setHitTestVisible(m_updateButton, true);
     if (m_minimizeButton) {
@@ -805,7 +1044,7 @@ void QtMainWindow::installShortcuts()
 
     if (ui::shortcutActionForKey(WM_KEYDOWN, true, false, 'N') == ui::MainWindowShortcutAction::NewConnection) {
         bindShortcut(QKeySequence(Qt::CTRL | Qt::Key_N), [this]() {
-            if (QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(m_tabs ? m_tabs->currentIndex() : -1))
+            if (QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(m_tabBar ? m_tabBar->currentIndex() : -1))
                 sessionWidget->noteConsumedLocalShortcutKey('N');
             addProfile(true);
         });
@@ -813,15 +1052,20 @@ void QtMainWindow::installShortcuts()
 
     if (ui::shortcutActionForKey(WM_KEYDOWN, true, false, 'P') == ui::MainWindowShortcutAction::OpenConnections) {
         bindShortcut(QKeySequence(Qt::CTRL | Qt::Key_P), [this]() {
-            if (QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(m_tabs ? m_tabs->currentIndex() : -1))
+            if (QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(m_tabBar ? m_tabBar->currentIndex() : -1))
                 sessionWidget->noteConsumedLocalShortcutKey('P');
-            focusConnections();
+            showConnectionsDialog();
         });
     }
 }
 
 void QtMainWindow::refreshProfileList()
 {
+    if (!m_profileList) {
+        refreshActions();
+        return;
+    }
+
     const std::vector<std::wstring> previousSelection = selectedProfileNames();
     const std::vector<Profile> profiles = currentVisibleProfiles();
     const std::vector<std::wstring> connectedNames = connectedProfileNames();
@@ -846,12 +1090,18 @@ void QtMainWindow::refreshProfileList()
         }
     }
 
-    m_statusLabel->setText(tr("%n connection(s)", nullptr, static_cast<int>(m_repository.profiles().size())));
+    if (m_statusLabel)
+        m_statusLabel->setText(tr("%n connection(s)", nullptr, static_cast<int>(m_repository.profiles().size())));
     refreshActions();
 }
 
 void QtMainWindow::refreshActions()
 {
+    if (!m_profileList || !m_editButton || !m_duplicateButton || !m_deleteButton
+        || !m_connectButton || !m_moveUpButton || !m_moveDownButton) {
+        return;
+    }
+
     const std::vector<int> selectedRows = selectedProfileRows();
     const ConnectionListButtonState state =
         connectionListButtonState(currentVisibleProfiles(), selectedRows, openProfileNames());
@@ -897,19 +1147,6 @@ void QtMainWindow::refreshWindowControls()
     m_maximizeButton->setIcon(style()->standardIcon(
         isMaximized() ? QStyle::SP_TitleBarNormalButton : QStyle::SP_TitleBarMaxButton));
     m_maximizeButton->setToolTip(isMaximized() ? tr("Restore") : tr("Maximize"));
-}
-
-void QtMainWindow::configureHomeTab()
-{
-    if (!m_tabs || m_tabs->count() == 0)
-        return;
-
-    QTabBar *bar = m_tabs->tabBar();
-    if (!bar)
-        return;
-
-    bar->setTabButton(0, QTabBar::LeftSide, nullptr);
-    bar->setTabButton(0, QTabBar::RightSide, nullptr);
 }
 
 void QtMainWindow::saveWindowState() const
@@ -994,7 +1231,7 @@ int QtMainWindow::nativeHitTestForPoint(const QPoint &windowPoint) const
         size(),
         captionRect,
         captionExclusionRects(),
-        kResizeBorderWidth,
+        ui::kMainWindowResizeBorderWidth,
         isMaximized());
 
     switch (area) {
@@ -1168,14 +1405,16 @@ void QtMainWindow::moveProfileByDrop(int sourceRow, int insertIndex)
 
 void QtMainWindow::closeSessionTab(int index)
 {
-    if (!m_tabs || index <= 0 || index >= m_tabs->count())
+    if (!m_tabBar || !m_sessionStack || index < 0 || index >= m_tabBar->count()
+        || index >= m_sessionStack->count()) {
         return;
+    }
 
-    QWidget *page = m_tabs->widget(index);
-    m_tabs->removeTab(index);
+    QWidget *page = m_sessionStack->widget(index);
+    m_tabBar->removeTab(index);
+    m_sessionStack->removeWidget(page);
     if (page)
         page->deleteLater();
-    configureHomeTab();
     refreshProfileList();
 }
 
@@ -1211,10 +1450,8 @@ void QtMainWindow::setFullScreen(bool enabled)
         m_titleBar->setVisible(!enabled);
     if (m_sidebar)
         m_sidebar->setVisible(!enabled);
-    if (m_tabs && m_tabs->tabBar())
-        m_tabs->tabBar()->setVisible(!enabled);
-    if (statusBar())
-        statusBar()->setVisible(!enabled);
+    if (m_tabBar)
+        m_tabBar->setVisible(!enabled);
 
     if (enabled)
         showFullScreen();
@@ -1226,16 +1463,19 @@ void QtMainWindow::setFullScreen(bool enabled)
     refreshWindowControls();
 }
 
-void QtMainWindow::focusConnections()
+void QtMainWindow::showConnectionsDialog()
 {
     if (m_isFullScreen)
         setFullScreen(false);
-    if (m_sidebar)
-        m_sidebar->show();
-    if (m_searchEdit) {
-        m_searchEdit->setFocus(Qt::ShortcutFocusReason);
-        m_searchEdit->selectAll();
+
+    QtConnectionListDialog dialog(&m_repository, connectedProfileNames(), this);
+    if (dialog.exec() != QDialog::Accepted) {
+        refreshProfileList();
+        return;
     }
+
+    openConnectionsByName(dialog.selectedProfileNames());
+    refreshProfileList();
 }
 
 void QtMainWindow::showLogoMenu()
@@ -1249,9 +1489,6 @@ void QtMainWindow::showLogoMenu()
     QAction *connectionsAction = menu.addAction(tr("Connections"));
     connectionsAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_P));
     menu.addSeparator();
-    QAction *checkUpdatesAction = menu.addAction(tr("Check for Updates"));
-    checkUpdatesAction->setEnabled(!m_updateCheckInFlight && !m_updateDownloadInFlight);
-    menu.addSeparator();
     QAction *aboutAction = menu.addAction(tr("About"));
 
     const QPoint menuPoint = m_iconLabel->mapToGlobal(QPoint(0, m_iconLabel->height()));
@@ -1262,9 +1499,7 @@ void QtMainWindow::showLogoMenu()
     if (selected == newAction) {
         addProfile(true);
     } else if (selected == connectionsAction) {
-        focusConnections();
-    } else if (selected == checkUpdatesAction) {
-        startBackgroundUpdateCheck(true);
+        showConnectionsDialog();
     } else if (selected == aboutAction) {
         showAboutDialog();
     }
@@ -1526,12 +1761,11 @@ std::wstring QtMainWindow::downloadedUpdatePath() const
 std::vector<std::wstring> QtMainWindow::openProfileNames() const
 {
     std::vector<std::wstring> names;
-    if (!m_tabs || !m_tabs->tabBar())
+    if (!m_tabBar)
         return names;
 
-    QTabBar *bar = m_tabs->tabBar();
-    for (int index = 1; index < m_tabs->count(); ++index) {
-        const std::wstring name = bar->tabData(index).toString().toStdWString();
+    for (int index = 0; index < m_tabBar->count(); ++index) {
+        const std::wstring name = m_tabBar->tabData(index).toString().toStdWString();
         if (!name.empty())
             names.push_back(name);
     }
@@ -1541,15 +1775,15 @@ std::vector<std::wstring> QtMainWindow::openProfileNames() const
 std::vector<std::wstring> QtMainWindow::connectedProfileNames() const
 {
     std::vector<std::wstring> names;
-    if (!m_tabs || !m_tabs->tabBar())
+    if (!m_tabBar)
         return names;
 
-    for (int index = 1; index < m_tabs->count(); ++index) {
+    for (int index = 0; index < m_tabBar->count(); ++index) {
         const QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(index);
         if (!sessionWidget || !sessionWidget->isConnected())
             continue;
 
-        const QString name = m_tabs->tabBar()->tabData(index).toString();
+        const QString name = m_tabBar->tabData(index).toString();
         if (!name.isEmpty())
             names.push_back(name.toStdWString());
     }
@@ -1703,34 +1937,32 @@ bool QtMainWindow::launchDownloadedUpdate() const
 
 void QtMainWindow::handleTabMoved(int fromIndex, int toIndex)
 {
-    if (m_adjustingTabMove || !m_tabs || !m_tabs->tabBar())
+    if (m_adjustingTabMove || !m_sessionStack || fromIndex == toIndex)
         return;
 
-    if (fromIndex != 0 && toIndex != 0)
+    QWidget *page = m_sessionStack->widget(fromIndex);
+    if (!page)
         return;
 
-    QTabBar *bar = m_tabs->tabBar();
     m_adjustingTabMove = true;
-    if (fromIndex == 0)
-        bar->moveTab(toIndex, 0);
-    else
-        bar->moveTab(0, 1);
+    m_sessionStack->removeWidget(page);
+    m_sessionStack->insertWidget(toIndex, page);
+    m_sessionStack->setCurrentIndex(toIndex);
     m_adjustingTabMove = false;
-    configureHomeTab();
 }
 
 void QtMainWindow::showTabContextMenu(const QPoint &tabBarPoint)
 {
-    if (!m_tabs || !m_tabs->tabBar())
+    if (!m_tabBar)
         return;
 
-    const int index = m_tabs->tabBar()->tabAt(tabBarPoint);
+    const int index = m_tabBar->tabAt(tabBarPoint);
     if (index < 0)
         return;
 
-    const bool hasSession = index > 0 && sessionWidgetForTab(index);
+    const bool hasSession = sessionWidgetForTab(index);
     const ui::TabContextMenuState state =
-        ui::tabContextMenuState(index, m_tabs->currentIndex(), hasSession, m_isFullScreen);
+        ui::tabContextMenuState(index, m_tabBar->currentIndex(), hasSession, m_isFullScreen);
 
     QMenu menu(this);
     QAction *fullScreenAction = menu.addAction(QString::fromStdWString(state.fullScreenText));
@@ -1741,7 +1973,7 @@ void QtMainWindow::showTabContextMenu(const QPoint &tabBarPoint)
     QAction *closeAction = menu.addAction(tr("Close"));
     closeAction->setEnabled(state.closeEnabled);
 
-    QAction *selected = menu.exec(m_tabs->tabBar()->mapToGlobal(tabBarPoint));
+    QAction *selected = menu.exec(m_tabBar->mapToGlobal(tabBarPoint));
     if (!selected)
         return;
 
@@ -1762,33 +1994,33 @@ void QtMainWindow::reconnectSessionTab(int index)
 
 void QtMainWindow::refreshSessionTabStatuses()
 {
-    if (!m_tabs || !m_tabs->tabBar())
+    if (!m_tabBar)
         return;
 
-    for (int index = 1; index < m_tabs->count(); ++index) {
+    for (int index = 0; index < m_tabBar->count(); ++index) {
         QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(index);
         if (!sessionWidget)
             continue;
 
         updateSessionTabState(
-            m_tabs->tabBar()->tabData(index).toString().toStdWString(),
+            m_tabBar->tabData(index).toString().toStdWString(),
             sessionWidget->state());
     }
 }
 
 void QtMainWindow::handleHostResume()
 {
-    if (!m_tabs)
+    if (!m_tabBar)
         return;
 
-    const int activeSessionIndex = m_tabs->currentIndex() > 0 ? m_tabs->currentIndex() - 1 : -1;
-    for (int tabIndex = 1; tabIndex < m_tabs->count(); ++tabIndex) {
+    const int activeSessionIndex = m_tabBar->currentIndex();
+    for (int tabIndex = 0; tabIndex < m_tabBar->count(); ++tabIndex) {
         QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(tabIndex);
         if (!sessionWidget)
             continue;
 
         const bool autoReconnect =
-            sessionResumeActionForTab(tabIndex - 1, activeSessionIndex)
+            sessionResumeActionForTab(tabIndex, activeSessionIndex)
             == SessionResumeAction::AutoReconnect;
         sessionWidget->handleHostResume(autoReconnect);
     }
@@ -1892,23 +2124,30 @@ void QtMainWindow::addSessionTab(const Profile &profile)
 
     const int existingIndex = sessionTabIndexForProfileName(profile.name);
     if (existingIndex >= 0) {
-        m_tabs->setCurrentIndex(existingIndex);
+        if (m_tabBar)
+            m_tabBar->setCurrentIndex(existingIndex);
         return;
     }
 
     QWidget *page = createSessionPage(profile);
-    const int index = m_tabs->addTab(page, profileTitle(profile));
-    if (m_tabs->tabBar())
-        m_tabs->tabBar()->setTabData(index, QString::fromStdWString(profile.name));
+    const int pageIndex = m_sessionStack ? m_sessionStack->addWidget(page) : -1;
+    const int index = m_tabBar ? m_tabBar->addTab(profileTitle(profile)) : -1;
+    if (index >= 0)
+        m_tabBar->setTabData(index, QString::fromStdWString(profile.name));
+    if (pageIndex != index && m_sessionStack && pageIndex >= 0) {
+        m_sessionStack->removeWidget(page);
+        m_sessionStack->insertWidget(index, page);
+    }
     updateSessionTabState(profile.name, FreeRdpProcess::State::Idle);
-    m_tabs->setCurrentIndex(index);
+    if (m_tabBar && index >= 0)
+        m_tabBar->setCurrentIndex(index);
     refreshProfileList();
 }
 
 void QtMainWindow::updateSessionTabState(const std::wstring &profileName, FreeRdpProcess::State state)
 {
     const int index = sessionTabIndexForProfileName(profileName);
-    if (index <= 0 || !m_tabs)
+    if (index < 0 || !m_tabBar)
         return;
 
     const Profile profile = m_repository.profileByName(profileName);
@@ -1926,23 +2165,19 @@ void QtMainWindow::updateSessionTabState(const std::wstring &profileName, FreeRd
     if (!connectionTooltip.isEmpty())
         tooltip += QStringLiteral("\n") + connectionTooltip;
 
-    m_tabs->setTabText(index, sessionTabTitle(profile, state));
-    m_tabs->setTabToolTip(index, tooltip);
-    m_tabs->setTabIcon(index, sessionStatusIcon(ui::tabStatusForConnection(connected, uiInfo)));
+    m_tabBar->setTabText(index, sessionTabTitle(profile, state));
+    m_tabBar->setTabToolTip(index, tooltip);
+    m_tabBar->setTabIcon(index, sessionStatusIcon(ui::tabStatusForConnection(connected, uiInfo)));
 }
 
 int QtMainWindow::sessionTabIndexForProfileName(const std::wstring &profileName) const
 {
-    if (!m_tabs || profileName.empty())
+    if (!m_tabBar || profileName.empty())
         return -1;
 
     const QString name = QString::fromStdWString(profileName);
-    QTabBar *bar = m_tabs->tabBar();
-    if (!bar)
-        return -1;
-
-    for (int index = 1; index < m_tabs->count(); ++index) {
-        if (QString::compare(bar->tabData(index).toString(), name, Qt::CaseInsensitive) == 0)
+    for (int index = 0; index < m_tabBar->count(); ++index) {
+        if (QString::compare(m_tabBar->tabData(index).toString(), name, Qt::CaseInsensitive) == 0)
             return index;
     }
     return -1;
@@ -1950,33 +2185,11 @@ int QtMainWindow::sessionTabIndexForProfileName(const std::wstring &profileName)
 
 QtRdpSessionWidget *QtMainWindow::sessionWidgetForTab(int index) const
 {
-    if (!m_tabs || index <= 0 || index >= m_tabs->count())
+    if (!m_sessionStack || index < 0 || index >= m_sessionStack->count())
         return nullptr;
 
-    QWidget *page = m_tabs->widget(index);
+    QWidget *page = m_sessionStack->widget(index);
     return page ? page->findChild<QtRdpSessionWidget *>() : nullptr;
-}
-
-QWidget *QtMainWindow::createHomePage() const
-{
-    auto *page = new QWidget;
-    auto *layout = new QVBoxLayout(page);
-    layout->setContentsMargins(28, 28, 28, 28);
-    layout->setSpacing(14);
-
-    auto *title = new QLabel(tr("RdpBox"), page);
-    QFont titleFont = title->font();
-    titleFont.setPointSize(titleFont.pointSize() + 8);
-    titleFont.setBold(true);
-    title->setFont(titleFont);
-
-    auto *status = new QLabel(tr("No active sessions"), page);
-    status->setObjectName(QStringLiteral("mutedLabel"));
-
-    layout->addWidget(title);
-    layout->addWidget(status);
-    layout->addStretch(1);
-    return page;
 }
 
 QWidget *QtMainWindow::createSessionPage(const Profile &profile)
@@ -2008,7 +2221,9 @@ QWidget *QtMainWindow::createSessionPage(const Profile &profile)
 std::vector<QRect> QtMainWindow::captionExclusionRects() const
 {
     std::vector<QRect> rects;
-    for (QWidget *widget : {static_cast<QWidget *>(m_updateButton),
+    for (QWidget *widget : {static_cast<QWidget *>(m_iconLabel),
+                            static_cast<QWidget *>(m_tabBar),
+                            static_cast<QWidget *>(m_updateButton),
                             static_cast<QWidget *>(m_minimizeButton),
                             static_cast<QWidget *>(m_maximizeButton),
                             static_cast<QWidget *>(m_closeButton)}) {

@@ -307,6 +307,7 @@ target_link_libraries(RdpBox PRIVATE
     Shell32
     User32
     Gdi32
+    Ws2_32
 )
 
 if(TARGET QWindowKit::Widgets)
@@ -319,6 +320,10 @@ endif()
 
 if(TARGET Qt5::WinMain)
     target_link_libraries(RdpBox PRIVATE Qt5::WinMain)
+endif()
+
+if(TARGET Qt5::QWindowsIntegrationPlugin)
+    target_link_libraries(RdpBox PRIVATE Qt5::QWindowsIntegrationPlugin)
 endif()
 
 if(RDPBOX_BUILD_LEGACY)

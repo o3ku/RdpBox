@@ -463,6 +463,14 @@ void QtRdpSessionWidget::focusOutEvent(QFocusEvent *event)
     releasePressedMouseButtons();
     flushPendingMouseMove();
     sendKeyboardActions(m_keyboardRouter.handleFocusLost(physicalKeyboardState()));
+    // The Qt session widget installs no global low-level keyboard hook, so any
+    // key the router defers for out-of-focus system-chord capture (Alt/Win)
+    // would never see its release and would stay stuck on the remote host.
+    // Force-release every tracked key here. This also clears the reserved
+    // shortcut tracker, so a later real key-up is never mistaken for the
+    // pending release of an intercepted shortcut (Ctrl+N / Ctrl+P) whose
+    // key-up was swallowed by the modal dialog that stole focus.
+    releaseAllPressedKeys();
 }
 
 void QtRdpSessionWidget::bindProcessCallbacks()
