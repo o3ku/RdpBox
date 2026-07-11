@@ -543,6 +543,7 @@ void QtRdpSessionWidget::stopProcess(bool showDisconnectedOverlay)
     m_waitingForFirstContentFrame = false;
     m_frameGateActive = false;
     m_frameGateRemaining = 0;
+    m_keyboardRouter.reset();
     m_reservedShortcutTracker.reset();
     m_process->stop();
     if (showDisconnectedOverlay)

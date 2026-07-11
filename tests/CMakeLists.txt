@@ -626,18 +626,20 @@ target_compile_definitions(ParentResizeForwarderTests PRIVATE
 
 add_test(NAME ParentResizeForwarderTests COMMAND ParentResizeForwarderTests)
 
-add_executable(QtWindowChromeBehaviorTests
-    qt/QtWindowChromeBehaviorTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/qt/QtWindowChromeBehavior.cpp
-)
+if(RDPBOX_BUILD_QT)
+    add_executable(QtWindowChromeBehaviorTests
+        qt/QtWindowChromeBehaviorTests.cpp
+        ${CMAKE_SOURCE_DIR}/src/qt/QtWindowChromeBehavior.cpp
+    )
 
-target_include_directories(QtWindowChromeBehaviorTests PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-)
+    target_include_directories(QtWindowChromeBehaviorTests PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+    )
 
-target_link_libraries(QtWindowChromeBehaviorTests PRIVATE
-    Qt5::Core
-)
+    target_link_libraries(QtWindowChromeBehaviorTests PRIVATE
+        Qt5::Core
+    )
 
-add_test(NAME QtWindowChromeBehaviorTests COMMAND QtWindowChromeBehaviorTests)
-rdpbox_prepend_test_runtime_path(QtWindowChromeBehaviorTests Qt5::Core)
+    add_test(NAME QtWindowChromeBehaviorTests COMMAND QtWindowChromeBehaviorTests)
+    rdpbox_prepend_test_runtime_path(QtWindowChromeBehaviorTests Qt5::Core)
+endif()

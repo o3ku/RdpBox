@@ -1,10 +1,10 @@
 #include "RdpSessionView.h"
 
+#include "rdp/RdpSessionKeyboardHook.h"
 #include "rdp/RdpInputEventUtil.h"
 #include "rdp/RdpCertificatePromptBehavior.h"
 #include "rdp/RdpProcessEventBehavior.h"
 #include "rdp/RdpSystemChordTrace.h"
-#include "ui/MainWindowShortcuts.h"
 
 #include <utility>
 
@@ -139,24 +139,14 @@ LRESULT CRdpSessionView::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
         }
     }
 
+    const auto keyDisposition =
+        rdp::session_view_input::handleWindowKeyMessage(*this, message, wParam, lParam);
+    if (keyDisposition == rdp::session_view_input::KeyboardMessageDisposition::PassThrough)
+        return CWnd::WindowProc(message, wParam, lParam);
+    if (keyDisposition == rdp::session_view_input::KeyboardMessageDisposition::Handled)
+        return 0;
+
     if (message == WM_KEYDOWN || message == WM_KEYUP || message == WM_SYSKEYDOWN || message == WM_SYSKEYUP) {
-        const bool down = (message == WM_KEYDOWN || message == WM_SYSKEYDOWN);
-        const bool controlDown = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-        const bool altDown = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
-        if (down && ui::isReservedMainWindowShortcut(controlDown,
-                                                     altDown,
-                                                     static_cast<unsigned int>(wParam))) {
-            rememberReservedShortcutKey(static_cast<unsigned int>(wParam));
-            return CWnd::WindowProc(message, wParam, lParam);
-        }
-
-        if (!down && consumeReservedShortcutKey(static_cast<unsigned int>(wParam)))
-            return CWnd::WindowProc(message, wParam, lParam);
-
-        forwardNativeKeyMessage(static_cast<std::uint32_t>(message),
-                                static_cast<std::uintptr_t>(wParam),
-                                static_cast<std::intptr_t>(lParam));
-
         return 0;
     }
 
@@ -169,24 +159,24 @@ bool CRdpSessionView::canCaptureSystemKeys() const
         && m_process->state() == FreeRdpProcess::State::Running
         && GetSafeHwnd()
         && IsWindowVisible()
-        && (::GetFocus() == GetSafeHwnd() || m_keyboardRouter.captureSystemKeysWithoutFocus());
+        && (::GetFocus() == GetSafeHwnd() || m_keyboardState.captureSystemKeysWithoutFocus());
 }
 
 unsigned int CRdpSessionView::activeKeyboardModifiers() const
 {
-    return m_keyboardRouter.activeKeyboardModifiers();
+    return m_keyboardState.activeKeyboardModifiers();
 }
 
 bool CRdpSessionView::shouldCaptureLowLevelKey(const RdpLowLevelKeyEvent &event,
                                                const RdpKeyboardPhysicalState &physical) const
 {
-    return m_keyboardRouter.shouldCaptureLowLevelKey(event, physical);
+    return m_keyboardState.shouldCaptureLowLevelKey(event, physical);
 }
 
 std::uint32_t CRdpSessionView::messageForLowLevelKey(const RdpLowLevelKeyEvent &event,
                                                      const RdpKeyboardPhysicalState &physical) const
 {
-    return m_keyboardRouter.messageForLowLevelKey(event, physical);
+    return m_keyboardState.messageForLowLevelKey(event, physical);
 }
 
 void CRdpSessionView::forwardNativeKeyMessage(std::uint32_t message,
@@ -203,19 +193,19 @@ void CRdpSessionView::forwardNativeKeyMessage(std::uint32_t message,
                                         message,
                                         lParam,
                                         0,
-                                        m_keyboardRouter.activeKeyboardModifiers(),
+                                        m_keyboardState.activeKeyboardModifiers(),
                                         ::GetFocus() == GetSafeHwnd(),
-                                        m_keyboardRouter.captureSystemKeysWithoutFocus(),
-                                        m_keyboardRouter.pressedKeyCount());
+                                        m_keyboardState.captureSystemKeysWithoutFocus(),
+                                        m_keyboardState.pressedKeyCount());
     }
     const auto event = keyEventInfoFromMessage(message, wParam, lParam);
     if (!event)
         return;
 
-    sendKeyboardActions(m_keyboardRouter.handleKeyMessage(message,
-                                                          virtualKey,
-                                                          *event,
-                                                          currentKeyboardPhysicalState(),
-                                                          ::GetFocus() == GetSafeHwnd()));
+    sendKeyboardActions(m_keyboardState.handleKeyMessage(message,
+                                                         virtualKey,
+                                                         *event,
+                                                         currentKeyboardPhysicalState(),
+                                                         ::GetFocus() == GetSafeHwnd()));
     releaseKeyboardTargetIfInactive();
 }
