@@ -3,6 +3,9 @@
 #include <vector>
 
 #include <windows.h>
+#ifdef _MSC_VER
+#include <crtdbg.h>
+#endif
 
 #include "common/NativeTypes.h"
 #include "rdp/RdpInputEventUtil.h"
@@ -80,6 +83,11 @@ void assertAction(const RdpKeyboardInputRouter::KeyAction &action,
 
 int main()
 {
+#ifdef _MSC_VER
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+#endif
+
     {
         RdpKeyboardInputRouter router;
         const RdpKeyboardPhysicalState altPhysical = physical(ModifierAlt);
@@ -419,7 +427,7 @@ int main()
         assertAction(actions[0], '1', false);
         assert(router.activeKeyboardModifiers() == ModifierAlt);
 
-        assert(!router.shouldCaptureLowLevelKey(
+        assert(router.shouldCaptureLowLevelKey(
             lowLevelKey(VK_MENU, true, physical(ModifierNone)),
             physical(ModifierNone)));
 
@@ -448,7 +456,7 @@ int main()
         assertAction(actions[2], VK_MENU, true);
         assert(router.activeKeyboardModifiers() == (ModifierAlt | ModifierControl | ModifierShift));
 
-        assert(!router.shouldCaptureLowLevelKey(
+        assert(router.shouldCaptureLowLevelKey(
             lowLevelKey(VK_LCONTROL, true, physical(ModifierAlt | ModifierShift)),
             physical(ModifierAlt | ModifierShift)));
 
@@ -461,7 +469,7 @@ int main()
         assertAction(actions[0], VK_LCONTROL, false);
         assert(router.activeKeyboardModifiers() == (ModifierAlt | ModifierShift));
 
-        assert(!router.shouldCaptureLowLevelKey(
+        assert(router.shouldCaptureLowLevelKey(
             lowLevelKey(VK_LSHIFT, true, physical(ModifierAlt)),
             physical(ModifierAlt)));
 
@@ -474,7 +482,7 @@ int main()
         assertAction(actions[0], VK_LSHIFT, false);
         assert(router.activeKeyboardModifiers() == ModifierAlt);
 
-        assert(!router.shouldCaptureLowLevelKey(
+        assert(router.shouldCaptureLowLevelKey(
             lowLevelKey(VK_MENU, true, physical(ModifierNone)),
             physical(ModifierNone)));
 
@@ -499,7 +507,7 @@ int main()
         assertAction(actions[1], VK_LWIN, true);
         assert(router.activeKeyboardModifiers() == (ModifierWin | ModifierShift));
 
-        assert(!router.shouldCaptureLowLevelKey(
+        assert(router.shouldCaptureLowLevelKey(
             lowLevelKey(VK_LSHIFT, true, physical(ModifierWin)),
             physical(ModifierWin)));
 
@@ -512,7 +520,7 @@ int main()
         assertAction(actions[0], VK_LSHIFT, false);
         assert(router.activeKeyboardModifiers() == ModifierWin);
 
-        assert(!router.shouldCaptureLowLevelKey(
+        assert(router.shouldCaptureLowLevelKey(
             lowLevelKey(VK_LWIN, true, physical(ModifierNone)),
             physical(ModifierNone)));
 
@@ -585,7 +593,7 @@ int main()
         assertAction(actions[0], VK_LSHIFT, true);
         assert(router.activeKeyboardModifiers() == (ModifierControl | ModifierShift));
 
-        assert(!router.shouldCaptureLowLevelKey(
+        assert(router.shouldCaptureLowLevelKey(
             lowLevelKey(VK_LSHIFT, true, physical(ModifierControl)),
             physical(ModifierControl)));
 
@@ -598,7 +606,7 @@ int main()
         assertAction(actions[0], VK_LSHIFT, false);
         assert(router.activeKeyboardModifiers() == ModifierControl);
 
-        assert(!router.shouldCaptureLowLevelKey(
+        assert(router.shouldCaptureLowLevelKey(
             lowLevelKey(VK_LCONTROL, true, physical(ModifierNone)),
             physical(ModifierNone)));
 
@@ -642,8 +650,8 @@ int main()
 
         assert(router.shouldCaptureLowLevelKey(lowLevelKey(VK_ESCAPE, true, physical(ModifierControl)),
                                                physical(ModifierControl)));
-        assert(!router.shouldCaptureLowLevelKey(lowLevelKey(VK_LCONTROL, true, physical(ModifierNone)),
-                                                physical(ModifierNone)));
+        assert(router.shouldCaptureLowLevelKey(lowLevelKey(VK_LCONTROL, true, physical(ModifierNone)),
+                                               physical(ModifierNone)));
 
         actions = router.handleKeyMessage(WM_KEYUP,
                                           VK_ESCAPE,
@@ -691,7 +699,7 @@ int main()
         assertAction(actions[0], VK_LSHIFT, true);
         assert(router.activeKeyboardModifiers() == ModifierShift);
 
-        assert(!router.shouldCaptureLowLevelKey(
+        assert(router.shouldCaptureLowLevelKey(
             lowLevelKey(VK_LSHIFT, true, physical(ModifierNone), true),
             physical(ModifierNone)));
 
@@ -714,7 +722,7 @@ int main()
         assert(actions[0].synchronizedModifier);
         assert(router.activeKeyboardModifiers() == ModifierShift);
 
-        assert(!router.shouldCaptureLowLevelKey(
+        assert(router.shouldCaptureLowLevelKey(
             lowLevelKey(VK_LSHIFT, true, physical(ModifierShift), true),
             physical(ModifierShift)));
     }
@@ -731,7 +739,7 @@ int main()
         assertAction(actions[0], VK_LCONTROL, true);
         assert(router.activeKeyboardModifiers() == ModifierControl);
 
-        assert(!router.shouldCaptureLowLevelKey(
+        assert(router.shouldCaptureLowLevelKey(
             lowLevelKey(VK_LCONTROL, true, physical(ModifierNone), true),
             physical(ModifierNone)));
 

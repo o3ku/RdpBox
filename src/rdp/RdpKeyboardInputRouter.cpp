@@ -136,6 +136,10 @@ bool RdpKeyboardInputRouter::shouldCaptureLowLevelKey(
         && event.keyUp
         && (eventModifier & kDeferredFocusModifiers) != 0
         && (m_keyboardModifiers & eventModifier) != 0;
+    const bool captureTrackedModifierRelease =
+        event.keyUp
+        && eventModifier != ModifierNone
+        && (m_keyboardModifiers & eventModifier) != 0;
     bool captureTrackedKeyRelease = false;
     if (event.keyUp) {
         const auto lowLevelKey = keyIdentifierFromVirtualKey(event.virtualKey);
@@ -144,7 +148,7 @@ bool RdpKeyboardInputRouter::shouldCaptureLowLevelKey(
 
     if (event.reservedShortcut)
         return false;
-    if (passThroughModifierRelease)
+    if (passThroughModifierRelease && !captureTrackedModifierRelease)
         return false;
     if (!event.hasWindowFocus)
         return captureDeferredModifierRelease || captureTrackedKeyRelease;
@@ -155,6 +159,7 @@ bool RdpKeyboardInputRouter::shouldCaptureLowLevelKey(
         hasActiveLowLevelWinContext(physical) || (m_keyboardModifiers & ModifierWin) != 0;
 
     return captureDeferredModifierRelease
+        || captureTrackedModifierRelease
         || captureTrackedKeyRelease
         || isSystemKey(event.virtualKey)
         || isAltKey(event.virtualKey)

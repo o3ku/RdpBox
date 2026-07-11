@@ -12,12 +12,11 @@
 
 #include "profiles/Profile.h"
 #include "rdp/FreeRdpProcess.h"
-#include "rdp/RdpKeyboardInputRouter.h"
-#include "rdp/RdpMouseMoveCoalescer.h"
 #include "rdp/RdpProcessEventQueueBehavior.h"
 #include "rdp/RdpResolutionRecovery.h"
-#include "rdp/RdpReservedShortcutTracker.h"
 #include "rdp/RdpResumeRecovery.h"
+#include "rdp/RdpSessionMouseState.h"
+#include "rdp/RdpSessionKeyboardState.h"
 #include "rdp/RdpResizeBurstTracker.h"
 
 class CRdpSessionView : public CWnd
@@ -55,6 +54,7 @@ public:
     std::uint32_t messageForLowLevelKey(const RdpLowLevelKeyEvent &event,
                                         const RdpKeyboardPhysicalState &physical) const;
     void noteConsumedLocalShortcutKey(unsigned int virtualKey);
+    bool consumeReservedShortcutKey(unsigned int virtualKey);
     void forwardNativeKeyMessage(std::uint32_t message, std::uintptr_t wParam, std::intptr_t lParam);
 
 protected:
@@ -122,16 +122,14 @@ private:
     void releaseCursorHandle();
     void drawOverlay(CDC &dc, const CRect &rect);
     void flushPendingMouseMove();
-    void sendKeyboardAction(const RdpKeyboardInputRouter::KeyAction &action);
-    void sendKeyboardActions(const std::vector<RdpKeyboardInputRouter::KeyAction> &actions);
-    void rememberReservedShortcutKey(unsigned int virtualKey);
-    bool consumeReservedShortcutKey(unsigned int virtualKey);
+    void handleMouseButtonDown(UINT flags, CPoint point, MouseButton button, bool allowReconnect);
+    void handleMouseButtonUp(UINT flags, CPoint point, MouseButton button);
+    void sendKeyboardAction(const RdpSessionKeyboardState::KeyAction &action);
+    void sendKeyboardActions(const std::vector<RdpSessionKeyboardState::KeyAction> &actions);
     void releaseKeyboardTargetIfInactive();
     void sendTrackedMouseButton(MouseButton button, bool down, PointI point);
     void releasePressedMouseButtons();
     void releaseAllPressedKeys();
-    void updatePointerPosition(PointI point);
-    PointI currentPointerPosition() const;
 
     std::shared_ptr<FreeRdpProcess> m_process;
     std::shared_ptr<ProcessBinding> m_processBinding;
@@ -141,10 +139,8 @@ private:
     bool m_hasPendingResize = false;
     std::function<void()> m_reconnectRequested;
     std::function<void()> m_connectedCallback;
-    RdpKeyboardInputRouter m_keyboardRouter;
+    RdpSessionKeyboardState m_keyboardState;
     RdpResizeBurstTracker m_resizeBurstTracker;
-    RdpMouseMoveCoalescer m_mouseMoveCoalescer;
-    bool m_mouseMoveTimerActive = false;
     RdpResolutionRecovery m_resolutionRecovery;
     RdpResumeRecovery m_resumeRecovery;
     Profile m_profile;
@@ -164,8 +160,5 @@ private:
     bool m_ownsCursorHandle = false;
     bool m_connected = false;
     bool m_created = false;
-    RdpReservedShortcutTracker m_reservedShortcutTracker;
-    unsigned int m_pressedMouseButtons = 0;
-    PointI m_lastPointerPoint{};
-    bool m_hasLastPointerPoint = false;
+    RdpSessionMouseState m_mouseState;
 };

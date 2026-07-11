@@ -2,7 +2,7 @@
 
 ## What It Is
 
-RdpBox is a multi-tab Remote Desktop client built with Qt 5 and FreeRDP. It lets you manage multiple RDP sessions inside a single native desktop window instead of juggling many separate Remote Desktop windows.
+RdpBox is a multi-tab Remote Desktop client built with MFC/Win32 and FreeRDP. It lets you manage multiple RDP sessions inside a single native desktop window instead of juggling many separate Remote Desktop windows.
 
 ## Major Features
 
@@ -23,4 +23,4 @@ RdpBox is a multi-tab Remote Desktop client built with Qt 5 and FreeRDP. It lets
 
 ## Building
 
-The default CMake presets build the Qt-based `RdpBox.exe`. The old MFC shell is kept as an optional legacy target and can be enabled with `-DRDPBOX_BUILD_LEGACY=ON` when configuring CMake.
+The default CMake presets build the legacy MFC `RdpBox.exe`. The Qt UI is optional and can be enabled with `-DRDPBOX_BUILD_QT=ON` when configuring CMake.
