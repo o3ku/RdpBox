@@ -70,12 +70,15 @@ jobs:
       - name: Locate vcpkg
         shell: pwsh
         run: |
-          $root = $env:VCPKG_ROOT
+          $root = $null
+          if (Test-Path "C:\vcpkg\vcpkg.exe") {
+            $root = "C:\vcpkg"
+          }
+          if (-not $root -and $env:VCPKG_ROOT) {
+            $root = $env:VCPKG_ROOT
+          }
           if (-not $root -and $env:VCPKG_INSTALLATION_ROOT) {
             $root = $env:VCPKG_INSTALLATION_ROOT
-          }
-          if (-not $root -and (Test-Path "C:\vcpkg")) {
-            $root = "C:\vcpkg"
           }
           if (-not $root) {
             throw "Could not locate vcpkg on the runner."
