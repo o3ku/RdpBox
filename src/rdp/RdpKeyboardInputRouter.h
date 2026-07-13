@@ -43,10 +43,8 @@ public:
     };
 
     void reset();
-    void onFocusGained();
 
     unsigned int activeKeyboardModifiers() const;
-    bool captureSystemKeysWithoutFocus() const;
     std::size_t pressedKeyCount() const;
 
     bool shouldCaptureLowLevelKey(const RdpLowLevelKeyEvent &event,
@@ -62,7 +60,6 @@ public:
     std::vector<KeyAction> synchronizeMouseModifiers(UINT mouseFlags,
                                                      const RdpKeyboardPhysicalState &physical,
                                                      bool hasWindowFocus);
-    std::vector<KeyAction> handleFocusLost(const RdpKeyboardPhysicalState &physical);
     std::vector<KeyAction> releaseAllPressedKeys();
 
 private:
@@ -96,14 +93,9 @@ private:
                                                      unsigned int requiredModifiers,
                                                      const KeyIdentifier *excludedKey,
                                                      const RdpKeyboardPhysicalState &physical);
-    void refreshSystemKeyCaptureState(std::vector<KeyAction> &actions,
-                                      const RdpKeyboardPhysicalState &physical,
-                                      bool hasWindowFocus);
-
     RdpModifierSyncTracker m_modifierTracker;
     std::vector<KeyIdentifier> m_pressedKeys;
     std::vector<KeyIdentifier> m_lowLevelReleaseKeys;
     unsigned int m_keyboardModifiers = ModifierNone;
     unsigned int m_passThroughModifierReleases = ModifierNone;
-    bool m_captureSystemKeysWithoutFocus = false;
 };

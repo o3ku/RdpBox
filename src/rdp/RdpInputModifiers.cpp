@@ -50,11 +50,6 @@ bool isToggleModifierVirtualKey(unsigned int virtualKey)
     }
 }
 
-bool shouldDeferKeyReleaseOnFocusLoss(unsigned int keyboardModifiers)
-{
-    return (keyboardModifiers & (ModifierAlt | ModifierWin)) != 0;
-}
-
 bool shouldCaptureTabForSystemChord(unsigned int virtualKey,
                                     unsigned int lowLevelFlags,
                                     unsigned int keyboardModifiers)
@@ -90,8 +85,13 @@ unsigned int keyboardInputModifiersForKeyMessage(std::uint32_t message,
 
     // WM_SYSKEY* for a non-Alt key means Alt is part of the active chord,
     // even if GetKeyState/GetAsyncKeyState is transiently out of sync.
-    if (sysContext && virtualKey != VK_LMENU && virtualKey != VK_RMENU && virtualKey != VK_MENU)
+    if (down
+        && sysContext
+        && virtualKey != VK_LMENU
+        && virtualKey != VK_RMENU
+        && virtualKey != VK_MENU) {
         modifiers |= ModifierAlt;
+    }
 
     const unsigned int mask = keyboardModifierMaskForVirtualKey(virtualKey);
     if (mask == ModifierNone)

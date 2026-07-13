@@ -452,9 +452,9 @@ void QtRdpSessionWidget::keyReleaseEvent(QKeyEvent *event)
 void QtRdpSessionWidget::focusInEvent(QFocusEvent *event)
 {
     QWidget::focusInEvent(event);
-    m_keyboardRouter.onFocusGained();
     if (m_process)
         m_process->sendFocusIn();
+    releaseAllPressedKeys();
 }
 
 void QtRdpSessionWidget::focusOutEvent(QFocusEvent *event)
@@ -462,7 +462,7 @@ void QtRdpSessionWidget::focusOutEvent(QFocusEvent *event)
     QWidget::focusOutEvent(event);
     releasePressedMouseButtons();
     flushPendingMouseMove();
-    sendKeyboardActions(m_keyboardRouter.handleFocusLost(physicalKeyboardState()));
+    releaseAllPressedKeys();
 }
 
 void QtRdpSessionWidget::bindProcessCallbacks()

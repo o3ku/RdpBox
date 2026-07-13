@@ -8,7 +8,7 @@ namespace
 {
 constexpr unsigned int kAllKeyboardModifiers =
     ModifierControl | ModifierShift | ModifierAlt | ModifierWin;
-constexpr unsigned int kDeferredFocusModifiers = ModifierAlt | ModifierWin;
+constexpr unsigned int kSystemKeyModifiers = ModifierAlt | ModifierWin;
 constexpr unsigned int kKeyboardModifierMasks[] = {
     ModifierControl,
     ModifierShift,
@@ -96,22 +96,11 @@ void RdpKeyboardInputRouter::reset()
     m_lowLevelReleaseKeys.clear();
     m_keyboardModifiers = ModifierNone;
     m_passThroughModifierReleases = ModifierNone;
-    m_captureSystemKeysWithoutFocus = false;
-}
-
-void RdpKeyboardInputRouter::onFocusGained()
-{
-    m_captureSystemKeysWithoutFocus = false;
 }
 
 unsigned int RdpKeyboardInputRouter::activeKeyboardModifiers() const
 {
     return m_keyboardModifiers;
-}
-
-bool RdpKeyboardInputRouter::captureSystemKeysWithoutFocus() const
-{
-    return m_captureSystemKeysWithoutFocus;
 }
 
 std::size_t RdpKeyboardInputRouter::pressedKeyCount() const
@@ -130,15 +119,9 @@ bool RdpKeyboardInputRouter::shouldCaptureLowLevelKey(
         && eventModifier != ModifierNone
         && (m_passThroughModifierReleases & eventModifier) != 0
         && isVirtualKeyPhysicallyDown(event.virtualKey, physical);
-    const bool captureDeferredModifierRelease =
-        m_captureSystemKeysWithoutFocus
-        && !event.hasWindowFocus
-        && event.keyUp
-        && (eventModifier & kDeferredFocusModifiers) != 0
-        && (m_keyboardModifiers & eventModifier) != 0;
-    const bool captureTrackedModifierRelease =
+    const bool captureTrackedSystemModifierRelease =
         event.keyUp
-        && eventModifier != ModifierNone
+        && (eventModifier & kSystemKeyModifiers) != 0
         && (m_keyboardModifiers & eventModifier) != 0;
     bool captureTrackedKeyRelease = false;
     if (event.keyUp) {
@@ -148,18 +131,17 @@ bool RdpKeyboardInputRouter::shouldCaptureLowLevelKey(
 
     if (event.reservedShortcut)
         return false;
-    if (passThroughModifierRelease && !captureTrackedModifierRelease)
+    if (passThroughModifierRelease && !captureTrackedSystemModifierRelease)
         return false;
     if (!event.hasWindowFocus)
-        return captureDeferredModifierRelease || captureTrackedKeyRelease;
+        return false;
 
     const bool altChord =
         hasActiveLowLevelAltContext(event, physical) || (m_keyboardModifiers & ModifierAlt) != 0;
     const bool winChord =
         hasActiveLowLevelWinContext(physical) || (m_keyboardModifiers & ModifierWin) != 0;
 
-    return captureDeferredModifierRelease
-        || captureTrackedModifierRelease
+    return captureTrackedSystemModifierRelease
         || captureTrackedKeyRelease
         || isSystemKey(event.virtualKey)
         || isAltKey(event.virtualKey)
@@ -195,7 +177,7 @@ std::vector<RdpKeyboardInputRouter::KeyAction> RdpKeyboardInputRouter::handleKey
     if (!rdp::isKeyboardModifierVirtualKey(virtualKey)) {
         unsigned int messageModifiers =
             rdp::keyboardInputModifiersForKeyMessage(message, virtualKey, ModifierNone);
-        messageModifiers |= (m_keyboardModifiers & ModifierWin);
+        messageModifiers |= m_keyboardModifiers;
         synchronizeKeyboardModifiersToPhysicalState(actions,
                                                     true,
                                                     messageModifiers,
@@ -208,7 +190,6 @@ std::vector<RdpKeyboardInputRouter::KeyAction> RdpKeyboardInputRouter::handleKey
                             event.down && shouldTrackLowLevelRelease(message, virtualKey, physical));
     m_modifierTracker.recordKeyState(virtualKey, event.down);
     recordModifierState(message, virtualKey);
-    refreshSystemKeyCaptureState(actions, physical, hasWindowFocus);
 
     return actions;
 }
@@ -234,24 +215,6 @@ std::vector<RdpKeyboardInputRouter::KeyAction> RdpKeyboardInputRouter::synchroni
                                    physical);
     }
     m_keyboardModifiers = desiredModifiers;
-    refreshSystemKeyCaptureState(actions, physical, hasWindowFocus);
-    return actions;
-}
-
-std::vector<RdpKeyboardInputRouter::KeyAction> RdpKeyboardInputRouter::handleFocusLost(
-    const RdpKeyboardPhysicalState &physical)
-{
-    std::vector<KeyAction> actions;
-    RdpKeyboardPhysicalState deferredPhysical = physical;
-    deferredPhysical.modifiers &= kDeferredFocusModifiers & ~m_passThroughModifierReleases;
-    synchronizeKeyboardModifiersToPhysicalState(actions, false, ModifierNone, nullptr, deferredPhysical);
-    if (rdp::shouldDeferKeyReleaseOnFocusLoss(m_keyboardModifiers)) {
-        m_captureSystemKeysWithoutFocus = true;
-        return actions;
-    }
-
-    std::vector<KeyAction> releaseActions = releaseAllPressedKeys();
-    actions.insert(actions.end(), releaseActions.begin(), releaseActions.end());
     return actions;
 }
 
@@ -261,7 +224,6 @@ std::vector<RdpKeyboardInputRouter::KeyAction> RdpKeyboardInputRouter::releaseAl
     m_modifierTracker.reset();
     m_keyboardModifiers = ModifierNone;
     m_passThroughModifierReleases = ModifierNone;
-    m_captureSystemKeysWithoutFocus = false;
 
     const std::vector<KeyIdentifier> pressedKeys = m_pressedKeys;
     for (const auto &key : pressedKeys)
@@ -494,23 +456,4 @@ void RdpKeyboardInputRouter::synchronizeKeyboardModifiersToPhysicalState(
 
     releaseTrackedNonModifierKeysNotPhysicallyDown(actions, physical, excludedKey);
     m_keyboardModifiers = desiredModifiers;
-}
-
-void RdpKeyboardInputRouter::refreshSystemKeyCaptureState(
-    std::vector<KeyAction> &actions,
-    const RdpKeyboardPhysicalState &physical,
-    bool hasWindowFocus)
-{
-    if (!m_captureSystemKeysWithoutFocus)
-        return;
-
-    if (rdp::shouldDeferKeyReleaseOnFocusLoss(m_keyboardModifiers))
-        return;
-
-    releaseTrackedNonModifierKeysNotPhysicallyDown(actions, physical, nullptr);
-    m_captureSystemKeysWithoutFocus = false;
-    if (!hasWindowFocus) {
-        std::vector<KeyAction> releaseActions = releaseAllPressedKeys();
-        actions.insert(actions.end(), releaseActions.begin(), releaseActions.end());
-    }
 }

@@ -305,10 +305,27 @@ int main()
         assert(actions.size() == 1);
         assertAction(actions[0], VK_MENU, true);
 
-        actions = router.handleFocusLost(physical(ModifierNone));
+        actions = router.releaseAllPressedKeys();
         assert(actions.size() == 1);
         assertAction(actions[0], VK_LMENU, false);
-        assert(!router.captureSystemKeysWithoutFocus());
+        assert(router.activeKeyboardModifiers() == ModifierNone);
+        assert(router.pressedKeyCount() == 0);
+    }
+
+    {
+        RdpKeyboardInputRouter router;
+        std::vector<RdpKeyboardInputRouter::KeyAction> actions =
+            router.handleKeyMessage(WM_KEYDOWN,
+                                    VK_LWIN,
+                                    keyEvent(VK_LWIN, true),
+                                    physical(ModifierWin),
+                                    true);
+        assert(actions.size() == 1);
+        assertAction(actions[0], VK_LWIN, true);
+
+        actions = router.releaseAllPressedKeys();
+        assert(actions.size() == 1);
+        assertAction(actions[0], VK_LWIN, false);
         assert(router.activeKeyboardModifiers() == ModifierNone);
         assert(router.pressedKeyCount() == 0);
     }
@@ -319,15 +336,37 @@ int main()
             router.handleKeyMessage(WM_SYSKEYDOWN, VK_MENU, keyEvent(VK_MENU, true), physical(ModifierAlt), true);
         assert(actions.size() == 1);
 
-        actions = router.handleFocusLost(physical(ModifierAlt));
-        assert(actions.empty());
-        assert(router.captureSystemKeysWithoutFocus());
-        assert(router.activeKeyboardModifiers() == ModifierAlt);
-
-        actions = router.handleKeyMessage(WM_SYSKEYUP, VK_MENU, keyEvent(VK_MENU, false, true), physical(ModifierNone), false);
+        actions = router.releaseAllPressedKeys();
         assert(actions.size() == 1);
-        assertAction(actions[0], VK_MENU, false);
-        assert(!router.captureSystemKeysWithoutFocus());
+        assertAction(actions[0], VK_LMENU, false);
+        assert(router.activeKeyboardModifiers() == ModifierNone);
+        assert(router.pressedKeyCount() == 0);
+
+        assert(!router.shouldCaptureLowLevelKey(
+            lowLevelKey(VK_MENU, true, physical(ModifierNone), false),
+            physical(ModifierNone)));
+    }
+
+    {
+        RdpKeyboardInputRouter router;
+        std::vector<RdpKeyboardInputRouter::KeyAction> actions =
+            router.handleKeyMessage(WM_SYSKEYDOWN,
+                                    'F',
+                                    keyEvent('F', true),
+                                    physical(ModifierAlt),
+                                    true);
+        assert(actions.size() == 2);
+        assertAction(actions[0], VK_MENU, true);
+        assertAction(actions[1], 'F', true);
+
+        assert(!router.shouldCaptureLowLevelKey(
+            lowLevelKey('F', true, physical(ModifierNone), false),
+            physical(ModifierNone)));
+
+        actions = router.releaseAllPressedKeys();
+        assert(actions.size() == 2);
+        assertAction(actions[0], VK_LMENU, false);
+        assertAction(actions[1], 'F', false);
         assert(router.activeKeyboardModifiers() == ModifierNone);
         assert(router.pressedKeyCount() == 0);
     }
@@ -348,30 +387,19 @@ int main()
         assertAction(actions[0], VK_LCONTROL, true);
         assert(router.activeKeyboardModifiers() == (ModifierAlt | ModifierControl));
 
-        actions = router.handleFocusLost(physical(ModifierAlt | ModifierControl));
-        assert(actions.size() == 1);
-        assertAction(actions[0], VK_LCONTROL, false);
-        assert(router.captureSystemKeysWithoutFocus());
-        assert(router.activeKeyboardModifiers() == ModifierAlt);
-        assert(router.pressedKeyCount() == 1);
+        actions = router.releaseAllPressedKeys();
+        assert(actions.size() == 2);
+        assertAction(actions[0], VK_LMENU, false);
+        assertAction(actions[1], VK_LCONTROL, false);
+        assert(router.activeKeyboardModifiers() == ModifierNone);
+        assert(router.pressedKeyCount() == 0);
 
         assert(!router.shouldCaptureLowLevelKey(
             lowLevelKey(VK_LCONTROL, true, physical(ModifierNone), false),
             physical(ModifierNone)));
-        assert(router.shouldCaptureLowLevelKey(
+        assert(!router.shouldCaptureLowLevelKey(
             lowLevelKey(VK_MENU, true, physical(ModifierNone), false),
             physical(ModifierNone)));
-
-        actions = router.handleKeyMessage(WM_SYSKEYUP,
-                                          VK_MENU,
-                                          keyEvent(VK_MENU, false, true),
-                                          physical(ModifierNone),
-                                          false);
-        assert(actions.size() == 1);
-        assertAction(actions[0], VK_MENU, false);
-        assert(!router.captureSystemKeysWithoutFocus());
-        assert(router.activeKeyboardModifiers() == ModifierNone);
-        assert(router.pressedKeyCount() == 0);
     }
 
     {
@@ -542,10 +570,9 @@ int main()
         assert(actions.size() == 1);
         assertAction(actions[0], VK_MENU, true);
 
-        actions = router.handleFocusLost(physical(ModifierAlt));
+        actions = router.releaseAllPressedKeys();
         assert(actions.size() == 1);
         assertAction(actions[0], VK_LMENU, false);
-        assert(!router.captureSystemKeysWithoutFocus());
         assert(router.activeKeyboardModifiers() == ModifierNone);
         assert(router.pressedKeyCount() == 0);
     }
@@ -593,7 +620,7 @@ int main()
         assertAction(actions[0], VK_LSHIFT, true);
         assert(router.activeKeyboardModifiers() == (ModifierControl | ModifierShift));
 
-        assert(router.shouldCaptureLowLevelKey(
+        assert(!router.shouldCaptureLowLevelKey(
             lowLevelKey(VK_LSHIFT, true, physical(ModifierControl)),
             physical(ModifierControl)));
 
@@ -606,7 +633,7 @@ int main()
         assertAction(actions[0], VK_LSHIFT, false);
         assert(router.activeKeyboardModifiers() == ModifierControl);
 
-        assert(router.shouldCaptureLowLevelKey(
+        assert(!router.shouldCaptureLowLevelKey(
             lowLevelKey(VK_LCONTROL, true, physical(ModifierNone)),
             physical(ModifierNone)));
 
@@ -650,8 +677,8 @@ int main()
 
         assert(router.shouldCaptureLowLevelKey(lowLevelKey(VK_ESCAPE, true, physical(ModifierControl)),
                                                physical(ModifierControl)));
-        assert(router.shouldCaptureLowLevelKey(lowLevelKey(VK_LCONTROL, true, physical(ModifierNone)),
-                                               physical(ModifierNone)));
+        assert(!router.shouldCaptureLowLevelKey(lowLevelKey(VK_LCONTROL, true, physical(ModifierNone)),
+                                                physical(ModifierNone)));
 
         actions = router.handleKeyMessage(WM_KEYUP,
                                           VK_ESCAPE,
@@ -699,7 +726,7 @@ int main()
         assertAction(actions[0], VK_LSHIFT, true);
         assert(router.activeKeyboardModifiers() == ModifierShift);
 
-        assert(router.shouldCaptureLowLevelKey(
+        assert(!router.shouldCaptureLowLevelKey(
             lowLevelKey(VK_LSHIFT, true, physical(ModifierNone), true),
             physical(ModifierNone)));
 
@@ -722,7 +749,7 @@ int main()
         assert(actions[0].synchronizedModifier);
         assert(router.activeKeyboardModifiers() == ModifierShift);
 
-        assert(router.shouldCaptureLowLevelKey(
+        assert(!router.shouldCaptureLowLevelKey(
             lowLevelKey(VK_LSHIFT, true, physical(ModifierShift), true),
             physical(ModifierShift)));
     }
@@ -739,7 +766,7 @@ int main()
         assertAction(actions[0], VK_LCONTROL, true);
         assert(router.activeKeyboardModifiers() == ModifierControl);
 
-        assert(router.shouldCaptureLowLevelKey(
+        assert(!router.shouldCaptureLowLevelKey(
             lowLevelKey(VK_LCONTROL, true, physical(ModifierNone), true),
             physical(ModifierNone)));
 
@@ -763,6 +790,133 @@ int main()
             true
         };
         assert(!router.shouldCaptureLowLevelKey(reservedShortcut, physical(ModifierControl)));
+    }
+
+    {
+        RdpKeyboardInputRouter router;
+        std::vector<RdpKeyboardInputRouter::KeyAction> actions =
+            router.handleKeyMessage(WM_SYSKEYDOWN,
+                                    VK_MENU,
+                                    keyEvent(VK_MENU, true),
+                                    physical(ModifierAlt),
+                                    true);
+        assert(actions.size() == 1);
+        assertAction(actions[0], VK_MENU, true);
+
+        actions = router.handleKeyMessage(WM_SYSKEYDOWN,
+                                          VK_LSHIFT,
+                                          keyEvent(VK_LSHIFT, true),
+                                          physical(ModifierAlt | ModifierShift),
+                                          true);
+        assert(actions.size() == 1);
+        assertAction(actions[0], VK_LSHIFT, true);
+        assert(router.activeKeyboardModifiers() == (ModifierAlt | ModifierShift));
+
+        actions = router.handleKeyMessage(WM_SYSKEYDOWN,
+                                          VK_OEM_MINUS,
+                                          keyEvent(VK_OEM_MINUS, true),
+                                          physical(ModifierAlt),
+                                          true);
+        assert(actions.size() == 1);
+        assertAction(actions[0], VK_OEM_MINUS, true);
+        assert(router.activeKeyboardModifiers() == (ModifierAlt | ModifierShift));
+
+        actions = router.handleKeyMessage(WM_SYSKEYUP,
+                                          VK_OEM_MINUS,
+                                          keyEvent(VK_OEM_MINUS, false, true),
+                                          physical(ModifierAlt),
+                                          true);
+        assert(actions.size() == 1);
+        assertAction(actions[0], VK_OEM_MINUS, false);
+        assert(router.activeKeyboardModifiers() == (ModifierAlt | ModifierShift));
+
+        actions = router.handleKeyMessage(WM_SYSKEYUP,
+                                          VK_LSHIFT,
+                                          keyEvent(VK_LSHIFT, false, true),
+                                          physical(ModifierAlt),
+                                          true);
+        assert(actions.size() == 1);
+        assertAction(actions[0], VK_LSHIFT, false);
+        assert(router.activeKeyboardModifiers() == ModifierAlt);
+
+        actions = router.handleKeyMessage(WM_SYSKEYDOWN,
+                                          'W',
+                                          keyEvent('W', true),
+                                          physical(ModifierAlt),
+                                          true);
+        assert(actions.size() == 1);
+        assertAction(actions[0], 'W', true);
+        assert(router.activeKeyboardModifiers() == ModifierAlt);
+
+        actions = router.handleKeyMessage(WM_SYSKEYUP,
+                                          'W',
+                                          keyEvent('W', false, true),
+                                          physical(ModifierAlt),
+                                          true);
+        assert(actions.size() == 1);
+        assertAction(actions[0], 'W', false);
+        assert(router.activeKeyboardModifiers() == ModifierAlt);
+
+        actions = router.handleKeyMessage(WM_SYSKEYUP,
+                                          VK_MENU,
+                                          keyEvent(VK_MENU, false, true),
+                                          physical(ModifierNone),
+                                          true);
+        assert(actions.size() == 1);
+        assertAction(actions[0], VK_MENU, false);
+        assert(router.activeKeyboardModifiers() == ModifierNone);
+        assert(router.pressedKeyCount() == 0);
+    }
+
+    {
+        RdpKeyboardInputRouter router;
+        std::vector<RdpKeyboardInputRouter::KeyAction> actions =
+            router.synchronizeMouseModifiers(
+                MK_LBUTTON | MK_CONTROL,
+                physical(ModifierControl | ModifierAlt),
+                true);
+        assert(actions.size() == 2);
+        assertAction(actions[0], VK_LCONTROL, true);
+        assertAction(actions[1], VK_MENU, true);
+        assert(router.activeKeyboardModifiers() == (ModifierControl | ModifierAlt));
+
+        actions = router.handleKeyMessage(WM_SYSKEYUP,
+                                          VK_MENU,
+                                          keyEvent(VK_MENU, false, true),
+                                          physical(ModifierControl),
+                                          true);
+        assert(actions.size() == 1);
+        assertAction(actions[0], VK_MENU, false);
+        assert(router.activeKeyboardModifiers() == ModifierControl);
+
+        actions = router.handleKeyMessage(WM_SYSKEYUP,
+                                          VK_LCONTROL,
+                                          keyEvent(VK_LCONTROL, false, true),
+                                          physical(ModifierNone),
+                                          true);
+        assert(actions.size() == 1);
+        assertAction(actions[0], VK_LCONTROL, false);
+        assert(router.activeKeyboardModifiers() == ModifierNone);
+        assert(router.pressedKeyCount() == 0);
+
+        actions = router.handleKeyMessage(WM_KEYDOWN,
+                                          'W',
+                                          keyEvent('W', true),
+                                          physical(ModifierNone),
+                                          true);
+        assert(actions.size() == 1);
+        assertAction(actions[0], 'W', true);
+        assert(router.activeKeyboardModifiers() == ModifierNone);
+
+        actions = router.handleKeyMessage(WM_KEYUP,
+                                          'W',
+                                          keyEvent('W', false, true),
+                                          physical(ModifierNone),
+                                          true);
+        assert(actions.size() == 1);
+        assertAction(actions[0], 'W', false);
+        assert(router.activeKeyboardModifiers() == ModifierNone);
+        assert(router.pressedKeyCount() == 0);
     }
 
     return 0;

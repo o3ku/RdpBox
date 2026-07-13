@@ -13,10 +13,8 @@ public:
     using KeyAction = RdpKeyboardInputRouter::KeyAction;
 
     void reset();
-    void onFocusGained();
 
     unsigned int activeKeyboardModifiers() const;
-    bool captureSystemKeysWithoutFocus() const;
     std::size_t pressedKeyCount() const;
 
     bool shouldCaptureLowLevelKey(const RdpLowLevelKeyEvent &event,
@@ -32,7 +30,6 @@ public:
     std::vector<KeyAction> synchronizeMouseModifiers(UINT mouseFlags,
                                                      const RdpKeyboardPhysicalState &physical,
                                                      bool hasWindowFocus);
-    std::vector<KeyAction> handleFocusLost(const RdpKeyboardPhysicalState &physical);
     std::vector<KeyAction> releaseAllPressedKeys();
 
     void noteConsumedLocalShortcutKey(unsigned int virtualKey);

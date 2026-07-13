@@ -11,7 +11,6 @@ int main()
     using rdp::isToggleModifierVirtualKey;
     using rdp::keyboardModifierMaskForVirtualKey;
     using rdp::shouldCaptureTabForSystemChord;
-    using rdp::shouldDeferKeyReleaseOnFocusLoss;
     using rdp::keyboardInputModifiersForKeyMessage;
 
     auto applyKeyMessage = [](unsigned int &modifiers, UINT message, unsigned int virtualKey) {
@@ -65,12 +64,6 @@ int main()
         return 1;
     if (isToggleModifierVirtualKey(VK_MENU))
         return 1;
-    if (!shouldDeferKeyReleaseOnFocusLoss(ModifierAlt))
-        return 1;
-    if (!shouldDeferKeyReleaseOnFocusLoss(ModifierWin))
-        return 1;
-    if (shouldDeferKeyReleaseOnFocusLoss(ModifierControl | ModifierShift))
-        return 1;
     if (!shouldCaptureTabForSystemChord(VK_TAB, LLKHF_ALTDOWN, ModifierNone))
         return 1;
     if (!shouldCaptureTabForSystemChord(VK_TAB, 0, ModifierAlt))
@@ -85,7 +78,7 @@ int main()
         return 1;
     if (keyboardInputModifiersForKeyMessage(WM_SYSKEYDOWN, '1', ModifierNone) != ModifierAlt)
         return 1;
-    if (keyboardInputModifiersForKeyMessage(WM_SYSKEYUP, '1', ModifierNone) != ModifierAlt)
+    if (keyboardInputModifiersForKeyMessage(WM_SYSKEYUP, '1', ModifierNone) != ModifierNone)
         return 1;
     if (keyboardInputModifiersForKeyMessage(WM_KEYDOWN, VK_LWIN, ModifierAlt)
         != (ModifierAlt | ModifierWin)) {

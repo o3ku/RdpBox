@@ -6,19 +6,9 @@ void RdpSessionKeyboardState::reset()
     m_reservedShortcutTracker.reset();
 }
 
-void RdpSessionKeyboardState::onFocusGained()
-{
-    m_keyboardRouter.onFocusGained();
-}
-
 unsigned int RdpSessionKeyboardState::activeKeyboardModifiers() const
 {
     return m_keyboardRouter.activeKeyboardModifiers();
-}
-
-bool RdpSessionKeyboardState::captureSystemKeysWithoutFocus() const
-{
-    return m_keyboardRouter.captureSystemKeysWithoutFocus();
 }
 
 std::size_t RdpSessionKeyboardState::pressedKeyCount() const
@@ -56,13 +46,6 @@ RdpSessionKeyboardState::synchronizeMouseModifiers(UINT mouseFlags,
                                                    bool hasWindowFocus)
 {
     return m_keyboardRouter.synchronizeMouseModifiers(mouseFlags, physical, hasWindowFocus);
-}
-
-std::vector<RdpSessionKeyboardState::KeyAction>
-RdpSessionKeyboardState::handleFocusLost(const RdpKeyboardPhysicalState &physical)
-{
-    m_reservedShortcutTracker.reset();
-    return m_keyboardRouter.handleFocusLost(physical);
 }
 
 std::vector<RdpSessionKeyboardState::KeyAction>

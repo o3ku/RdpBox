@@ -56,6 +56,7 @@ public:
     void noteConsumedLocalShortcutKey(unsigned int virtualKey);
     bool consumeReservedShortcutKey(unsigned int virtualKey);
     void forwardNativeKeyMessage(std::uint32_t message, std::uintptr_t wParam, std::intptr_t lParam);
+    void releaseKeyboardInputForTargetTransfer();
 
 protected:
     afx_msg BOOL OnEraseBkgnd(CDC *dc);
