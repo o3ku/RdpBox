@@ -154,7 +154,18 @@ bool isKeyboardTarget(const CRdpSessionView *target)
 
 void setKeyboardTarget(CRdpSessionView *target)
 {
+    if (g_systemKeyTarget == target) {
+        if (g_systemKeyTarget)
+            ensureKeyboardHook();
+        return;
+    }
+
+    CRdpSessionView *oldTarget = g_systemKeyTarget;
     g_systemKeyTarget = target;
+
+    if (oldTarget)
+        oldTarget->releaseKeyboardInputForTargetTransfer();
+
     if (g_systemKeyTarget)
         ensureKeyboardHook();
 }

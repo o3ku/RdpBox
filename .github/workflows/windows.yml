@@ -19,7 +19,7 @@ permissions:
 
 env:
   VCPKG_DEFAULT_TRIPLET: x64-windows-static-md
-  VCPKG_FEATURE_FLAGS: manifests,binarycaching
+  VCPKG_FEATURE_FLAGS: binarycaching
   VCPKG_INSTALLED_DIR: ${{ github.workspace }}\vcpkg_installed
   VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}\.vcpkg-cache,readwrite;nuget,GitHub,readwrite
 
@@ -68,7 +68,7 @@ jobs:
           path: |
             .vcpkg-cache
             vcpkg_installed
-          key: windows-vcpkg-${{ env.VCPKG_DEFAULT_TRIPLET }}-${{ hashFiles('vcpkg.json', '.github/workflows/windows.yml') }}
+          key: windows-vcpkg-${{ env.VCPKG_DEFAULT_TRIPLET }}-${{ hashFiles('.github/workflows/windows.yml') }}
           restore-keys: |
             windows-vcpkg-${{ env.VCPKG_DEFAULT_TRIPLET }}-
 
@@ -95,7 +95,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path ".vcpkg-cache" | Out-Null
           & "$env:VCPKG_ROOT\vcpkg.exe" install `
-            --triplet $env:VCPKG_DEFAULT_TRIPLET `
+            --triplet=$env:VCPKG_DEFAULT_TRIPLET `
+            cjson freerdp nlohmann-json `
             --x-install-root="$env:VCPKG_INSTALLED_DIR"
 
       - name: Configure debug tests
@@ -119,9 +120,11 @@ jobs:
         run: |
           cmake -S . -B build/msvc-release -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
+            -DRDPBOX_BUILD_QT=OFF `
+            -DRDPBOX_BUILD_LEGACY=ON `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
             "-DVCPKG_TARGET_TRIPLET=$env:VCPKG_DEFAULT_TRIPLET" `
             "-DVCPKG_INSTALLED_DIR=$env:VCPKG_INSTALLED_DIR"
 
       - name: Build release
-        run: cmake --build build/msvc-release --target RdpBox --parallel
+        run: cmake --build build/msvc-release --target RdpBoxLegacy --parallel

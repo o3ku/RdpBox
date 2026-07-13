@@ -498,6 +498,11 @@ void CRdpSessionView::setFocusToFreeRdp()
     }
 }
 
+void CRdpSessionView::releaseKeyboardInputForTargetTransfer()
+{
+    releaseAllPressedKeys();
+}
+
 void CRdpSessionView::showOverlay(const CString &text)
 {
     m_overlayText = text;
@@ -667,9 +672,9 @@ void CRdpSessionView::OnTimer(UINT_PTR timerId)
 void CRdpSessionView::OnSetFocus(CWnd *oldWnd)
 {
     CWnd::OnSetFocus(oldWnd);
-    m_keyboardState.onFocusGained();
     disableLocalIme();
     setFocusToFreeRdp();
+    releaseAllPressedKeys();
 }
 
 void CRdpSessionView::OnKillFocus(CWnd *newWnd)
@@ -678,19 +683,11 @@ void CRdpSessionView::OnKillFocus(CWnd *newWnd)
     rdp::trace::logSystemChordNote(L"kill-focus",
                                    m_keyboardState.activeKeyboardModifiers(),
                                    false,
-                                   m_keyboardState.captureSystemKeysWithoutFocus(),
+                                   false,
                                    m_keyboardState.pressedKeyCount());
     flushPendingMouseMove();
     releasePressedMouseButtons();
-    sendKeyboardActions(m_keyboardState.handleFocusLost(physicalKeyboardState()));
-    if (m_keyboardState.captureSystemKeysWithoutFocus()) {
-        rdp::trace::logSystemChordNote(L"defer-focus-release",
-                                       m_keyboardState.activeKeyboardModifiers(),
-                                       false,
-                                       m_keyboardState.captureSystemKeysWithoutFocus(),
-                                       m_keyboardState.pressedKeyCount());
-        return;
-    }
+    releaseAllPressedKeys();
     rdp::session_view_input::clearKeyboardTarget(this);
 }
 
@@ -732,7 +729,7 @@ void CRdpSessionView::sendKeyboardAction(const RdpSessionKeyboardState::KeyActio
                                         action.key.extended ? 0x01000000u : 0u,
                                         m_keyboardState.activeKeyboardModifiers(),
                                         ::GetFocus() == GetSafeHwnd(),
-                                        m_keyboardState.captureSystemKeysWithoutFocus(),
+                                        false,
                                         m_keyboardState.pressedKeyCount());
     }
     m_process->sendKey(action.key, action.down, action.wasDown);
@@ -746,7 +743,7 @@ void CRdpSessionView::sendKeyboardActions(const std::vector<RdpSessionKeyboardSt
 
 void CRdpSessionView::releaseKeyboardTargetIfInactive()
 {
-    if (::GetFocus() != GetSafeHwnd() && !m_keyboardState.captureSystemKeysWithoutFocus()) {
+    if (::GetFocus() != GetSafeHwnd()) {
         rdp::session_view_input::clearKeyboardTarget(this);
     }
 }
@@ -789,7 +786,7 @@ void CRdpSessionView::releaseAllPressedKeys()
     rdp::trace::logSystemChordNote(L"release-all-pressed-keys",
                                    m_keyboardState.activeKeyboardModifiers(),
                                    ::GetFocus() == GetSafeHwnd(),
-                                   m_keyboardState.captureSystemKeysWithoutFocus(),
+                                   false,
                                    m_keyboardState.pressedKeyCount());
 
     if (!m_process || m_process->state() != FreeRdpProcess::State::Running) {

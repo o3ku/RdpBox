@@ -159,7 +159,7 @@ bool CRdpSessionView::canCaptureSystemKeys() const
         && m_process->state() == FreeRdpProcess::State::Running
         && GetSafeHwnd()
         && IsWindowVisible()
-        && (::GetFocus() == GetSafeHwnd() || m_keyboardState.captureSystemKeysWithoutFocus());
+        && ::GetFocus() == GetSafeHwnd();
 }
 
 unsigned int CRdpSessionView::activeKeyboardModifiers() const
@@ -195,7 +195,7 @@ void CRdpSessionView::forwardNativeKeyMessage(std::uint32_t message,
                                         0,
                                         m_keyboardState.activeKeyboardModifiers(),
                                         ::GetFocus() == GetSafeHwnd(),
-                                        m_keyboardState.captureSystemKeysWithoutFocus(),
+                                        false,
                                         m_keyboardState.pressedKeyCount());
     }
     const auto event = keyEventInfoFromMessage(message, wParam, lParam);
