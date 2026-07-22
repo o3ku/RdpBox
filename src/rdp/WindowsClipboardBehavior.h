@@ -11,6 +11,14 @@ constexpr int kMaxClipboardDirectoryDepth = 32;
 
 bool shouldSyncClipboard(bool syncEnabled, bool clipboardOwnedByWindow, bool oleCurrentClipboard);
 
+bool shouldAdvertiseClipboardFormat(std::uint32_t formatId,
+                                    bool unicodeTextAvailable,
+                                    std::uint32_t htmlFormatId);
+
+bool shouldAcceptRemoteClipboardFormat(std::uint32_t localFormatId,
+                                       bool unicodeTextAdvertised,
+                                       std::uint32_t htmlFormatId);
+
 std::uint32_t fileContentsRequestBufferSize(bool sizeRequest, std::uint32_t requestedSize);
 
 std::uint32_t boundedFileContentsResponseSize(bool responseOk,

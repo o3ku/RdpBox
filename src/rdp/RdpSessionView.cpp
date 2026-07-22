@@ -348,9 +348,7 @@ void CRdpSessionView::startProcess()
     showOverlay(rdp::session_view::startOverlayText(m_reconnecting).c_str());
     m_reconnecting = false;
 
-    const SizeI viewSize = m_profile.fullScreenOnConnect
-        ? fullScreenSize()
-        : currentViewSize();
+    const SizeI viewSize = currentViewSize();
     m_process->start(m_profile.host, m_profile.port,
                      m_profile.username, m_profile.password,
                      m_profile.domain,
@@ -408,7 +406,7 @@ void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
 void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
 {
     switch (state) {
-    case FreeRdpProcess::State::Running:
+    case FreeRdpProcess::State::Running: {
         m_connected = true;
         if (m_process && m_frameGateActive) {
             auto info = m_process->connectionInfo();
@@ -426,12 +424,11 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
         m_resumeRecovery.reset();
         updateCursorFromProcess();
         setFocusToFreeRdp();
-        if (m_process)
-            m_process->requestResize(currentViewSize());
         Invalidate(FALSE);
         if (m_connectedCallback)
             m_connectedCallback();
         break;
+    }
     case FreeRdpProcess::State::Finished:
         m_connected = false;
         m_resolutionUpdatePending = false;
@@ -566,21 +563,6 @@ SizeI CRdpSessionView::currentViewSize() const
     CRect rect;
     GetClientRect(&rect);
     return rdp::session_view::normalizedViewSize(rect.Width(), rect.Height());
-}
-
-SizeI CRdpSessionView::fullScreenSize() const
-{
-    HMONITOR monitor = GetSafeHwnd()
-        ? ::MonitorFromWindow(GetSafeHwnd(), MONITOR_DEFAULTTONEAREST)
-        : nullptr;
-    if (monitor) {
-        MONITORINFO info = {};
-        info.cbSize = sizeof(info);
-        if (::GetMonitorInfoW(monitor, &info))
-            return SizeI{info.rcMonitor.right - info.rcMonitor.left,
-                         info.rcMonitor.bottom - info.rcMonitor.top};
-    }
-    return currentViewSize();
 }
 
 void CRdpSessionView::releaseCursorHandle()

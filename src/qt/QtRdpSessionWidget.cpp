@@ -244,14 +244,15 @@ void QtRdpSessionWidget::connectToHost()
     m_frameGateRemaining = 0;
     m_frameGeneration = 0;
     m_frame = {};
+    const SizeI size = viewSize();
     updateState(FreeRdpProcess::State::Starting);
     m_process->start(m_profile.host,
                      m_profile.port,
                      m_profile.username,
                      m_profile.password,
                      m_profile.domain,
-                     std::max(width(), 640),
-                     std::max(height(), 480),
+                     size.width,
+                     size.height,
                      m_profile.clipboardEnabled,
                      m_profile.ignoreCertificate);
 }
@@ -575,8 +576,6 @@ void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
             m_resizeTimer->stop();
         m_resolutionRecovery.reset();
         syncRecoveryTimer();
-        if (m_process)
-            m_process->requestResize(viewSize());
     } else if (state == FreeRdpProcess::State::Finished) {
         m_mouseMoveCoalescer.reset();
         if (m_mouseMoveTimer)

@@ -30,7 +30,9 @@ LRESULT handleRenderFormat(ClipboardContext *clipboard, WPARAM format)
     if (!clipboard || clipboardSendDataRequest(clipboard, static_cast<UINT32>(format)) != CHANNEL_RC_OK)
         return 0;
 
-    if (!SetClipboardData(static_cast<UINT>(format), clipboard->responseData) && clipboard->responseData)
+    if (SetClipboardData(static_cast<UINT>(format), clipboard->responseData))
+        clipboard->responseData = nullptr;
+    else if (clipboard->responseData)
         clearResponseData(clipboard);
     return 0;
 }

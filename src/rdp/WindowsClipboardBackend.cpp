@@ -49,6 +49,119 @@ static UINT32 getLocalFormatIdByName(ClipboardContext *clipboard, const TCHAR *f
     return 0;
 }
 
+static UINT32 clipboardHtmlFormatId()
+{
+    return RegisterClipboardFormatA("HTML Format");
+}
+
+static UINT32 localFormatIdForRemoteFormat(const CLIPRDR_FORMAT &format)
+{
+    if (!format.formatName)
+        return format.formatId;
+
+    WCHAR *name = ConvertUtf8ToWCharAlloc(format.formatName, nullptr);
+    if (!name)
+        return 0;
+
+    const UINT32 localFormatId = RegisterClipboardFormatW(name);
+    free(name);
+    return localFormatId;
+}
+
+static std::vector<BYTE> readGlobalClipboardData(UINT formatId)
+{
+    HANDLE handle = GetClipboardData(formatId);
+    if (!handle)
+        return {};
+
+    const SIZE_T size = GlobalSize(handle);
+    const auto *memory = static_cast<const BYTE*>(GlobalLock(handle));
+    if (!memory || size == 0) {
+        if (memory)
+            GlobalUnlock(handle);
+        return {};
+    }
+
+    std::vector<BYTE> data(memory, memory + size);
+    GlobalUnlock(handle);
+    return data;
+}
+
+static bool normalizeUnicodeText(std::vector<BYTE> &data)
+{
+    for (size_t i = 0; i + sizeof(WCHAR) <= data.size(); i += sizeof(WCHAR)) {
+        if (data[i] == 0 && data[i + 1] == 0) {
+            data.resize(i + sizeof(WCHAR));
+            return true;
+        }
+    }
+    data.clear();
+    return false;
+}
+
+static bool looksLikeHtmlClipboardData(const std::vector<BYTE> &data)
+{
+    constexpr std::string_view prefix = "Version:";
+    return data.size() >= prefix.size()
+        && std::memcmp(data.data(), prefix.data(), prefix.size()) == 0;
+}
+
+static std::vector<BYTE> unicodeTextFromAnsiClipboard()
+{
+    std::vector<BYTE> ansiData = readGlobalClipboardData(CF_TEXT);
+    const auto terminator = std::find(ansiData.begin(), ansiData.end(), BYTE{0});
+    if (terminator == ansiData.end())
+        return {};
+
+    const int sourceLength = static_cast<int>(terminator - ansiData.begin());
+    const int wideLength = MultiByteToWideChar(CP_ACP,
+                                                0,
+                                                reinterpret_cast<const char*>(ansiData.data()),
+                                                sourceLength,
+                                                nullptr,
+                                                0);
+    if (sourceLength > 0 && wideLength <= 0)
+        return {};
+
+    std::vector<BYTE> result((static_cast<size_t>(wideLength) + 1) * sizeof(WCHAR), 0);
+    if (wideLength > 0) {
+        MultiByteToWideChar(CP_ACP,
+                            0,
+                            reinterpret_cast<const char*>(ansiData.data()),
+                            sourceLength,
+                            reinterpret_cast<WCHAR*>(result.data()),
+                            wideLength);
+    }
+    return result;
+}
+
+static void updateCachedUnicodeText(ClipboardContext *clipboard, bool unicodeTextAvailable)
+{
+    std::vector<BYTE> data;
+    if (unicodeTextAvailable) {
+        data = readGlobalClipboardData(CF_UNICODETEXT);
+        if (looksLikeHtmlClipboardData(data) || !normalizeUnicodeText(data))
+            data = unicodeTextFromAnsiClipboard();
+    }
+
+    std::scoped_lock lock(clipboard->cachedUnicodeTextMutex);
+    clipboard->cachedUnicodeText = std::move(data);
+}
+
+static SSIZE_T copyCachedUnicodeText(ClipboardContext *clipboard, BYTE **data)
+{
+    std::scoped_lock lock(clipboard->cachedUnicodeTextMutex);
+    if (clipboard->cachedUnicodeText.empty())
+        return -1;
+
+    *data = static_cast<BYTE*>(malloc(clipboard->cachedUnicodeText.size()));
+    if (!*data)
+        return -1;
+
+    CopyMemory(*data, clipboard->cachedUnicodeText.data(), clipboard->cachedUnicodeText.size());
+    return static_cast<SSIZE_T>(clipboard->cachedUnicodeText.size());
+}
+
 static BOOL fileTransferring(ClipboardContext *clipboard)
 {
     return getLocalFormatIdByName(clipboard, CFSTR_FILEDESCRIPTORW) ? TRUE : FALSE;
@@ -145,6 +258,9 @@ UINT clipboardSendFormatList(ClipboardContext *clipboard)
     if (clipboardTryOpenClipboard(clipboard->hwnd)) {
         const int count = CountClipboardFormats();
         const bool hasFileDrop = IsClipboardFormatAvailable(CF_HDROP) != FALSE;
+        const bool unicodeTextAvailable = IsClipboardFormatAvailable(CF_UNICODETEXT) != FALSE;
+        const UINT32 htmlFormatId = clipboardHtmlFormatId();
+        updateCachedUnicodeText(clipboard, unicodeTextAvailable);
         numFormats = hasFileDrop ? 2u : static_cast<UINT32>(count);
         formats = static_cast<CLIPRDR_FORMAT*>(calloc(numFormats ? numFormats : 1, sizeof(CLIPRDR_FORMAT)));
         if (!formats) {
@@ -158,8 +274,14 @@ UINT clipboardSendFormatList(ClipboardContext *clipboard)
             formats[index++].formatId = RegisterClipboardFormat(CFSTR_FILECONTENTS);
         } else {
             UINT32 formatId = 0;
-            while ((formatId = EnumClipboardFormats(formatId)) != 0)
+            while ((formatId = EnumClipboardFormats(formatId)) != 0) {
+                if (!rdp::clipboard::shouldAdvertiseClipboardFormat(formatId,
+                                                                     unicodeTextAvailable,
+                                                                     htmlFormatId)) {
+                    continue;
+                }
                 formats[index++].formatId = formatId;
+            }
         }
 
         numFormats = index;
@@ -631,10 +753,26 @@ static UINT CALLBACK onServerFormatList(CliprdrClientContext *context, const CLI
         return ERROR_INTERNAL_ERROR;
     clearFormatMap(clipboard);
 
+    bool unicodeTextAdvertised = false;
+    const UINT32 htmlFormatId = clipboardHtmlFormatId();
     for (UINT32 i = 0; i < formatList->numFormats; ++i) {
+        if (localFormatIdForRemoteFormat(formatList->formats[i]) == CF_UNICODETEXT) {
+            unicodeTextAdvertised = true;
+            break;
+        }
+    }
+
+    for (UINT32 i = 0; i < formatList->numFormats; ++i) {
+        const auto &format = formatList->formats[i];
+        const UINT32 localFormatId = localFormatIdForRemoteFormat(format);
+        if (!rdp::clipboard::shouldAcceptRemoteClipboardFormat(localFormatId,
+                                                               unicodeTextAdvertised,
+                                                               htmlFormatId)) {
+            continue;
+        }
+
         ensureMapCapacity(clipboard);
         auto &mapping = clipboard->formatMappings[clipboard->mapSize];
-        const auto &format = formatList->formats[i];
         mapping.remoteFormatId = format.formatId;
 
         if (format.formatName) {
@@ -642,7 +780,7 @@ static UINT CALLBACK onServerFormatList(CliprdrClientContext *context, const CLI
             if (mapping.name)
                 mapping.localFormatId = RegisterClipboardFormatW(mapping.name);
         } else {
-            mapping.localFormatId = mapping.remoteFormatId;
+            mapping.localFormatId = localFormatId;
         }
         ++clipboard->mapSize;
     }
@@ -655,8 +793,10 @@ static UINT CALLBACK onServerFormatList(CliprdrClientContext *context, const CLI
     } else if (clipboardTryOpenClipboard(clipboard->hwnd)) {
         rc = ERROR_INTERNAL_ERROR;
         if (EmptyClipboard()) {
-            for (size_t i = 0; i < clipboard->mapSize; ++i)
-                SetClipboardData(clipboard->formatMappings[i].localFormatId, nullptr);
+            for (size_t i = 0; i < clipboard->mapSize; ++i) {
+                if (clipboard->formatMappings[i].localFormatId != 0)
+                    SetClipboardData(clipboard->formatMappings[i].localFormatId, nullptr);
+            }
             rc = CHANNEL_RC_OK;
         }
 
@@ -693,9 +833,14 @@ static UINT CALLBACK onServerFormatDataRequest(CliprdrClientContext *context,
         return ERROR_INTERNAL_ERROR;
     BYTE *data = nullptr;
     const UINT fileDescriptorFormat = RegisterClipboardFormat(CFSTR_FILEDESCRIPTORW);
-    const SSIZE_T size = (request->requestedFormatId == fileDescriptorFormat)
-        ? buildFileDescriptorList(clipboard, &data)
-        : tryOpenClipboardData(clipboard, request->requestedFormatId, &data);
+    SSIZE_T size = -1;
+    if (request->requestedFormatId == CF_UNICODETEXT)
+        size = copyCachedUnicodeText(clipboard, &data);
+    if (size < 0) {
+        size = (request->requestedFormatId == fileDescriptorFormat)
+            ? buildFileDescriptorList(clipboard, &data)
+            : tryOpenClipboardData(clipboard, request->requestedFormatId, &data);
+    }
 
     UINT rc = ERROR_INTERNAL_ERROR;
     if (size >= 0) {
