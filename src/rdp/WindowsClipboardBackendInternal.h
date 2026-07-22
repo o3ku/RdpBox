@@ -6,6 +6,8 @@
 #include "WindowsClipboardBackend.h"
 
 #include <atomic>
+#include <mutex>
+#include <vector>
 
 #include <freerdp/client/cliprdr.h>
 #include <freerdp/channels/cliprdr.h>
@@ -52,6 +54,9 @@ struct ClipboardContext
     HANDLE thread = nullptr;
     DWORD threadId = 0;
     std::atomic_bool windowReady = false;
+
+    std::mutex cachedUnicodeTextMutex;
+    std::vector<BYTE> cachedUnicodeText;
 
     IDataObject *dataObject = nullptr;
     ULONG requestFileSize = 0;

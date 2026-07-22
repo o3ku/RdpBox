@@ -112,8 +112,8 @@ void FreeRdpProcess::start(const std::wstring &host,
     context->ignoreCertificate = ignoreCertificate;
 
     rdpSettings *settings = m_d->context->settings;
-    const UINT32 desktopWidth = static_cast<UINT32>((width > 640) ? width : 640);
-    const UINT32 desktopHeight = static_cast<UINT32>((height > 480) ? height : 480);
+    const UINT32 desktopWidth = static_cast<UINT32>(std::max(width, 1));
+    const UINT32 desktopHeight = static_cast<UINT32>(std::max(height, 1));
     const std::string hostUtf8 = utf8FromWide(host);
     const std::string usernameUtf8 = utf8FromWide(username);
     const std::string passwordUtf8 = utf8FromWide(password);

@@ -3,11 +3,33 @@
 #include <algorithm>
 #include <limits>
 
+#include <windows.h>
+
 namespace rdp::clipboard
 {
 bool shouldSyncClipboard(bool syncEnabled, bool clipboardOwnedByWindow, bool oleCurrentClipboard)
 {
     return syncEnabled && !clipboardOwnedByWindow && !oleCurrentClipboard;
+}
+
+bool shouldAdvertiseClipboardFormat(std::uint32_t formatId,
+                                    bool unicodeTextAvailable,
+                                    std::uint32_t htmlFormatId)
+{
+    if (!unicodeTextAvailable)
+        return true;
+
+    if (formatId == CF_TEXT || formatId == CF_OEMTEXT)
+        return false;
+
+    return htmlFormatId == 0 || formatId != htmlFormatId;
+}
+
+bool shouldAcceptRemoteClipboardFormat(std::uint32_t localFormatId,
+                                       bool unicodeTextAdvertised,
+                                       std::uint32_t htmlFormatId)
+{
+    return shouldAdvertiseClipboardFormat(localFormatId, unicodeTextAdvertised, htmlFormatId);
 }
 
 std::uint32_t fileContentsRequestBufferSize(bool sizeRequest, std::uint32_t requestedSize)

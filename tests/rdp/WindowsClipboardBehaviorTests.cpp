@@ -1,6 +1,8 @@
 #include <cassert>
 #include <cstdint>
 
+#include <windows.h>
+
 #include "rdp/WindowsClipboardBehavior.h"
 
 int main()
@@ -9,6 +11,20 @@ int main()
     assert(!rdp::clipboard::shouldSyncClipboard(false, false, false));
     assert(!rdp::clipboard::shouldSyncClipboard(true, true, false));
     assert(!rdp::clipboard::shouldSyncClipboard(true, false, true));
+
+    constexpr std::uint32_t htmlFormat = 49152;
+    assert(rdp::clipboard::shouldAdvertiseClipboardFormat(CF_UNICODETEXT, true, htmlFormat));
+    assert(!rdp::clipboard::shouldAdvertiseClipboardFormat(CF_TEXT, true, htmlFormat));
+    assert(!rdp::clipboard::shouldAdvertiseClipboardFormat(CF_OEMTEXT, true, htmlFormat));
+    assert(!rdp::clipboard::shouldAdvertiseClipboardFormat(htmlFormat, true, htmlFormat));
+    assert(rdp::clipboard::shouldAdvertiseClipboardFormat(CF_TEXT, false, htmlFormat));
+    assert(rdp::clipboard::shouldAdvertiseClipboardFormat(htmlFormat, false, htmlFormat));
+
+    assert(rdp::clipboard::shouldAcceptRemoteClipboardFormat(CF_UNICODETEXT, true, htmlFormat));
+    assert(!rdp::clipboard::shouldAcceptRemoteClipboardFormat(CF_TEXT, true, htmlFormat));
+    assert(!rdp::clipboard::shouldAcceptRemoteClipboardFormat(CF_OEMTEXT, true, htmlFormat));
+    assert(!rdp::clipboard::shouldAcceptRemoteClipboardFormat(htmlFormat, true, htmlFormat));
+    assert(rdp::clipboard::shouldAcceptRemoteClipboardFormat(CF_TEXT, false, htmlFormat));
 
     assert(rdp::clipboard::fileContentsRequestBufferSize(true, 1234) == sizeof(std::uint64_t));
     assert(rdp::clipboard::fileContentsRequestBufferSize(false, 1234) == 1234);

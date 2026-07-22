@@ -119,7 +119,6 @@ private:
     void syncMouseModifiers(UINT mouseFlags);
     RdpKeyboardPhysicalState currentKeyboardPhysicalState() const;
     SizeI currentViewSize() const;
-    SizeI fullScreenSize() const;
     void releaseCursorHandle();
     void drawOverlay(CDC &dc, const CRect &rect);
     void flushPendingMouseMove();
