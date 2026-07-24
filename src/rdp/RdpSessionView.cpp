@@ -244,6 +244,8 @@ void CRdpSessionView::handleHostResume(bool autoReconnect)
 void CRdpSessionView::handleBecameVisible()
 {
     requestDeferredResumeRefreshIfNeeded();
+    if (m_connected)
+        updateCursorFromProcess();
 }
 
 void CRdpSessionView::bindProcessCallbacks(std::uintptr_t generation)
@@ -466,7 +468,9 @@ void CRdpSessionView::updateCursorFromProcess()
     m_cursorHandle = RdpCursorClassifier::cursorHandleFromInfo(cursorInfo);
     m_ownsCursorHandle = cursorInfo.ownsHandle;
 
-    if (GetSafeHwnd())
+    if (GetSafeHwnd()
+        && IsWindowVisible()
+        && m_process->state() == FreeRdpProcess::State::Running)
         ::SetCursor(m_cursorHandle);
 }
 
@@ -657,6 +661,8 @@ void CRdpSessionView::OnSetFocus(CWnd *oldWnd)
     disableLocalIme();
     setFocusToFreeRdp();
     releaseAllPressedKeys();
+    if (m_connected)
+        updateCursorFromProcess();
 }
 
 void CRdpSessionView::OnKillFocus(CWnd *newWnd)

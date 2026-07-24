@@ -282,6 +282,8 @@ void QtRdpSessionWidget::handleHostResume(bool autoReconnect)
 void QtRdpSessionWidget::handleBecameVisible()
 {
     setFocus(Qt::OtherFocusReason);
+    if (m_state == FreeRdpProcess::State::Running)
+        updateCursor();
 }
 
 bool QtRdpSessionWidget::isConnected() const
