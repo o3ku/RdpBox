@@ -4,6 +4,7 @@
 #include "rdp/FrameBufferMemory.h"
 #include "rdp/FreeRdpProcessNative.h"
 #include "rdp/RdpInputEventUtil.h"
+#include "rdp/RdpSessionViewBehavior.h"
 #include "RdpClipboardBridge.h"
 
 #include <algorithm>
@@ -112,8 +113,9 @@ void FreeRdpProcess::start(const std::wstring &host,
     context->ignoreCertificate = ignoreCertificate;
 
     rdpSettings *settings = m_d->context->settings;
-    const UINT32 desktopWidth = static_cast<UINT32>(std::max(width, 1));
-    const UINT32 desktopHeight = static_cast<UINT32>(std::max(height, 1));
+    const SizeI desktopSize = rdp::session_view::clampedDesktopSize(SizeI{width, height});
+    const UINT32 desktopWidth = static_cast<UINT32>(desktopSize.width);
+    const UINT32 desktopHeight = static_cast<UINT32>(desktopSize.height);
     const std::string hostUtf8 = utf8FromWide(host);
     const std::string usernameUtf8 = utf8FromWide(username);
     const std::string passwordUtf8 = utf8FromWide(password);
@@ -481,6 +483,8 @@ void FreeRdpProcess::requestResize(SizeI size)
     if (!m_d->context || size.width <= 0 || size.height <= 0)
         return;
 
+    const SizeI clamped = rdp::session_view::clampedDesktopSize(size);
+
     NativeRdpContext *context = toNativeContext(m_d->context);
     if (!context || !context->disp || !context->disp->SendMonitorLayout)
         return;
@@ -489,8 +493,8 @@ void FreeRdpProcess::requestResize(SizeI size)
     layout.Flags = DISPLAY_CONTROL_MONITOR_PRIMARY;
     layout.Left = 0;
     layout.Top = 0;
-    layout.Width = static_cast<UINT32>((size.width + 3) & ~3);
-    layout.Height = static_cast<UINT32>(size.height);
+    layout.Width = static_cast<UINT32>((clamped.width + 3) & ~3);
+    layout.Height = static_cast<UINT32>(clamped.height);
     layout.Orientation = ORIENTATION_LANDSCAPE;
     layout.DesktopScaleFactor = 100;
     layout.DeviceScaleFactor = 100;

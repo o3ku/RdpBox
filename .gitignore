@@ -1,4 +1,5 @@
 build/
+.vscode/
 .claude/
 .vcpkg-cache/
 vcpkg_installed/
