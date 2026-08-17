@@ -24,6 +24,8 @@ struct FrameArrivalDecision
 
 SizeI normalizedViewSize(int width, int height);
 
+SizeI clampedDesktopSize(SizeI size);
+
 int initialFrameDiscardCount(bool codecAvailable);
 
 std::wstring startOverlayText(bool reconnecting);

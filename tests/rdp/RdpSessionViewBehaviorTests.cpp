@@ -16,6 +16,28 @@ int main()
         assert(normal.height == 720);
     }
 
+    {
+        const SizeI degenerate = rdp::session_view::clampedDesktopSize(SizeI{1, 1});
+        assert(degenerate.width == 1280);
+        assert(degenerate.height == 900);
+
+        const SizeI narrow = rdp::session_view::clampedDesktopSize(SizeI{100, 1080});
+        assert(narrow.width == 1280);
+        assert(narrow.height == 1080);
+
+        const SizeI shortHeight = rdp::session_view::clampedDesktopSize(SizeI{1920, 100});
+        assert(shortHeight.width == 1920);
+        assert(shortHeight.height == 900);
+
+        const SizeI atFloor = rdp::session_view::clampedDesktopSize(SizeI{1280, 900});
+        assert(atFloor.width == 1280);
+        assert(atFloor.height == 900);
+
+        const SizeI full = rdp::session_view::clampedDesktopSize(SizeI{1920, 1080});
+        assert(full.width == 1920);
+        assert(full.height == 1080);
+    }
+
     assert(rdp::session_view::initialFrameDiscardCount(true) == 3);
     assert(rdp::session_view::initialFrameDiscardCount(false) == 5);
 
