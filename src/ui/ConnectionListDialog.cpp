@@ -232,13 +232,18 @@ void ConnectionListDialog::OnDuplicateClicked()
         return;
 
     m_currentProfiles = m_repo->search(m_searchText.GetString());
+    std::vector<std::wstring> takenNames;
+    for (const Profile &profile : m_repo->profiles())
+        takenNames.push_back(profile.name);
     for (int idx : indices) {
         if (idx < 0 || idx >= static_cast<int>(m_currentProfiles.size()))
             continue;
 
-        Profile dup = duplicateProfileDraft(m_currentProfiles[idx]);
+        Profile dup = duplicateProfileDraft(m_currentProfiles[idx], takenNames);
 
-        if (!m_repo->addProfile(dup))
+        if (m_repo->addProfile(dup))
+            takenNames.push_back(dup.name);
+        else
             showNameConflictMessage(dup.name.c_str());
     }
 

@@ -1,6 +1,7 @@
 #include "ConnectionListBehavior.h"
 
 #include <algorithm>
+#include <cwctype>
 
 bool isProfileConnected(const std::wstring &profileName,
                         const std::vector<std::wstring> &connectedProfileNames)
@@ -101,13 +102,36 @@ std::vector<int> retainedSelectionRowsForProfiles(
     return rows;
 }
 
-Profile duplicateProfileDraft(const Profile &profile)
+std::wstring duplicateProfileName(const std::wstring &profileName,
+                                 const std::vector<std::wstring> &existingNames)
+{
+    const std::wstring baseName = profileName.empty() ? L"unnamed" : profileName;
+
+    std::size_t digitCount = 0;
+    while (digitCount < baseName.size()
+           && std::iswdigit(static_cast<wint_t>(baseName[baseName.size() - 1 - digitCount])))
+        ++digitCount;
+    if (digitCount > 9) // ponytail: >9 digits is not a counter, treat the name as unnumbered
+        digitCount = 0;
+
+    std::wstring base = baseName;
+    unsigned long number = 1;
+    if (digitCount > 0) {
+        base.resize(baseName.size() - digitCount);
+        number = std::wcstoul(baseName.c_str() + baseName.size() - digitCount, nullptr, 10) + 1;
+    }
+
+    std::wstring candidate = base + std::to_wstring(number);
+    while (std::find(existingNames.begin(), existingNames.end(), candidate) != existingNames.end())
+        candidate = base + std::to_wstring(++number);
+    return candidate;
+}
+
+Profile duplicateProfileDraft(const Profile &profile,
+                              const std::vector<std::wstring> &existingNames)
 {
     Profile duplicate = profile;
-    if (!duplicate.name.empty())
-        duplicate.name += L"(n)";
-    else
-        duplicate.name = L"(unnamed)";
+    duplicate.name = duplicateProfileName(profile.name, existingNames);
     return duplicate;
 }
 
