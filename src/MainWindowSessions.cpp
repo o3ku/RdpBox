@@ -259,11 +259,13 @@ void MainWindow::openConnectionDialog()
     if (!m_profileRepository)
         return;
 
-    const auto connectedIds = m_sessionManager
-        ? m_sessionManager->connectedProfileNames()
-        : std::vector<std::wstring>{};
-
-    ConnectionListDialog dialog(m_profileRepository.get(), connectedIds, this);
+    ConnectionListDialog dialog(m_profileRepository.get(),
+                                [this]() -> std::vector<std::wstring> {
+                                    return m_sessionManager
+                                        ? m_sessionManager->connectedProfileNames()
+                                        : std::vector<std::wstring>{};
+                                },
+                                this);
     if (dialog.DoModal() != IDOK)
         return;
 

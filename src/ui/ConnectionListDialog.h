@@ -7,6 +7,7 @@
 #include "profiles/Profile.h"
 #include "ui/FlatButton.h"
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -18,8 +19,10 @@ class ConnectionListDialog : public CDialogEx
     DECLARE_DYNAMIC(ConnectionListDialog)
 
 public:
+    using ConnectedNamesProvider = std::function<std::vector<std::wstring>()>;
+
     ConnectionListDialog(ProfileRepository *repo,
-                         const std::vector<std::wstring> &connectedProfileNames,
+                         const ConnectedNamesProvider &connectedNamesProvider,
                          CWnd *parent = nullptr);
     virtual ~ConnectionListDialog();
 
@@ -45,6 +48,8 @@ protected:
     afx_msg void OnCustomDrawList(NMHDR *notify, LRESULT *result);
     afx_msg void OnMouseMove(UINT flags, CPoint point);
     afx_msg void OnLButtonUp(UINT flags, CPoint point);
+    afx_msg void OnTimer(UINT_PTR eventId);
+    afx_msg void OnDestroy();
 
     DECLARE_MESSAGE_MAP()
 
@@ -59,11 +64,18 @@ private:
     void endListDrag(bool commit);
     int insertIndexForScreenPoint(CPoint screenPoint) const;
     std::size_t repositoryTargetIndexForVisibleInsertIndex(int insertIndex) const;
-    void selectProfileByName(const std::wstring &name);
+    void selectProfilesByName(const std::vector<std::wstring> &names);
+    void selectSingleRow(int row);
+    void refreshStatusTexts();
+    void clearSearchFilter();
+    bool searchHasText() const;
+    bool isListFocused() const;
+    std::vector<std::wstring> visibleSelectedNames() const;
     void drawDragInsertMarker(CDC &dc, CListCtrl &list) const;
     bool moveCurrentSelectionBy(int delta);
 
     ProfileRepository *m_repo = nullptr;
+    ConnectedNamesProvider m_connectedNamesProvider;
     std::vector<std::wstring> m_connectedProfileNames;
     std::vector<Profile> m_currentProfiles;
     std::vector<std::wstring> m_selectedProfileNames;
