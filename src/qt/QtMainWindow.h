@@ -23,6 +23,7 @@ class QListWidget;
 class QListWidgetItem;
 class QPoint;
 class QPushButton;
+class QShortcut;
 class QToolButton;
 class QTabWidget;
 class QTimer;
@@ -46,6 +47,8 @@ private:
     void buildUi();
     void buildTitleBar(QVBoxLayout *rootLayout);
     void installShortcuts();
+    void applyShortcutSettings();
+    void showShortcutsDialog();
     void refreshProfileList();
     void refreshActions();
     void refreshUpdateButton();
@@ -130,6 +133,10 @@ private:
     QPushButton *m_moveDownButton = nullptr;
     QPushButton *m_connectButton = nullptr;
     QTabWidget *m_tabs = nullptr;
+    QShortcut *m_newConnectionShortcut = nullptr;
+    QShortcut *m_openConnectionsShortcut = nullptr;
+    QShortcut *m_fullScreenShortcut = nullptr;
+    QShortcut *m_exitFullScreenShortcut = nullptr;
     QLabel *m_statusLabel = nullptr;
     QTimer *m_updateCheckTimer = nullptr;
     QTimer *m_tabStatusTimer = nullptr;

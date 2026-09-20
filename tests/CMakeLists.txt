@@ -642,4 +642,21 @@ if(RDPBOX_BUILD_QT)
 
     add_test(NAME QtWindowChromeBehaviorTests COMMAND QtWindowChromeBehaviorTests)
     rdpbox_prepend_test_runtime_path(QtWindowChromeBehaviorTests Qt5::Core)
+
+    add_executable(QtShortcutSettingsTests
+        qt/QtShortcutSettingsTests.cpp
+        ${CMAKE_SOURCE_DIR}/src/qt/QtShortcutSettings.cpp
+    )
+
+    target_include_directories(QtShortcutSettingsTests PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+    )
+
+    target_link_libraries(QtShortcutSettingsTests PRIVATE
+        Qt5::Core
+        Qt5::Gui
+    )
+
+    add_test(NAME QtShortcutSettingsTests COMMAND QtShortcutSettingsTests)
+    rdpbox_prepend_test_runtime_path(QtShortcutSettingsTests Qt5::Core Qt5::Gui)
 endif()

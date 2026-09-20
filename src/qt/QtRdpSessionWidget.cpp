@@ -1,5 +1,6 @@
 #include "qt/QtRdpSessionWidget.h"
 
+#include "qt/QtShortcutSettings.h"
 #include "rdp/FreeRdpProcessNative.h"
 #include "rdp/RdpCertificatePromptBehavior.h"
 #include "rdp/RdpCursorClassifier.h"
@@ -7,12 +8,12 @@
 #include "rdp/RdpInputModifiers.h"
 #include "rdp/RdpReconnectInteraction.h"
 #include "rdp/RdpSessionViewBehavior.h"
-#include "ui/MainWindowShortcuts.h"
 
 #include <QEvent>
 #include <QFocusEvent>
 #include <QImage>
 #include <QKeyEvent>
+#include <QKeySequence>
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QPainter>
@@ -315,6 +316,15 @@ bool QtRdpSessionWidget::event(QEvent *event)
 {
     if (event && event->type() == QEvent::UngrabMouse)
         releasePressedMouseButtons();
+
+    if (event && event->type() == QEvent::ShortcutOverride && isConnected()) {
+        auto *keyEvent = static_cast<QKeyEvent *>(event);
+        const QKeySequence pressed(keyEvent->modifiers() | keyEvent->key());
+        if (rdpbox::isReservedSessionShortcut(rdpbox::currentShortcuts(), pressed)) {
+            event->accept();
+            return true;
+        }
+    }
 
     return QWidget::event(event);
 }
@@ -841,13 +851,6 @@ void QtRdpSessionWidget::sendKeyEvent(QKeyEvent *event, bool down)
         return;
 
     const unsigned int virtualKey = static_cast<unsigned int>(event->nativeVirtualKey());
-    const bool controlDown = (physicalKeyboardModifiers() & ModifierControl) != 0;
-    const bool altDown = (physicalKeyboardModifiers() & ModifierAlt) != 0;
-    if (down && ui::isReservedMainWindowShortcut(controlDown, altDown, virtualKey)) {
-        m_reservedShortcutTracker.noteHandledKeyDown(virtualKey);
-        event->ignore();
-        return;
-    }
     if (!down && m_reservedShortcutTracker.consumeHandledKeyUp(virtualKey)) {
         event->accept();
         return;
