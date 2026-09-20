@@ -61,6 +61,7 @@ bool isReservedLowLevelShortcut(const KBDLLHOOKSTRUCT *info)
         return false;
 
     return ui::isReservedMainWindowShortcut(isVirtualKeyPhysicallyDown(VK_CONTROL),
+                                            isVirtualKeyPhysicallyDown(VK_SHIFT),
                                             isVirtualKeyPhysicallyDown(VK_MENU)
                                                 || (info->flags & LLKHF_ALTDOWN) != 0,
                                             static_cast<unsigned int>(info->vkCode));
@@ -187,8 +188,10 @@ KeyboardMessageDisposition handleWindowKeyMessage(CRdpSessionView &target,
 
     const bool down = (message == WM_KEYDOWN || message == WM_SYSKEYDOWN);
     const bool controlDown = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+    const bool shiftDown = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
     const bool altDown = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
     if (down && ui::isReservedMainWindowShortcut(controlDown,
+                                                 shiftDown,
                                                  altDown,
                                                  static_cast<unsigned int>(wParam))) {
         target.noteConsumedLocalShortcutKey(static_cast<unsigned int>(wParam));

@@ -6,8 +6,10 @@
 #include "session/SessionManager.h"
 #include "ui/ConnectionListDialog.h"
 #include "ui/MainWindowSessionBehavior.h"
+#include "ui/MainWindowShortcuts.h"
 #include "ui/MainWindowTabBehavior.h"
 #include "ui/ProfileEditDialog.h"
+#include "ui/ShortcutsDialog.h"
 #include "resources/resource.h"
 
 namespace
@@ -43,6 +45,8 @@ int MainWindow::OnCreate(LPCREATESTRUCT createStruct)
 {
     if (CFrameWnd::OnCreate(createStruct) == -1)
         return -1;
+
+    ui::setCurrentMainWindowShortcuts(loadMainWindowShortcutSettings());
 
     const std::wstring profilesPath = AppPaths::profilesFilePath();
     if (profilesPath.empty())

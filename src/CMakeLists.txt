@@ -242,6 +242,10 @@ set(RDPBOX_SOURCES
     session/SessionResumePolicy.h
     ui/AboutDialog.h
     ui/AboutDialog.cpp
+    ui/MainWindowShortcuts.h
+    ui/MainWindowShortcuts.cpp
+    ui/ShortcutsDialog.h
+    ui/ShortcutsDialog.cpp
     ui/BrowserTabBehavior.h
     ui/BrowserTabBehavior.cpp
     ui/ConnectionListBehavior.h
