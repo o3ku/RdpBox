@@ -9,7 +9,25 @@
 
 #include <uxtheme.h>
 
+#include <algorithm>
+
 IMPLEMENT_DYNAMIC(ConnectionListDialog, CDialogEx)
+
+namespace
+{
+enum
+{
+    kColumnName = 0,
+    kColumnHost,
+    kColumnUser,
+    kColumnPort,
+    kColumnStatus,
+    kColumnCount
+};
+constexpr UINT_PTR kStatusTimerId = 1;
+constexpr UINT kStatusTimerIntervalMs = 1000;
+const int kDefaultColumnWidths[kColumnCount] = {150, 180, 100, 60, 80};
+}
 
 BEGIN_MESSAGE_MAP(ConnectionListDialog, CDialogEx)
     ON_EN_CHANGE(IDC_CONNECTION_SEARCH, &ConnectionListDialog::OnSearchChanged)
@@ -24,15 +42,19 @@ BEGIN_MESSAGE_MAP(ConnectionListDialog, CDialogEx)
     ON_NOTIFY(LVN_ITEMCHANGED, IDC_CONNECTION_LIST, &ConnectionListDialog::OnItemChanged)
     ON_WM_MOUSEMOVE()
     ON_WM_LBUTTONUP()
+    ON_WM_TIMER()
+    ON_WM_DESTROY()
 END_MESSAGE_MAP()
 
 ConnectionListDialog::ConnectionListDialog(ProfileRepository *repo,
-                                             const std::vector<std::wstring> &connectedProfileNames,
+                                             const ConnectedNamesProvider &connectedNamesProvider,
                                              CWnd *parent)
     : CDialogEx(IDD_CONNECTION_DIALOG, parent)
     , m_repo(repo)
-    , m_connectedProfileNames(connectedProfileNames)
+    , m_connectedNamesProvider(connectedNamesProvider)
 {
+    if (m_connectedNamesProvider)
+        m_connectedProfileNames = m_connectedNamesProvider();
 }
 
 ConnectionListDialog::~ConnectionListDialog() = default;
@@ -44,6 +66,20 @@ BOOL ConnectionListDialog::PreTranslateMessage(MSG *msg)
             return TRUE;
         if (msg->wParam == VK_DOWN && moveCurrentSelectionBy(1))
             return TRUE;
+        if (msg->wParam == VK_ESCAPE && searchHasText()) {
+            clearSearchFilter();
+            return TRUE;
+        }
+        if (isListFocused()) {
+            if (msg->wParam == VK_DELETE) {
+                OnDeleteClicked();
+                return TRUE;
+            }
+            if (msg->wParam == VK_F2) {
+                OnEditClicked();
+                return TRUE;
+            }
+        }
     }
 
     return CDialogEx::PreTranslateMessage(msg);
@@ -92,10 +128,19 @@ BOOL ConnectionListDialog::OnInitDialog()
             | LVS_EX_HEADERINALLVIEWS
             | LVS_EX_INFOTIP);
         ::SetWindowTheme(list->GetSafeHwnd(), L"Explorer", nullptr);
-        list->InsertColumn(0, L"Name", LVCFMT_LEFT, 150);
-        list->InsertColumn(1, L"Host", LVCFMT_LEFT, 180);
-        list->InsertColumn(2, L"Port", LVCFMT_LEFT, 60);
-        list->InsertColumn(3, L"Status", LVCFMT_LEFT, 80);
+        list->InsertColumn(kColumnName, L"Name", LVCFMT_LEFT, kDefaultColumnWidths[kColumnName]);
+        list->InsertColumn(kColumnHost, L"Host", LVCFMT_LEFT, kDefaultColumnWidths[kColumnHost]);
+        list->InsertColumn(kColumnUser, L"User", LVCFMT_LEFT, kDefaultColumnWidths[kColumnUser]);
+        list->InsertColumn(kColumnPort, L"Port", LVCFMT_LEFT, kDefaultColumnWidths[kColumnPort]);
+        list->InsertColumn(kColumnStatus, L"Status", LVCFMT_LEFT, kDefaultColumnWidths[kColumnStatus]);
+        if (CWinApp *app = AfxGetApp()) {
+            for (int col = 0; col < kColumnCount; ++col) {
+                CString key;
+                key.Format(L"Col%d", col);
+                list->SetColumnWidth(col,
+                    app->GetProfileInt(L"Connections", key, kDefaultColumnWidths[col]));
+            }
+        }
     }
 
     if (CEdit *search = static_cast<CEdit *>(GetDlgItem(IDC_CONNECTION_SEARCH)))
@@ -103,6 +148,9 @@ BOOL ConnectionListDialog::OnInitDialog()
 
     if (m_repo)
         refreshList(m_repo->profiles());
+
+    if (m_connectedNamesProvider)
+        SetTimer(kStatusTimerId, kStatusTimerIntervalMs, nullptr);
 
     updateButtonStates();
     return TRUE;
@@ -129,9 +177,11 @@ void ConnectionListDialog::OnClose()
 
 void ConnectionListDialog::OnSearchChanged()
 {
+    const std::vector<std::wstring> selectedNames = visibleSelectedNames();
     UpdateData(TRUE);
     if (m_repo)
         refreshList(m_repo->search(m_searchText.GetString()));
+    selectProfilesByName(selectedNames);
 }
 
 void ConnectionListDialog::OnItemDoubleClicked(NMHDR *notify, LRESULT *result)
@@ -154,6 +204,7 @@ void ConnectionListDialog::OnNewClicked()
             return;
         }
         refreshList(m_repo->search(m_searchText.GetString()));
+        selectProfilesByName({dialog.profile().name});
     }
 }
 
@@ -174,6 +225,7 @@ void ConnectionListDialog::OnEditClicked()
             return;
         }
         refreshList(m_repo->search(m_searchText.GetString()));
+        selectProfilesByName({dialog.profile().name});
     }
 }
 
@@ -205,6 +257,9 @@ void ConnectionListDialog::OnDeleteClicked()
         m_repo->removeProfile(name);
 
     refreshList(m_repo->search(m_searchText.GetString()));
+    CListCtrl *list = static_cast<CListCtrl *>(GetDlgItem(IDC_CONNECTION_LIST));
+    if (list && list->GetItemCount() > 0)
+        selectSingleRow(std::min(indices.front(), list->GetItemCount() - 1));
 }
 
 void ConnectionListDialog::OnConnectClicked()
@@ -219,8 +274,12 @@ void ConnectionListDialog::OnConnectClicked()
     m_selectedProfileNames =
         connectableProfileNamesForSelection(m_currentProfiles, indices, m_connectedProfileNames);
 
-    if (m_selectedProfileNames.empty())
+    if (m_selectedProfileNames.empty()) {
+        if (!indices.empty())
+            MessageBox(L"Selected connections are already connected.",
+                       L"Connect", MB_OK | MB_ICONINFORMATION);
         return;
+    }
 
     CDialogEx::OnOK();
 }
@@ -235,19 +294,23 @@ void ConnectionListDialog::OnDuplicateClicked()
     std::vector<std::wstring> takenNames;
     for (const Profile &profile : m_repo->profiles())
         takenNames.push_back(profile.name);
+    std::vector<std::wstring> createdNames;
     for (int idx : indices) {
         if (idx < 0 || idx >= static_cast<int>(m_currentProfiles.size()))
             continue;
 
         Profile dup = duplicateProfileDraft(m_currentProfiles[idx], takenNames);
 
-        if (m_repo->addProfile(dup))
+        if (m_repo->addProfile(dup)) {
             takenNames.push_back(dup.name);
-        else
+            createdNames.push_back(dup.name);
+        } else {
             showNameConflictMessage(dup.name.c_str());
+        }
     }
 
     refreshList(m_repo->search(m_searchText.GetString()));
+    selectProfilesByName(createdNames);
 }
 
 void ConnectionListDialog::OnItemChanged(NMHDR *notify, LRESULT *result)
@@ -289,13 +352,16 @@ void ConnectionListDialog::refreshList(const std::vector<Profile> &profiles)
         const auto &p = profiles[idx];
         const CString name(p.name.c_str());
         const CString host(p.host.c_str());
+        const CString user(p.username.c_str());
         CString portStr;
         portStr.Format(L"%d", p.port);
 
         list->InsertItem(idx, name);
-        list->SetItemText(idx, 1, host);
-        list->SetItemText(idx, 2, portStr);
-        list->SetItemText(idx, 3, connectionListStatusText(p.name, m_connectedProfileNames).c_str());
+        list->SetItemText(idx, kColumnHost, host);
+        list->SetItemText(idx, kColumnUser, user);
+        list->SetItemText(idx, kColumnPort, portStr);
+        list->SetItemText(idx, kColumnStatus,
+            connectionListStatusText(p.name, m_connectedProfileNames).c_str());
         list->SetItemData(idx, static_cast<DWORD_PTR>(idx));
     }
 
@@ -478,7 +544,7 @@ void ConnectionListDialog::endListDrag(bool commit)
         const std::size_t targetIndex = repositoryTargetIndexForVisibleInsertIndex(m_dragInsertIndex);
         if (m_repo->moveProfile(movedName, targetIndex)) {
             refreshList(m_repo->search(m_searchText.GetString()));
-            selectProfileByName(movedName);
+            selectProfilesByName({movedName});
         }
     }
 
@@ -569,27 +635,119 @@ std::size_t ConnectionListDialog::repositoryTargetIndexForVisibleInsertIndex(int
     return ::repositoryTargetIndexForVisibleInsertIndex(m_repo->profiles(), m_currentProfiles, insertIndex);
 }
 
-void ConnectionListDialog::selectProfileByName(const std::wstring &name)
+void ConnectionListDialog::OnTimer(UINT_PTR eventId)
+{
+    if (eventId == kStatusTimerId && m_connectedNamesProvider) {
+        std::vector<std::wstring> connected = m_connectedNamesProvider();
+        if (connected != m_connectedProfileNames) {
+            m_connectedProfileNames = std::move(connected);
+            refreshStatusTexts();
+        }
+        return;
+    }
+
+    CDialogEx::OnTimer(eventId);
+}
+
+void ConnectionListDialog::OnDestroy()
+{
+    KillTimer(kStatusTimerId);
+    if (CWinApp *app = AfxGetApp()) {
+        if (CListCtrl *list = static_cast<CListCtrl *>(GetDlgItem(IDC_CONNECTION_LIST))) {
+            for (int col = 0; col < kColumnCount; ++col) {
+                CString key;
+                key.Format(L"Col%d", col);
+                app->WriteProfileInt(L"Connections", key, list->GetColumnWidth(col));
+            }
+        }
+    }
+    CDialogEx::OnDestroy();
+}
+
+void ConnectionListDialog::refreshStatusTexts()
 {
     CListCtrl *list = static_cast<CListCtrl *>(GetDlgItem(IDC_CONNECTION_LIST));
     if (!list)
         return;
 
-    for (int i = 0; i < list->GetItemCount(); ++i) {
-        list->SetItemState(i, 0, LVIS_SELECTED | LVIS_FOCUSED);
+    const int count = std::min(list->GetItemCount(),
+                               static_cast<int>(m_currentProfiles.size()));
+    for (int i = 0; i < count; ++i) {
+        list->SetItemText(i, kColumnStatus,
+            connectionListStatusText(m_currentProfiles[static_cast<std::size_t>(i)].name,
+                                     m_connectedProfileNames).c_str());
     }
+    updateButtonStates();
+}
 
-    for (int i = 0; i < static_cast<int>(m_currentProfiles.size()); ++i) {
-        if (m_currentProfiles[static_cast<std::size_t>(i)].name != name)
-            continue;
-
-        list->SetItemState(i,
-                           LVIS_SELECTED | LVIS_FOCUSED,
-                           LVIS_SELECTED | LVIS_FOCUSED);
-        list->SetSelectionMark(i);
-        list->EnsureVisible(i, FALSE);
+void ConnectionListDialog::selectProfilesByName(const std::vector<std::wstring> &names)
+{
+    CListCtrl *list = static_cast<CListCtrl *>(GetDlgItem(IDC_CONNECTION_LIST));
+    if (!list)
         return;
+
+    const std::vector<int> rows = retainedSelectionRowsForProfiles(m_currentProfiles, names);
+    if (rows.empty())
+        return;
+
+    for (int i = 0; i < list->GetItemCount(); ++i)
+        list->SetItemState(i, 0, LVIS_SELECTED | LVIS_FOCUSED);
+
+    for (int row : rows)
+        list->SetItemState(row, LVIS_SELECTED, LVIS_SELECTED);
+    list->SetItemState(rows.back(), LVIS_FOCUSED, LVIS_FOCUSED);
+    list->SetSelectionMark(rows.back());
+    list->EnsureVisible(rows.back(), FALSE);
+    updateButtonStates();
+}
+
+void ConnectionListDialog::selectSingleRow(int row)
+{
+    CListCtrl *list = static_cast<CListCtrl *>(GetDlgItem(IDC_CONNECTION_LIST));
+    if (!list || row < 0 || row >= list->GetItemCount())
+        return;
+
+    for (int i = 0; i < list->GetItemCount(); ++i)
+        list->SetItemState(i, 0, LVIS_SELECTED | LVIS_FOCUSED);
+
+    list->SetItemState(row,
+                       LVIS_SELECTED | LVIS_FOCUSED,
+                       LVIS_SELECTED | LVIS_FOCUSED);
+    list->SetSelectionMark(row);
+    list->EnsureVisible(row, FALSE);
+    updateButtonStates();
+}
+
+void ConnectionListDialog::clearSearchFilter()
+{
+    if (CEdit *search = static_cast<CEdit *>(GetDlgItem(IDC_CONNECTION_SEARCH)))
+        search->SetWindowText(L""); // EN_CHANGE re-filters and restores selection
+}
+
+bool ConnectionListDialog::searchHasText() const
+{
+    CEdit *search = static_cast<CEdit *>(GetDlgItem(IDC_CONNECTION_SEARCH));
+    CString text;
+    if (search)
+        search->GetWindowText(text);
+    return !text.IsEmpty();
+}
+
+bool ConnectionListDialog::isListFocused() const
+{
+    CWnd *list = GetDlgItem(IDC_CONNECTION_LIST);
+    CWnd *focus = CWnd::GetFocus();
+    return list && list->GetSafeHwnd() && focus && focus->GetSafeHwnd() == list->GetSafeHwnd();
+}
+
+std::vector<std::wstring> ConnectionListDialog::visibleSelectedNames() const
+{
+    std::vector<std::wstring> names;
+    for (int idx : selectedIndices()) {
+        if (idx >= 0 && idx < static_cast<int>(m_currentProfiles.size()))
+            names.push_back(m_currentProfiles[static_cast<std::size_t>(idx)].name);
     }
+    return names;
 }
 
 void ConnectionListDialog::drawDragInsertMarker(CDC &dc, CListCtrl &list) const
