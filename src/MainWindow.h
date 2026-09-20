@@ -49,6 +49,7 @@ protected:
     afx_msg void OnOpenConnections();
     afx_msg void OnMainNew();
     afx_msg void OnMainAbout();
+    afx_msg void OnMainShortcuts();
     afx_msg void OnContextMenu(CWnd *window, CPoint point);
     afx_msg BOOL OnEraseBkgnd(CDC *dc);
     afx_msg BOOL OnNcActivate(BOOL active);

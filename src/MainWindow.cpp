@@ -7,6 +7,7 @@
 #include "ui/AboutDialog.h"
 #include "ui/MainWindowActivation.h"
 #include "ui/MainWindowShortcuts.h"
+#include "ui/ShortcutsDialog.h"
 #include "ui/Win10Theme.h"
 #include "resources/resource.h"
 
@@ -31,6 +32,7 @@ BEGIN_MESSAGE_MAP(MainWindow, CFrameWnd)
     ON_WM_CONTEXTMENU()
     ON_COMMAND(ID_MAIN_NEW, &MainWindow::OnMainNew)
     ON_COMMAND(ID_MAIN_CONNECTIONS, &MainWindow::OnOpenConnections)
+    ON_COMMAND(ID_MAIN_SHORTCUTS, &MainWindow::OnMainShortcuts)
     ON_COMMAND(ID_MAIN_ABOUT, &MainWindow::OnMainAbout)
     ON_MESSAGE(WM_NCCALCSIZE, &MainWindow::OnNcCalcSize)
     ON_MESSAGE(WM_NCLBUTTONDOWN, &MainWindow::OnNcLButtonDown)
@@ -119,16 +121,23 @@ void MainWindow::OnMainAbout()
     dialog.DoModal();
 }
 
+void MainWindow::OnMainShortcuts()
+{
+    ShortcutsDialog dialog(ui::currentMainWindowShortcuts(), this);
+    if (dialog.DoModal() != IDOK)
+        return;
+
+    const ui::MainWindowShortcutSettings settings = dialog.settings();
+    ui::setCurrentMainWindowShortcuts(settings);
+    saveMainWindowShortcutSettings(settings);
+}
+
 BOOL MainWindow::PreTranslateMessage(MSG *msg)
 {
     if (msg && m_captionTooltip.GetSafeHwnd())
         m_captionTooltip.RelayEvent(msg);
 
     if (msg && (msg->message == WM_KEYDOWN || msg->message == WM_SYSKEYDOWN)) {
-        if (msg->wParam == VK_F11) {
-            toggleFullScreen();
-            return TRUE;
-        }
         if (msg->wParam == VK_ESCAPE && m_isFullScreen) {
             setFullScreen(false);
             return TRUE;
@@ -136,6 +145,7 @@ BOOL MainWindow::PreTranslateMessage(MSG *msg)
         const auto shortcutAction = ui::shortcutActionForKey(
             msg->message,
             (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0,
+            (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0,
             (GetAsyncKeyState(VK_MENU) & 0x8000) != 0,
             static_cast<unsigned int>(msg->wParam));
         switch (shortcutAction) {
@@ -148,6 +158,9 @@ BOOL MainWindow::PreTranslateMessage(MSG *msg)
                 if (auto *sessionView = DYNAMIC_DOWNCAST(CRdpSessionView, GetFocus()))
                     sessionView->noteConsumedLocalShortcutKey(static_cast<unsigned int>(msg->wParam));
                 openConnectionDialog();
+                return TRUE;
+        case ui::MainWindowShortcutAction::ToggleFullScreen:
+                toggleFullScreen();
                 return TRUE;
         case ui::MainWindowShortcutAction::None:
         default:

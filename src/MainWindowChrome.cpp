@@ -3,6 +3,7 @@
 #include "profiles/ProfileRepository.h"
 #include "session/SessionManager.h"
 #include "ui/MainWindowLayoutBehavior.h"
+#include "ui/MainWindowShortcuts.h"
 #include "ui/Win10Theme.h"
 #include "ui/WindowStateScaling.h"
 #include "ui/WindowFrameMetrics.h"
@@ -585,8 +586,12 @@ void MainWindow::showLogoMenu()
 
     CMenu menu;
     menu.CreatePopupMenu();
-    menu.AppendMenu(MF_STRING, ID_MAIN_NEW, L"New\tCtrl+N");
-    menu.AppendMenu(MF_STRING, ID_MAIN_CONNECTIONS, L"Connections\tCtrl+P");
+    menu.AppendMenu(MF_STRING, ID_MAIN_NEW,
+                    (L"New\t" + ui::shortcutChordText(ui::currentMainWindowShortcuts().newConnection)).c_str());
+    menu.AppendMenu(MF_STRING, ID_MAIN_CONNECTIONS,
+                    (L"Connections\t" + ui::shortcutChordText(ui::currentMainWindowShortcuts().openConnections)).c_str());
+    menu.AppendMenu(MF_SEPARATOR);
+    menu.AppendMenu(MF_STRING, ID_MAIN_SHORTCUTS, L"Shortcuts...");
     menu.AppendMenu(MF_SEPARATOR);
     menu.AppendMenu(MF_STRING, ID_MAIN_ABOUT, L"About");
     menu.TrackPopupMenu(TPM_LEFTALIGN | TPM_TOPALIGN, rect.left, rect.bottom, this);
