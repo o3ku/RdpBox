@@ -44,7 +44,11 @@ std::vector<int> retainedSelectionRowsForProfiles(
     const std::vector<Profile> &visibleProfiles,
     const std::vector<std::wstring> &preferredProfileNames);
 
-Profile duplicateProfileDraft(const Profile &profile);
+std::wstring duplicateProfileName(const std::wstring &profileName,
+                                 const std::vector<std::wstring> &existingNames = {});
+
+Profile duplicateProfileDraft(const Profile &profile,
+                              const std::vector<std::wstring> &existingNames = {});
 
 std::size_t repositoryTargetIndexForVisibleInsertIndex(
     const std::vector<Profile> &repositoryProfiles,

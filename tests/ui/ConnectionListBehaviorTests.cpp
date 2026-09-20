@@ -105,9 +105,17 @@ int main()
 
     {
         Profile named = profile(L"alpha");
-        assert(duplicateProfileDraft(named).name == L"alpha(n)");
+        assert(duplicateProfileDraft(named).name == L"alpha1");
+        assert(duplicateProfileDraft(profile(L"alpha7")).name == L"alpha8");
+        assert(duplicateProfileDraft(profile(L"alpha 3")).name == L"alpha 4");
+        assert(duplicateProfileDraft(profile(L"123")).name == L"124");
+        assert(duplicateProfileDraft(profile(L"alpha9999999999")).name == L"alpha99999999991");
         named.name.clear();
-        assert(duplicateProfileDraft(named).name == L"(unnamed)");
+        assert(duplicateProfileDraft(named).name == L"unnamed1");
+
+        assert(duplicateProfileName(L"alpha", {L"alpha1", L"alpha2"}) == L"alpha3");
+        assert(duplicateProfileName(L"alpha1", {L"alpha2"}) == L"alpha3");
+        assert(duplicateProfileName(L"dev7", {L"dev8"}) == L"dev9");
     }
 
     {

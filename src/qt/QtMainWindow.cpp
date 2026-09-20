@@ -1069,12 +1069,16 @@ void QtMainWindow::duplicateSelectedProfile()
         return;
 
     std::vector<std::wstring> duplicateNames;
+    std::vector<std::wstring> takenNames;
+    for (const Profile &profile : m_repository.profiles())
+        takenNames.push_back(profile.name);
     const std::vector<Profile> visibleProfiles = currentVisibleProfiles();
     for (int row : selectedRows) {
         if (row < 0 || row >= static_cast<int>(visibleProfiles.size()))
             continue;
 
-        const Profile duplicate = duplicateProfileDraft(visibleProfiles[static_cast<std::size_t>(row)]);
+        const Profile duplicate = duplicateProfileDraft(visibleProfiles[static_cast<std::size_t>(row)],
+                                                        takenNames);
         if (!m_repository.addProfile(duplicate)) {
             QMessageBox::warning(
                 this,
@@ -1083,6 +1087,7 @@ void QtMainWindow::duplicateSelectedProfile()
             continue;
         }
         duplicateNames.push_back(duplicate.name);
+        takenNames.push_back(duplicate.name);
     }
 
     refreshProfileList();
