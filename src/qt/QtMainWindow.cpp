@@ -5,12 +5,13 @@
 #include "common/Win32String.h"
 #include "qt/QtProfileDialog.h"
 #include "qt/QtRdpSessionWidget.h"
+#include "qt/QtShortcutSettings.h"
+#include "qt/QtShortcutsDialog.h"
 #include "qt/QtWindowChromeBehavior.h"
 #include "session/SessionResumePolicy.h"
 #include "ui/ConnectionListBehavior.h"
 #include "ui/MainWindowActivation.h"
 #include "ui/MainWindowSessionBehavior.h"
-#include "ui/MainWindowShortcuts.h"
 #include "ui/MainWindowTabBehavior.h"
 #include "ui/MainWindowUpdateBehavior.h"
 #include "ui/WindowStateScaling.h"
@@ -42,6 +43,7 @@
 #include <QPushButton>
 #include <QPixmap>
 #include <QShortcut>
+#include <QSettings>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QStyle>
@@ -789,35 +791,54 @@ void QtMainWindow::configureWindowChrome()
 
 void QtMainWindow::installShortcuts()
 {
-    auto bindShortcut = [this](const QKeySequence &sequence, auto handler) {
-        auto *shortcut = new QShortcut(sequence, this);
+    {
+        QSettings store;
+        rdpbox::setCurrentShortcuts(rdpbox::loadShortcutSettings(store));
+    }
+
+    const auto bindShortcut = [this](QShortcut *&slot, auto handler) {
+        auto *shortcut = new QShortcut(this);
         shortcut->setContext(Qt::ApplicationShortcut);
         connect(shortcut, &QShortcut::activated, this, handler);
+        slot = shortcut;
     };
 
-    bindShortcut(QKeySequence(Qt::Key_F11), [this]() {
+    bindShortcut(m_newConnectionShortcut, [this]() {
+        addProfile(true);
+    });
+    bindShortcut(m_openConnectionsShortcut, [this]() {
+        focusConnections();
+    });
+    bindShortcut(m_fullScreenShortcut, [this]() {
         toggleFullScreen();
     });
-    bindShortcut(QKeySequence(Qt::Key_Escape), [this]() {
+    bindShortcut(m_exitFullScreenShortcut, [this]() {
         if (m_isFullScreen)
             setFullScreen(false);
     });
 
-    if (ui::shortcutActionForKey(WM_KEYDOWN, true, false, 'N') == ui::MainWindowShortcutAction::NewConnection) {
-        bindShortcut(QKeySequence(Qt::CTRL | Qt::Key_N), [this]() {
-            if (QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(m_tabs ? m_tabs->currentIndex() : -1))
-                sessionWidget->noteConsumedLocalShortcutKey('N');
-            addProfile(true);
-        });
-    }
+    applyShortcutSettings();
+}
 
-    if (ui::shortcutActionForKey(WM_KEYDOWN, true, false, 'P') == ui::MainWindowShortcutAction::OpenConnections) {
-        bindShortcut(QKeySequence(Qt::CTRL | Qt::Key_P), [this]() {
-            if (QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(m_tabs ? m_tabs->currentIndex() : -1))
-                sessionWidget->noteConsumedLocalShortcutKey('P');
-            focusConnections();
-        });
-    }
+void QtMainWindow::applyShortcutSettings()
+{
+    const rdpbox::ShortcutSettings &settings = rdpbox::currentShortcuts();
+    m_newConnectionShortcut->setKey(settings.newConnection);
+    m_openConnectionsShortcut->setKey(settings.openConnections);
+    m_fullScreenShortcut->setKey(settings.toggleFullScreen);
+    m_exitFullScreenShortcut->setKey(settings.exitFullScreen);
+}
+
+void QtMainWindow::showShortcutsDialog()
+{
+    QtShortcutsDialog dialog(rdpbox::currentShortcuts(), this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    rdpbox::setCurrentShortcuts(dialog.shortcutSettings());
+    applyShortcutSettings();
+    QSettings store;
+    rdpbox::saveShortcutSettings(rdpbox::currentShortcuts(), store);
 }
 
 void QtMainWindow::refreshProfileList()
@@ -1249,11 +1270,13 @@ void QtMainWindow::showLogoMenu()
         return;
 
     QMenu menu(this);
+    const rdpbox::ShortcutSettings &shortcuts = rdpbox::currentShortcuts();
     QAction *newAction = menu.addAction(tr("New"));
-    newAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_N));
+    newAction->setShortcut(shortcuts.newConnection);
     QAction *connectionsAction = menu.addAction(tr("Connections"));
-    connectionsAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_P));
+    connectionsAction->setShortcut(shortcuts.openConnections);
     menu.addSeparator();
+    QAction *shortcutsAction = menu.addAction(tr("Shortcuts..."));
     QAction *checkUpdatesAction = menu.addAction(tr("Check for Updates"));
     checkUpdatesAction->setEnabled(!m_updateCheckInFlight && !m_updateDownloadInFlight);
     menu.addSeparator();
@@ -1268,6 +1291,8 @@ void QtMainWindow::showLogoMenu()
         addProfile(true);
     } else if (selected == connectionsAction) {
         focusConnections();
+    } else if (selected == shortcutsAction) {
+        showShortcutsDialog();
     } else if (selected == checkUpdatesAction) {
         startBackgroundUpdateCheck(true);
     } else if (selected == aboutAction) {

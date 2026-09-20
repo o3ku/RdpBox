@@ -74,6 +74,10 @@ set(RDPBOX_QT_SOURCES
     qt/QtWindowChromeBehavior.cpp
     qt/QtProfileDialog.h
     qt/QtProfileDialog.cpp
+    qt/QtShortcutSettings.h
+    qt/QtShortcutSettings.cpp
+    qt/QtShortcutsDialog.h
+    qt/QtShortcutsDialog.cpp
     resources/qt_resources.qrc
     common/AppPaths.h
     common/AppPaths.cpp
