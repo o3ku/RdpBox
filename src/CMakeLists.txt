@@ -52,6 +52,10 @@ set(RDPBOX_GITHUB_URL_VALUE "https://github.com/o3ku/RdpBox")
 
 set(RDPBOX_QT_SOURCES
     qtui/FramelessWin.h
+    common/rdp/RdpSessionKeyboardHook.h
+    common/rdp/RdpSessionKeyboardHook.cpp
+    common/ui/MainWindowShortcuts.h
+    common/ui/MainWindowShortcuts.cpp
     qtui/QtMain.cpp
     qtui/QtMainWindow.h
     qtui/QtMainWindow.cpp
@@ -63,8 +67,6 @@ set(RDPBOX_QT_SOURCES
     qtui/QtProfileDialog.cpp
     qtui/QtShortcutSettings.h
     qtui/QtShortcutSettings.cpp
-    qtui/QtShortcutsDialog.h
-    qtui/QtShortcutsDialog.cpp
     resources/qt_resources.qrc
     common/AppPaths.h
     common/AppPaths.cpp
@@ -227,8 +229,8 @@ set(RDPBOX_SOURCES
     common/session/SessionResumePolicy.h
     mfcui/AboutDialog.h
     mfcui/AboutDialog.cpp
-    mfcui/MainWindowShortcuts.h
-    mfcui/MainWindowShortcuts.cpp
+    common/ui/MainWindowShortcuts.h
+    common/ui/MainWindowShortcuts.cpp
     mfcui/ShortcutsDialog.h
     mfcui/ShortcutsDialog.cpp
     mfcui/BrowserTabBehavior.h
@@ -301,6 +303,7 @@ if(RDPBOX_BUILD_QT)
 
     target_link_libraries(RdpBox PRIVATE
         Qt5::Widgets
+        Qt5::Svg
         freerdp
         freerdp-client
         winpr

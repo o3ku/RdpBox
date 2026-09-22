@@ -3,6 +3,8 @@
 #include "common/profiles/Profile.h"
 #include "common/profiles/ProfileRepository.h"
 #include "common/UpdateClient.h"
+#include <map>
+
 #include "common/rdp/FreeRdpProcess.h"
 #include "common/ui/MainWindowUpdateBehavior.h"
 
@@ -20,8 +22,10 @@ class QPoint;
 class QPushButton;
 class QShortcut;
 class QToolButton;
+class QTabBar;
 class QTabWidget;
 class QTimer;
+class QSplitter;
 class QVBoxLayout;
 class QWidget;
 class QtRdpSessionWidget;
@@ -43,12 +47,10 @@ private:
     void buildTitleBar(QVBoxLayout *rootLayout);
     void installShortcuts();
     void applyShortcutSettings();
-    void showShortcutsDialog();
     void refreshProfileList();
     void refreshActions();
     void refreshUpdateButton();
     void refreshWindowControls();
-    void configureHomeTab();
     void saveWindowState() const;
     bool restoreWindowState();
     int nativeHitTestForPoint(const QPoint &windowPoint) const;
@@ -62,8 +64,9 @@ private:
     void touchLastConnectedAt(const Profile &profile);
     void toggleFullScreen();
     void setFullScreen(bool enabled);
-    void focusConnections();
-    void showAboutDialog();
+    void updateTabBarOffset();
+    void showSettingsDialog();
+    void rethemeCaptionIcons();
     void handleUpdateButtonClicked();
     ui::UpdateUiState updateUiState() const;
     void startBackgroundUpdateCheck(bool userInitiated = false);
@@ -98,22 +101,26 @@ private:
     void selectProfileByName(const std::wstring &profileName);
     void addSessionTab(const Profile &profile);
     void updateSessionTabState(const std::wstring &profileName, FreeRdpProcess::State state);
+    FreeRdpProcess::State sessionStateForProfile(const QString &profileName) const;
     int sessionTabIndexForProfileName(const std::wstring &profileName) const;
     QtRdpSessionWidget *sessionWidgetForTab(int index) const;
-    QWidget *createHomePage() const;
     QWidget *createSessionPage(const Profile &profile);
     std::vector<QRect> captionExclusionRects() const;
 
     ProfileRepository m_repository;
     std::vector<std::wstring> m_startupConnectionNames;
     QWidget *m_titleBar = nullptr;
+    QWidget *m_connectionsHeader = nullptr;
+    int m_collapsedSidebarWidth = 220;
+    QSplitter *m_splitter = nullptr;
+    QToolButton *m_addButton = nullptr;
     QToolButton *m_logoButton = nullptr;
-    QLabel *m_titleLabel = nullptr;
+    QTabBar *m_tabBar = nullptr;
     QToolButton *m_updateButton = nullptr;
     QToolButton *m_minimizeButton = nullptr;
     QToolButton *m_maximizeButton = nullptr;
     QToolButton *m_closeButton = nullptr;
-    QToolButton *m_versionButton = nullptr;
+    QToolButton *m_infoButton = nullptr;
     QLineEdit *m_searchEdit = nullptr;
     QListWidget *m_profileList = nullptr;
     QWidget *m_sidebar = nullptr;
@@ -122,7 +129,7 @@ private:
     QShortcut *m_openConnectionsShortcut = nullptr;
     QShortcut *m_fullScreenShortcut = nullptr;
     QShortcut *m_exitFullScreenShortcut = nullptr;
-    QLabel *m_statusLabel = nullptr;
+    std::map<std::wstring, FreeRdpProcess::State> m_sessionStates;
     QTimer *m_updateCheckTimer = nullptr;
     QTimer *m_tabStatusTimer = nullptr;
     updater::ReleaseAsset m_updateRelease;
@@ -133,7 +140,6 @@ private:
     std::uint64_t m_updateCheckGeneration = 0;
     std::uint64_t m_updateDownloadGeneration = 0;
     bool m_restoringWindowState = false;
-    bool m_adjustingTabMove = false;
     bool m_isFullScreen = false;
     bool m_wasMaximizedBeforeFullScreen = false;
 };

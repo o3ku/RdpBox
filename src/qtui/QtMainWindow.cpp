@@ -1,12 +1,13 @@
 #include "qtui/QtMainWindow.h"
 
+void applyApplicationTheme(QApplication &application); // QtMain.cpp (global)
+
 #include "common/AppPaths.h"
 #include "common/ConnectionLaunchArgs.h"
 #include "common/Win32String.h"
 #include "qtui/QtProfileDialog.h"
 #include "qtui/QtRdpSessionWidget.h"
 #include "qtui/QtShortcutSettings.h"
-#include "qtui/QtShortcutsDialog.h"
 #include "qtui/QtWindowChromeBehavior.h"
 #include "common/session/SessionResumePolicy.h"
 #include "common/ui/ConnectionListBehavior.h"
@@ -49,6 +50,13 @@
 #include <QStatusBar>
 #include <QStyle>
 #include <QTabBar>
+#include <cmath>
+
+#include <QSvgRenderer>
+
+#include <QComboBox>
+#include <QFormLayout>
+#include <QKeySequenceEdit>
 #include <QTabWidget>
 #include <QTimer>
 #include <QToolButton>
@@ -85,10 +93,69 @@ enum class CaptionGlyph
     Close,
     Logo,
     Plus,
+    Info,
+    Settings,
 };
+
+// Lucide (MIT) 24-grid stroke paths, same set family as AtomDataAssistant.
+QString lucidePaths(CaptionGlyph glyph)
+{
+    switch (glyph) {
+    case CaptionGlyph::Minimize:
+        return QStringLiteral("<path d=\"M5 12h14\"/>");
+    case CaptionGlyph::Maximize:
+        return QStringLiteral("<rect width=\"14\" height=\"14\" x=\"5\" y=\"5\" rx=\"2\"/>");
+    case CaptionGlyph::Restore:
+        return QStringLiteral(
+            "<rect width=\"13\" height=\"13\" x=\"9\" y=\"9\" rx=\"2\"/>"
+            "<path d=\"M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1\"/>");
+    case CaptionGlyph::Close:
+        return QStringLiteral("<path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/>");
+    case CaptionGlyph::Plus:
+        return QStringLiteral("<path d=\"M5 12h14\"/><path d=\"M12 5v14\"/>");
+    case CaptionGlyph::Info:
+        return QStringLiteral(
+            "<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 16v-4\"/><path d=\"M12 8h.01\"/>");
+    case CaptionGlyph::Settings:
+        return QStringLiteral(
+            "<path d=\"M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0"
+            "l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51"
+            "a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0"
+            "l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25"
+            "a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74"
+            "v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08"
+            "a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z\"/>"
+            "<circle cx=\"12\" cy=\"12\" r=\"3\"/>");
+    case CaptionGlyph::Logo:
+        break;
+    }
+    return QString();
+}
 
 QIcon captionIcon(CaptionGlyph glyph, const QColor &stroke, int logical = 16)
 {
+    // Lucide glyphs render via QSvgRenderer; the bear Logo stays hand-drawn
+    // below (brand mark, not an open-source icon).
+    if (glyph != CaptionGlyph::Logo) {
+        const QString svg = QStringLiteral(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" "
+            "stroke=\"%1\" stroke-width=\"2.25\" stroke-linecap=\"round\" "
+            "stroke-linejoin=\"round\">%2</svg>")
+            .arg(stroke.name(), lucidePaths(glyph));
+        QSvgRenderer renderer(svg.toUtf8());
+        QPixmap pixmap(logical * 2, logical * 2);
+        pixmap.setDevicePixelRatio(2.0);
+        pixmap.fill(Qt::transparent);
+        QPainter painter(&pixmap);
+        painter.setRenderHint(QPainter::Antialiasing);
+        // Explicit logical bounds: the bounds-less overload renders into the
+        // physical viewport, stacking the DPR transform (AtomDataAssistant
+        // Theme.h lesson) - 2x-oversized glyph clipped to a corner fragment.
+        renderer.render(&painter, QRectF(0, 0, logical, logical));
+        painter.end();
+        return QIcon(pixmap);
+    }
+
     const qreal k = logical / 24.0;
     const auto P = [k](qreal x, qreal y) { return QPointF(x * k, y * k); };
 
@@ -103,30 +170,6 @@ QIcon captionIcon(CaptionGlyph glyph, const QColor &stroke, int logical = 16)
     pen.setJoinStyle(Qt::RoundJoin);
     painter.setPen(pen);
     switch (glyph) {
-    case CaptionGlyph::Minimize:
-        painter.drawLine(P(5, 12), P(19, 12));
-        break;
-    case CaptionGlyph::Maximize:
-        painter.drawRoundedRect(QRectF(P(5, 5), P(19, 19)).normalized(), k, k);
-        break;
-    case CaptionGlyph::Restore: {
-        painter.drawRoundedRect(QRectF(P(8, 3), P(22, 17)).normalized(), k, k);
-        QPainterPath back;
-        back.moveTo(P(16, 21));
-        back.lineTo(P(5, 21));
-        back.lineTo(P(3, 19));
-        back.lineTo(P(3, 8));
-        painter.drawPath(back);
-        break;
-    }
-    case CaptionGlyph::Close:
-        painter.drawLine(P(18, 6), P(6, 18));
-        painter.drawLine(P(6, 6), P(18, 18));
-        break;
-    case CaptionGlyph::Plus:
-        painter.drawLine(P(12, 5), P(12, 19));
-        painter.drawLine(P(5, 12), P(19, 12));
-        break;
     case CaptionGlyph::Logo: {
         // Bear mark (the app logo), geometry sampled from logo.png: ears
         // drawn behind the head, eyes and muzzle punched through the head
@@ -152,7 +195,74 @@ QIcon captionIcon(CaptionGlyph glyph, const QColor &stroke, int logical = 16)
     return QIcon(pixmap);
 }
 
-const QColor kCaptionInk = QColor(0x1f, 0x23, 0x28);
+// Title-bar icon ink follows the active theme palette (dark theme needs a
+// light ink on the dark title bar).
+QColor captionInk()
+{
+    return QApplication::palette().color(QPalette::WindowText);
+}
+
+// Frameless settings-style dialog: themed caption row (reuses the global
+// #titleBar QSS tokens + Lucide close glyph) on the FramelessWin plumbing.
+class FramelessDialogShell : public QDialog
+{
+public:
+    FramelessDialogShell(QWidget* parent, const QString& title)
+        : QDialog(parent)
+    {
+        frameless::apply(this);
+        setWindowTitle(title);
+        m_titleBar = new QWidget(this);
+        m_titleBar->setObjectName(QStringLiteral("titleBar"));
+        m_titleBar->setFixedHeight(42);
+        auto* row = new QHBoxLayout(m_titleBar);
+        row->setContentsMargins(16, 0, 0, 0);
+        row->setSpacing(0);
+        auto* label = new QLabel(title, m_titleBar);
+        m_closeButton = new QToolButton(m_titleBar);
+        m_closeButton->setObjectName(QStringLiteral("closeCaptionButton"));
+        m_closeButton->setIcon(captionIcon(CaptionGlyph::Close, captionInk()));
+        m_closeButton->setIconSize(QSize(16, 16));
+        m_closeButton->setFixedSize(46, 41);
+        m_closeButton->setAutoRaise(true);
+        m_closeButton->setFocusPolicy(Qt::NoFocus);
+        m_closeButton->installEventFilter(this);
+        connect(m_closeButton, &QToolButton::clicked, this, &QDialog::reject);
+        row->addWidget(label);
+        row->addStretch(1);
+        row->addWidget(m_closeButton);
+    }
+
+    QWidget* titleBar() const { return m_titleBar; }
+
+protected:
+    // White X while the red hover wash is up (mirrors the main window).
+    bool eventFilter(QObject* object, QEvent* event) override
+    {
+        if (object == m_closeButton && event) {
+            if (event->type() == QEvent::Enter)
+                m_closeButton->setIcon(captionIcon(CaptionGlyph::Close, Qt::white));
+            else if (event->type() == QEvent::Leave)
+                m_closeButton->setIcon(captionIcon(CaptionGlyph::Close, captionInk()));
+        }
+        return QDialog::eventFilter(object, event);
+    }
+
+    bool nativeEvent(const QByteArray& type, void* message, long* result) override
+    {
+        return frameless::nativeEvent(this, type, message, result, [this](const QPoint& pos) {
+            if (!m_titleBar->geometry().contains(pos))
+                return frameless::Zone::Client;
+            if (m_closeButton->geometry().contains(pos - m_titleBar->pos()))
+                return frameless::Zone::Client;
+            return frameless::Zone::Caption;
+        });
+    }
+
+private:
+    QWidget* m_titleBar = nullptr;
+    QToolButton* m_closeButton = nullptr;
+};
 const QColor kLogoOrange = QColor(0xcb, 0x83, 0x06);
 
 
@@ -208,6 +318,18 @@ QString sessionTabTooltip(const Profile &profile, FreeRdpProcess::State state)
         .arg(profileSubtitle(profile), sessionStateText(state));
 }
 
+QString connectionDotStyleSheet(FreeRdpProcess::State state)
+{
+    switch (state) {
+    case FreeRdpProcess::State::Running:
+        return QStringLiteral("background: #22c55e; border-radius: 5px;");
+    case FreeRdpProcess::State::Starting:
+        return QStringLiteral("background: #f59e0b; border-radius: 5px;");
+    default:
+        return QStringLiteral("background: #9aa3ad; border-radius: 5px;");
+    }
+}
+
 ui::MainWindowConnectionInfo mainWindowConnectionInfo(const FreeRdpProcess::ConnectionInfo &info)
 {
     return ui::MainWindowConnectionInfo{info.codecName, info.rtt, info.rttAvailable};
@@ -215,8 +337,7 @@ ui::MainWindowConnectionInfo mainWindowConnectionInfo(const FreeRdpProcess::Conn
 
 QIcon sessionStatusIcon(ui::MainWindowTabStatus status)
 {
-    QColor color;
-    switch (status) {
+    QColor color;    switch (status) {
     case ui::MainWindowTabStatus::ConnectedGood:
         color = QColor(34, 197, 94);
         break;
@@ -487,6 +608,9 @@ QtMainWindow::QtMainWindow(std::vector<std::wstring> startupConnectionNames,
     buildUi();
     installShortcuts();
     restoreWindowState();
+    QTimer::singleShot(0, this, [this]() {
+        updateTabBarOffset();
+    });
     refreshProfileList();
     refreshUpdateButton();
 
@@ -522,7 +646,7 @@ bool QtMainWindow::eventFilter(QObject *object, QEvent *event)
         if (event->type() == QEvent::Enter) {
             m_closeButton->setIcon(captionIcon(CaptionGlyph::Close, Qt::white));
         } else if (event->type() == QEvent::Leave) {
-            m_closeButton->setIcon(captionIcon(CaptionGlyph::Close, kCaptionInk));
+            m_closeButton->setIcon(captionIcon(CaptionGlyph::Close, captionInk()));
         }
     }
 
@@ -549,7 +673,7 @@ bool QtMainWindow::nativeEvent(const QByteArray &eventType, void *message, long 
     if (msg->message == WM_POWERBROADCAST) {
         const ui::MainWindowPowerBroadcastPlan plan =
             ui::powerBroadcastPlan(static_cast<unsigned int>(msg->wParam),
-                                   m_tabs && m_tabs->count() > 1);
+                                   m_tabs && m_tabs->count() > 0);
         if (plan.handleHostResume)
             handleHostResume();
         if (result)
@@ -599,36 +723,18 @@ void QtMainWindow::buildUi()
     shellLayout->setSpacing(0);
     buildTitleBar(shellLayout);
 
-    auto *splitter = new QSplitter(Qt::Horizontal, shell);
+    m_splitter = new QSplitter(Qt::Horizontal, shell);
+    auto *splitter = m_splitter;
     splitter->setChildrenCollapsible(false);
+    splitter->setHandleWidth(1);
 
+    // Left pane: connections panel (its header lives in the title bar).
     m_sidebar = new QWidget(splitter);
+    m_sidebar->setObjectName(QStringLiteral("connectionsPanel"));
     m_sidebar->setMinimumWidth(220);
     auto *sidebarLayout = new QVBoxLayout(m_sidebar);
     sidebarLayout->setContentsMargins(14, 14, 14, 14);
     sidebarLayout->setSpacing(10);
-
-    auto *titleRow = new QHBoxLayout;
-    titleRow->setContentsMargins(0, 0, 0, 0);
-    auto *title = new QLabel(tr("Connections"), m_sidebar);
-    QFont titleFont = title->font();
-    titleFont.setPointSize(titleFont.pointSize() + 2);
-    titleFont.setBold(true);
-    title->setFont(titleFont);
-    titleRow->addWidget(title);
-    titleRow->addStretch(1);
-    auto *addButton = new QToolButton(m_sidebar);
-    addButton->setObjectName(QStringLiteral("addButton"));
-    addButton->setIcon(captionIcon(CaptionGlyph::Plus, kCaptionInk));
-    addButton->setIconSize(QSize(16, 16));
-    addButton->setFixedSize(24, 24);
-    addButton->setAutoRaise(true);
-    addButton->setFocusPolicy(Qt::NoFocus);
-    addButton->setToolTip(tr("New connection"));
-    connect(addButton, &QToolButton::clicked, this, [this]() {
-        addProfile();
-    });
-    titleRow->addWidget(addButton);
 
     m_searchEdit = new QLineEdit(m_sidebar);
     m_searchEdit->setPlaceholderText(tr("Search"));
@@ -652,10 +758,10 @@ void QtMainWindow::buildUi()
     m_profileList->setDefaultDropAction(Qt::MoveAction);
     m_profileList->setDropIndicatorShown(true);
 
-    sidebarLayout->addLayout(titleRow);
     sidebarLayout->addWidget(m_searchEdit);
     sidebarLayout->addWidget(m_profileList, 1);
 
+    // Right pane: session tabs.
     auto *workspace = new QWidget(splitter);
     auto *workspaceLayout = new QVBoxLayout(workspace);
     workspaceLayout->setContentsMargins(0, 0, 0, 0);
@@ -663,32 +769,50 @@ void QtMainWindow::buildUi()
 
     m_tabs = new QTabWidget(workspace);
     m_tabs->setDocumentMode(true);
-    m_tabs->setTabsClosable(true);
-    m_tabs->addTab(createHomePage(), tr("Home"));
-    configureHomeTab();
     workspaceLayout->addWidget(m_tabs);
+    // The visible tab bar lives in the title bar; hide QTabWidget's own one.
+    m_tabs->tabBar()->setVisible(false);
+    connect(m_tabs, &QTabWidget::currentChanged, this, [this](int index) {
+        if (m_tabBar && m_tabBar->currentIndex() != index)
+            m_tabBar->setCurrentIndex(index);
+    });
 
     splitter->addWidget(m_sidebar);
     splitter->addWidget(workspace);
     splitter->setStretchFactor(0, 0);
     splitter->setStretchFactor(1, 1);
     splitter->setSizes({300, 880});
+    connect(splitter, &QSplitter::splitterMoved, this, [this]() {
+        updateTabBarOffset();
+    });
+    updateTabBarOffset();
 
     shellLayout->addWidget(splitter, 1);
     setCentralWidget(shell);
-    m_statusLabel = new QLabel(this);
-    statusBar()->addPermanentWidget(m_statusLabel, 1);
 
-    m_versionButton = new QToolButton(statusBar());
-    m_versionButton->setObjectName(QStringLiteral("versionButton"));
-    m_versionButton->setText(QString::fromWCharArray(RDPBOX_VERSION));
-    m_versionButton->setToolTip(tr("About RdpBox"));
-    m_versionButton->setAutoRaise(true);
-    m_versionButton->setFocusPolicy(Qt::NoFocus);
-    m_versionButton->setCursor(Qt::PointingHandCursor);
-    statusBar()->addPermanentWidget(m_versionButton, 0);
-    connect(m_versionButton, &QToolButton::clicked, this, [this]() {
-        showAboutDialog();
+    m_profileList->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_profileList, &QWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
+        QListWidgetItem *item = m_profileList->itemAt(pos);
+        if (!item)
+            return;
+        m_profileList->setCurrentItem(item);
+
+        QMenu menu(this);
+        QAction *connectAction = menu.addAction(tr("Connect"));
+        menu.addSeparator();
+        QAction *editAction = menu.addAction(tr("Edit"));
+        QAction *duplicateAction = menu.addAction(tr("Duplicate"));
+        menu.addSeparator();
+        QAction *removeAction = menu.addAction(tr("Remove"));
+        QAction *selected = menu.exec(m_profileList->mapToGlobal(pos));
+        if (selected == connectAction)
+            connectSelectedProfiles();
+        else if (selected == editAction)
+            editSelectedProfile();
+        else if (selected == duplicateAction)
+            duplicateSelectedProfile();
+        else if (selected == removeAction)
+            deleteSelectedProfile();
     });
 
     connect(m_searchEdit, &QLineEdit::textChanged, this, [this]() {
@@ -706,24 +830,10 @@ void QtMainWindow::buildUi()
         if (profile.isValid())
             addSessionTab(profile);
     });
-    connect(m_tabs, &QTabWidget::tabCloseRequested, this, [this](int index) {
-        closeSessionTab(index);
-    });
     connect(m_tabs, &QTabWidget::currentChanged, this, [this](int index) {
         if (QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(index))
             sessionWidget->handleBecameVisible();
     });
-    if (QTabBar *bar = m_tabs->tabBar()) {
-        bar->setMovable(true);
-        bar->setContextMenuPolicy(Qt::CustomContextMenu);
-        connect(bar, &QTabBar::tabMoved, this, [this](int fromIndex, int toIndex) {
-            handleTabMoved(fromIndex, toIndex);
-        });
-        connect(bar, &QTabBar::customContextMenuRequested, this, [this](const QPoint &point) {
-            showTabContextMenu(point);
-        });
-    }
-
     refreshActions();
 }
 
@@ -751,16 +861,93 @@ void QtMainWindow::buildTitleBar(QVBoxLayout *rootLayout)
     m_logoButton->setFocusPolicy(Qt::NoFocus);
     connect(m_logoButton, &QToolButton::toggled, this, [this](bool checked) {
         m_logoButton->setIcon(captionIcon(CaptionGlyph::Logo, checked ? Qt::white : kLogoOrange, 22));
-        if (m_sidebar)
-            m_sidebar->setVisible(checked);
+        if (m_connectionsHeader)
+            m_connectionsHeader->setVisible(checked);
+        if (!m_sidebar || isFullScreen())
+            return;
+        // Window size stays fixed; the session pane absorbs the width change.
+        if (!checked && m_sidebar->isVisible()) {
+            m_collapsedSidebarWidth = m_sidebar->width();
+            m_sidebar->setVisible(false);
+        } else if (checked && !m_sidebar->isVisible()) {
+            m_sidebar->setVisible(true);
+            if (m_splitter)
+                m_splitter->setSizes({m_collapsedSidebarWidth,
+                                      m_splitter->width() - m_collapsedSidebarWidth});
+        }
+        updateTabBarOffset();
     });
 
-    m_titleLabel = new QLabel(QStringLiteral("RdpBox"), m_titleBar);
-    QFont titleFont = m_titleLabel->font();
+    m_connectionsHeader = new QWidget(m_titleBar);
+    m_connectionsHeader->setObjectName(QStringLiteral("connectionsHeader"));
+    auto *connectionsLayout = new QHBoxLayout(m_connectionsHeader);
+    connectionsLayout->setContentsMargins(0, 0, 0, 0);
+    connectionsLayout->setSpacing(8);
+    auto *title = new QLabel(tr("Connections"), m_connectionsHeader);
+    QFont titleFont = title->font();
+    titleFont.setPointSize(titleFont.pointSize() + 2);
     titleFont.setBold(true);
-    m_titleLabel->setFont(titleFont);
+    title->setFont(titleFont);
+    connectionsLayout->addWidget(title);
+    connectionsLayout->addStretch(1);
+    m_addButton = new QToolButton(m_connectionsHeader);
+    m_addButton->setObjectName(QStringLiteral("addButton"));
+    m_addButton->setIcon(captionIcon(CaptionGlyph::Plus, captionInk()));
+    m_addButton->setIconSize(QSize(16, 16));
+    m_addButton->setFixedSize(24, 24);
+    m_addButton->setAutoRaise(true);
+    m_addButton->setFocusPolicy(Qt::NoFocus);
+    m_addButton->setToolTip(tr("New connection"));
+    connect(m_addButton, &QToolButton::clicked, this, [this]() {
+        addProfile();
+    });
+    connectionsLayout->addWidget(m_addButton);
+    auto *headerSeparator = new QWidget(m_connectionsHeader);
+    headerSeparator->setObjectName(QStringLiteral("headerSeparator"));
+    headerSeparator->setFixedSize(1, 20);
+    connectionsLayout->addSpacing(8);
+    connectionsLayout->addWidget(headerSeparator);
+
+    m_tabBar = new QTabBar(m_titleBar);
+    m_tabBar->setObjectName(QStringLiteral("titleTabBar"));
+    m_tabBar->setMovable(true);
+    m_tabBar->setExpanding(false);
+    m_tabBar->setUsesScrollButtons(false);
+    m_tabBar->setTabsClosable(true);
+    m_tabBar->setDocumentMode(true);
+    m_tabBar->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_tabBar, &QTabBar::tabCloseRequested, this, [this](int index) {
+        closeSessionTab(index);
+    });
+    connect(m_tabBar, &QTabBar::currentChanged, this, [this](int index) {
+        if (m_tabs && m_tabs->currentIndex() != index)
+            m_tabs->setCurrentIndex(index);
+    });
+    connect(m_tabBar, &QTabBar::tabMoved, this, [this](int fromIndex, int toIndex) {
+        if (!m_tabs)
+            return;
+        QWidget *page = m_tabs->widget(fromIndex);
+        const QString label = m_tabBar->tabText(toIndex);
+        m_tabs->removeTab(fromIndex);
+        m_tabs->insertTab(toIndex, page, label);
+    });
+    connect(m_tabBar, &QTabBar::customContextMenuRequested, this, [this](const QPoint &point) {
+        showTabContextMenu(point);
+    });
 
     m_updateButton = new QToolButton(m_titleBar);
+    m_infoButton = new QToolButton(m_titleBar);
+    m_infoButton->setObjectName(QStringLiteral("captionButton"));
+    m_infoButton->setIcon(captionIcon(CaptionGlyph::Settings, captionInk()));
+    m_infoButton->setIconSize(QSize(16, 16));
+    m_infoButton->setFixedSize(34, kTitleBarHeight - 1);
+    m_infoButton->setAutoRaise(true);
+    m_infoButton->setFocusPolicy(Qt::NoFocus);
+    m_infoButton->setToolTip(tr("Settings"));
+    connect(m_infoButton, &QToolButton::clicked, this, [this]() {
+        showSettingsDialog();
+    });
+
     m_minimizeButton = new QToolButton(m_titleBar);
     m_maximizeButton = new QToolButton(m_titleBar);
     m_closeButton = new QToolButton(m_titleBar);
@@ -770,16 +957,16 @@ void QtMainWindow::buildTitleBar(QVBoxLayout *rootLayout)
     m_maximizeButton->setObjectName(QStringLiteral("captionButton"));
     m_closeButton->setObjectName(QStringLiteral("closeCaptionButton"));
     m_updateButton->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
-    m_minimizeButton->setIcon(captionIcon(CaptionGlyph::Minimize, kCaptionInk));
-    m_maximizeButton->setIcon(captionIcon(CaptionGlyph::Maximize, kCaptionInk));
-    m_closeButton->setIcon(captionIcon(CaptionGlyph::Close, kCaptionInk));
+    m_minimizeButton->setIcon(captionIcon(CaptionGlyph::Minimize, captionInk()));
+    m_maximizeButton->setIcon(captionIcon(CaptionGlyph::Maximize, captionInk()));
+    m_closeButton->setIcon(captionIcon(CaptionGlyph::Close, captionInk()));
     m_closeButton->installEventFilter(this);
     m_updateButton->setToolTip(tr("Check for updates"));
     m_minimizeButton->setToolTip(tr("Minimize"));
     m_maximizeButton->setToolTip(tr("Maximize"));
     m_closeButton->setToolTip(tr("Close"));
     m_updateButton->setAutoRaise(true);
-    m_updateButton->setFixedSize(64, kTitleBarHeight);
+    m_updateButton->setFixedSize(64, kTitleBarHeight - 1);
     m_updateButton->setFocusPolicy(Qt::NoFocus);
     m_updateButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
 
@@ -790,15 +977,17 @@ void QtMainWindow::buildTitleBar(QVBoxLayout *rootLayout)
     };
     for (QToolButton *button : captionButtons) {
         button->setAutoRaise(true);
-        button->setFixedSize(46, kTitleBarHeight);
+        button->setFixedSize(46, kTitleBarHeight - 1);
         button->setIconSize(QSize(16, 16));
         button->setFocusPolicy(Qt::NoFocus);
     }
 
     layout->addWidget(m_logoButton);
-    layout->addWidget(m_titleLabel);
+    layout->addWidget(m_connectionsHeader);
+    layout->addWidget(m_tabBar);
     layout->addStretch(1);
     layout->addWidget(m_updateButton);
+    layout->addWidget(m_infoButton);
     layout->addWidget(m_minimizeButton);
     layout->addWidget(m_maximizeButton);
     layout->addWidget(m_closeButton);
@@ -838,7 +1027,8 @@ void QtMainWindow::installShortcuts()
         addProfile(true);
     });
     bindShortcut(m_openConnectionsShortcut, [this]() {
-        focusConnections();
+        if (m_logoButton)
+            m_logoButton->setChecked(!m_logoButton->isChecked());
     });
     bindShortcut(m_fullScreenShortcut, [this]() {
         toggleFullScreen();
@@ -858,19 +1048,11 @@ void QtMainWindow::applyShortcutSettings()
     m_openConnectionsShortcut->setKey(settings.openConnections);
     m_fullScreenShortcut->setKey(settings.toggleFullScreen);
     m_exitFullScreenShortcut->setKey(settings.exitFullScreen);
+    // Mirror MFC: Esc only exits full screen; otherwise it must reach the RDP
+    // session instead of being eaten by an always-on application shortcut.
+    m_exitFullScreenShortcut->setEnabled(m_isFullScreen);
 }
 
-void QtMainWindow::showShortcutsDialog()
-{
-    QtShortcutsDialog dialog(rdpbox::currentShortcuts(), this);
-    if (dialog.exec() != QDialog::Accepted)
-        return;
-
-    rdpbox::setCurrentShortcuts(dialog.shortcutSettings());
-    applyShortcutSettings();
-    QSettings store;
-    rdpbox::saveShortcutSettings(rdpbox::currentShortcuts(), store);
-}
 
 void QtMainWindow::refreshProfileList()
 {
@@ -883,11 +1065,25 @@ void QtMainWindow::refreshProfileList()
     m_profileList->clear();
     for (const Profile &profile : profiles) {
         auto *item = new QListWidgetItem(m_profileList);
-        item->setText(profileTitle(profile)
-                      + QStringLiteral("\n")
-                      + profileListSubtitle(profile, connectedNames));
         item->setData(Qt::UserRole, QString::fromStdWString(profile.name));
         item->setSizeHint(QSize(0, 54));
+
+        auto *row = new QWidget;
+        row->setObjectName(QStringLiteral("connectionRow"));
+        auto *rowLayout = new QHBoxLayout(row);
+        rowLayout->setContentsMargins(10, 4, 10, 4);
+        auto *textLabel = new QLabel(profileTitle(profile)
+                                     + QStringLiteral("\n")
+                                     + profileListSubtitle(profile, connectedNames), row);
+        auto *dot = new QLabel(row);
+        dot->setFixedSize(10, 10);
+        dot->setStyleSheet(
+            connectionDotStyleSheet(
+                sessionStateForProfile(QString::fromStdWString(profile.name))));
+        rowLayout->addWidget(textLabel, 1);
+        rowLayout->addStretch();
+        rowLayout->addWidget(dot, 0, Qt::AlignVCenter);
+        m_profileList->setItemWidget(item, row);
     }
 
     if (!retainedRows.empty()) {
@@ -898,7 +1094,6 @@ void QtMainWindow::refreshProfileList()
         }
     }
 
-    m_statusLabel->setText(tr("%n connection(s)", nullptr, static_cast<int>(m_repository.profiles().size())));
     refreshActions();
 }
 
@@ -936,21 +1131,8 @@ void QtMainWindow::refreshWindowControls()
         return;
 
     m_maximizeButton->setIcon(captionIcon(
-        isMaximized() ? CaptionGlyph::Restore : CaptionGlyph::Maximize, kCaptionInk));
+        isMaximized() ? CaptionGlyph::Restore : CaptionGlyph::Maximize, captionInk()));
     m_maximizeButton->setToolTip(isMaximized() ? tr("Restore") : tr("Maximize"));
-}
-
-void QtMainWindow::configureHomeTab()
-{
-    if (!m_tabs || m_tabs->count() == 0)
-        return;
-
-    QTabBar *bar = m_tabs->tabBar();
-    if (!bar)
-        return;
-
-    bar->setTabButton(0, QTabBar::LeftSide, nullptr);
-    bar->setTabButton(0, QTabBar::RightSide, nullptr);
 }
 
 void QtMainWindow::saveWindowState() const
@@ -1005,23 +1187,17 @@ bool QtMainWindow::restoreWindowState()
     if (!WindowStateScaling::restoreFromMonitorWorkArea(state, workspaceRect, restoredRect))
         return false;
 
-    HWND hwnd = reinterpret_cast<HWND>(winId());
-    if (!hwnd)
-        return false;
-
-    WINDOWPLACEMENT placement = {};
-    placement.length = sizeof(placement);
-    if (!::GetWindowPlacement(hwnd, &placement))
-        return false;
-
-    placement.rcNormalPosition = restoredRect;
-    placement.showCmd = state.showCmd;
-
-    m_restoringWindowState = true;
-    const bool restored = ::SetWindowPlacement(hwnd, &placement) != FALSE;
-    m_restoringWindowState = false;
+    // Apply through Qt (not SetWindowPlacement): Qt re-applies its own
+    // geometry record on show(), which silently reverted the size.
+    const QRect geometry(restoredRect.left,
+                         restoredRect.top,
+                         restoredRect.right - restoredRect.left,
+                         restoredRect.bottom - restoredRect.top);
+    setGeometry(geometry);
+    if (state.showCmd == SW_SHOWMAXIMIZED)
+        setWindowState(windowState() | Qt::WindowMaximized);
     refreshWindowControls();
-    return restored;
+    return true;
 }
 
 int QtMainWindow::nativeHitTestForPoint(const QPoint &windowPoint) const
@@ -1214,15 +1390,23 @@ void QtMainWindow::moveProfileByDrop(int sourceRow, int insertIndex)
 
 void QtMainWindow::closeSessionTab(int index)
 {
-    if (!m_tabs || index <= 0 || index >= m_tabs->count())
+    if (!m_tabs || index < 0 || index >= m_tabs->count())
         return;
+
+    const QString profileName = m_tabBar ? m_tabBar->tabData(index).toString() : QString();
+    m_sessionStates.erase(profileName.toStdWString());
 
     QWidget *page = m_tabs->widget(index);
     m_tabs->removeTab(index);
+    if (m_tabBar)
+        m_tabBar->removeTab(index);
     if (page)
         page->deleteLater();
-    configureHomeTab();
     refreshProfileList();
+
+    // No sessions left: bring the connections panel back.
+    if (m_tabBar && m_tabBar->count() == 0 && m_logoButton && !m_logoButton->isChecked())
+        m_logoButton->setChecked(true);
 }
 
 void QtMainWindow::touchLastConnectedAt(const Profile &profile)
@@ -1257,10 +1441,8 @@ void QtMainWindow::setFullScreen(bool enabled)
         m_titleBar->setVisible(!enabled);
     if (m_sidebar)
         m_sidebar->setVisible(!enabled);
-    if (m_tabs && m_tabs->tabBar())
-        m_tabs->tabBar()->setVisible(!enabled);
-    if (statusBar())
-        statusBar()->setVisible(!enabled);
+    if (m_tabBar)
+        m_tabBar->setVisible(!enabled);
 
     if (enabled)
         showFullScreen();
@@ -1269,67 +1451,193 @@ void QtMainWindow::setFullScreen(bool enabled)
     else
         showNormal();
 
+    if (m_exitFullScreenShortcut)
+        m_exitFullScreenShortcut->setEnabled(enabled);
+
     refreshWindowControls();
 }
 
-void QtMainWindow::focusConnections()
+void QtMainWindow::updateTabBarOffset()
 {
-    if (m_isFullScreen)
-        setFullScreen(false);
-    if (m_sidebar)
-        m_sidebar->show();
-    if (m_searchEdit) {
-        m_searchEdit->setFocus(Qt::ShortcutFocusReason);
-        m_searchEdit->selectAll();
+    if (!m_titleBar || !m_sidebar || !m_connectionsHeader || !m_logoButton)
+        return;
+
+    int width = 0;
+    if (m_sidebar->isVisible() && m_connectionsHeader->isVisible()) {
+        const int spacing = m_titleBar->layout()->spacing();
+        // Header spans from the logo to the panel's right edge so the + button
+        // sits at the panel edge and the tab bar aligns with the session pane.
+        // +1: the separator is the LAST pixel INSIDE the header, while the
+        // splitter handle starts at the panel edge - widen by one so both
+        // lines land on the same x.
+        width = m_sidebar->width() - m_logoButton->width() - spacing + 1;
+        width = qMax(width, m_connectionsHeader->sizeHint().width());
     }
+    m_connectionsHeader->setFixedWidth(width);
 }
 
-void QtMainWindow::showAboutDialog()
+
+void QtMainWindow::rethemeCaptionIcons()
 {
-    QDialog dialog(this);
-    dialog.setWindowTitle(tr("About RdpBox"));
+    if (!m_minimizeButton)
+        return;
+    m_minimizeButton->setIcon(captionIcon(CaptionGlyph::Minimize, captionInk()));
+    m_maximizeButton->setIcon(captionIcon(
+        isMaximized() ? CaptionGlyph::Restore : CaptionGlyph::Maximize, captionInk()));
+    m_closeButton->setIcon(captionIcon(CaptionGlyph::Close, captionInk()));
+    m_infoButton->setIcon(captionIcon(CaptionGlyph::Settings, captionInk()));
+    m_addButton->setIcon(captionIcon(CaptionGlyph::Plus, captionInk()));
+    m_logoButton->setIcon(captionIcon(
+        CaptionGlyph::Logo, m_logoButton->isChecked() ? Qt::white : kLogoOrange, 22));
+}
+
+void QtMainWindow::showSettingsDialog()
+{
+    FramelessDialogShell dialog(this, tr("Settings"));
     dialog.setWindowIcon(windowIcon());
     dialog.setModal(true);
 
-    auto *layout = new QGridLayout(&dialog);
-    layout->setContentsMargins(20, 18, 20, 16);
-    layout->setHorizontalSpacing(14);
-    layout->setVerticalSpacing(8);
+    // --- General tab: theme + language -------------------------------------
+    QWidget generalPage;
+    QSettings settingsStore;
+    const QString themeBefore = settingsStore.value(QStringLiteral("theme"), QStringLiteral("system")).toString();
+    const QString languageBefore = settingsStore.value(QStringLiteral("language"), QString()).toString();
+    auto *themeCombo = new QComboBox(&generalPage);
+    themeCombo->addItem(tr("System"), QStringLiteral("system"));
+    themeCombo->addItem(tr("Light"), QStringLiteral("light"));
+    themeCombo->addItem(tr("Dark"), QStringLiteral("dark"));
+    themeCombo->setCurrentIndex(std::max(0, themeCombo->findData(themeBefore)));
+    auto *languageCombo = new QComboBox(&generalPage);
+    languageCombo->addItem(tr("English"), QString());
+    languageCombo->addItem(QStringLiteral("\u7b80\u4f53\u4e2d\u6587"), QStringLiteral("zh"));
+    languageCombo->setCurrentIndex(std::max(0, languageCombo->findData(languageBefore)));
+    languageCombo->setToolTip(tr("Takes effect after restart"));
+    auto *generalForm = new QFormLayout;
+    generalForm->addRow(tr("Theme"), themeCombo);
+    generalForm->addRow(tr("Language"), languageCombo);
+    auto *generalLayout = new QVBoxLayout(&generalPage);
+    generalLayout->setContentsMargins(16, 14, 16, 14);
+    generalLayout->addLayout(generalForm);
+    generalLayout->addStretch(1);
+    generalPage.setObjectName(QStringLiteral("settingsTab"));
 
-    auto *icon = new QLabel(&dialog);
+    // --- Shortcuts tab ----------------------------------------------------
+    QWidget shortcutsPage;
+    shortcutsPage.setObjectName(QStringLiteral("settingsTab"));
+    shortcutsPage.setObjectName(QStringLiteral("settingsTab"));
+    const rdpbox::ShortcutSettings current = rdpbox::currentShortcuts();
+    auto *newConnectionEdit = new QKeySequenceEdit(current.newConnection, &shortcutsPage);
+    auto *openConnectionsEdit = new QKeySequenceEdit(current.openConnections, &shortcutsPage);
+    auto *toggleFullScreenEdit = new QKeySequenceEdit(current.toggleFullScreen, &shortcutsPage);
+    auto *form = new QFormLayout;
+    form->addRow(tr("New connection"), newConnectionEdit);
+    form->addRow(tr("Open connections"), openConnectionsEdit);
+    form->addRow(tr("Toggle full screen"), toggleFullScreenEdit);
+    auto *shortcutsLayout = new QVBoxLayout(&shortcutsPage);
+    shortcutsLayout->setContentsMargins(16, 14, 16, 14);
+    shortcutsLayout->addLayout(form);
+    shortcutsLayout->addStretch(1);
+
+    // --- About tab ---------------------------------------------------------
+    QWidget aboutPage;
+    aboutPage.setObjectName(QStringLiteral("settingsTab"));
+    auto *aboutLayout = new QGridLayout(&aboutPage);
+    aboutLayout->setContentsMargins(16, 18, 16, 14);
+    aboutLayout->setHorizontalSpacing(14);
+    aboutLayout->setVerticalSpacing(8);
+    auto *icon = new QLabel(&aboutPage);
     icon->setFixedSize(56, 56);
     icon->setPixmap(windowIcon().pixmap(48, 48));
     icon->setAlignment(Qt::AlignTop | Qt::AlignHCenter);
-
-    auto *title = new QLabel(aboutVersionText(), &dialog);
+    auto *title = new QLabel(aboutVersionText(), &aboutPage);
     QFont titleFont = title->font();
     titleFont.setPointSize(titleFont.pointSize() + 3);
     titleFont.setBold(true);
     title->setFont(titleFont);
-
-    auto *buildLabel = new QLabel(tr("Built"), &dialog);
-    auto *buildValue = new QLabel(aboutBuildDateText(), &dialog);
-    auto *repoLabel = new QLabel(tr("Repository"), &dialog);
-    auto *repoValue = new QLabel(&dialog);
+    auto *buildLabel = new QLabel(tr("Build"), &aboutPage);
+    auto *buildValue = new QLabel(aboutBuildDateText(), &aboutPage);
+    auto *repoLabel = new QLabel(tr("Repository"), &aboutPage);
+    auto *repoValue = new QLabel(&aboutPage);
     const QString repoUrl = repositoryUrlText();
     repoValue->setText(QStringLiteral("<a href=\"%1\">%1</a>").arg(repoUrl.toHtmlEscaped()));
     repoValue->setTextFormat(Qt::RichText);
     repoValue->setTextInteractionFlags(Qt::TextBrowserInteraction);
     repoValue->setOpenExternalLinks(true);
+    aboutLayout->addWidget(icon, 0, 0, 3, 1);
+    aboutLayout->addWidget(title, 0, 1, 1, 2);
+    aboutLayout->addWidget(buildLabel, 1, 1);
+    aboutLayout->addWidget(buildValue, 1, 2);
+    aboutLayout->addWidget(repoLabel, 2, 1);
+    aboutLayout->addWidget(repoValue, 2, 2);
+    aboutLayout->setRowStretch(3, 1);
+    aboutLayout->setColumnStretch(2, 1);
 
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok, &dialog);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    auto *tabs = new QTabWidget(&dialog);
+    // Themed separator only: pane/page/tab colors come from the global
+    // theme QSS (%WINDOW%), the seam line is translucent theme ink so it
+    // reads on both light and dark palettes.
+    const QColor seamInk = QApplication::palette().color(QPalette::WindowText);
+    tabs->setStyleSheet(QStringLiteral(
+        "QTabWidget::pane { border: none; border-top: 1px solid rgba(%1,%2,%3,66); }")
+        .arg(seamInk.red())
+        .arg(seamInk.green())
+        .arg(seamInk.blue()));
+    tabs->addTab(&generalPage, tr("General"));
+    tabs->addTab(&shortcutsPage, tr("Shortcuts"));
+    tabs->addTab(&aboutPage, tr("About"));
 
-    layout->addWidget(icon, 0, 0, 4, 1);
-    layout->addWidget(title, 0, 1, 1, 2);
-    layout->addWidget(buildLabel, 1, 1);
-    layout->addWidget(buildValue, 1, 2);
-    layout->addWidget(repoLabel, 2, 1);
-    layout->addWidget(repoValue, 2, 2);
-    layout->addWidget(buttons, 4, 0, 1, 3);
-    layout->setColumnStretch(2, 1);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, [&]() {
+        const QKeySequence keys[] = {
+            newConnectionEdit->keySequence(),
+            openConnectionsEdit->keySequence(),
+            toggleFullScreenEdit->keySequence(),
+        };
+        for (int i = 0; i < 3; ++i) {
+            for (int j = i + 1; j < 3; ++j) {
+                if (!keys[i].isEmpty() && keys[i] == keys[j]) {
+                    QMessageBox::warning(&dialog, tr("Shortcuts"),
+                                         tr("Two actions use the same shortcut."));
+                    return;
+                }
+            }
+        }
+        dialog.accept();
+    });
 
-    dialog.exec();
+    auto *body = new QWidget(&dialog);
+    auto *bodyLayout = new QVBoxLayout(body);
+    bodyLayout->setContentsMargins(12, 12, 12, 12);
+    bodyLayout->addWidget(tabs);
+    bodyLayout->addWidget(buttons);
+
+    auto *layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    layout->addWidget(dialog.titleBar());
+    layout->addWidget(body);
+
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    const QString themeAfter = themeCombo->currentData().toString();
+    const QString languageAfter = languageCombo->currentData().toString();
+    settingsStore.setValue(QStringLiteral("theme"), themeAfter);
+    settingsStore.setValue(QStringLiteral("language"), languageAfter);
+    if (themeAfter != themeBefore) {
+        applyApplicationTheme(*qApp);
+        rethemeCaptionIcons();
+    }
+
+    rdpbox::ShortcutSettings settings = current;
+    settings.newConnection = newConnectionEdit->keySequence();
+    settings.openConnections = openConnectionsEdit->keySequence();
+    settings.toggleFullScreen = toggleFullScreenEdit->keySequence();
+    rdpbox::setCurrentShortcuts(settings);
+    applyShortcutSettings();
+    QSettings store;
+    rdpbox::saveShortcutSettings(rdpbox::currentShortcuts(), store);
 }
 
 void QtMainWindow::handleUpdateButtonClicked()
@@ -1362,8 +1670,6 @@ void QtMainWindow::startBackgroundUpdateCheck(bool userInitiated)
 
     m_updateCheckInFlight = true;
     const std::uint64_t generation = ++m_updateCheckGeneration;
-    if (userInitiated && m_statusLabel)
-        m_statusLabel->setText(tr("Checking for updates..."));
 
     QPointer<QtMainWindow> target(this);
     std::thread([target, generation, userInitiated]() {
@@ -1406,8 +1712,6 @@ void QtMainWindow::startBackgroundUpdateDownload()
     m_updateState = ui::UpdateUiState::Downloading;
     m_updateDownloadProgress = 0;
     refreshUpdateButton();
-    if (m_statusLabel)
-        m_statusLabel->setText(tr("Downloading update..."));
 
     const std::uint64_t generation = ++m_updateDownloadGeneration;
     const updater::ReleaseAsset release = m_updateRelease;
@@ -1484,9 +1788,6 @@ void QtMainWindow::handleUpdateCheckCompleted(std::uint64_t generation,
         : ui::UpdateUiState::Available;
     m_updateDownloadProgress = (m_updateState == ui::UpdateUiState::Downloaded) ? 100 : -1;
     refreshUpdateButton();
-    if (m_statusLabel) {
-        m_statusLabel->setText(tr("Update %1 available").arg(QString::fromStdWString(m_updateRelease.tagName)));
-    }
 }
 
 void QtMainWindow::handleUpdateDownloadProgress(std::uint64_t generation, int progress)
@@ -1515,16 +1816,12 @@ void QtMainWindow::handleUpdateDownloadCompleted(std::uint64_t generation,
         m_updateState = ui::UpdateUiState::Available;
         m_updateDownloadProgress = -1;
         refreshUpdateButton();
-        if (m_statusLabel)
-            m_statusLabel->setText(tr("Update download failed"));
         return;
     }
 
     m_updateState = ui::UpdateUiState::Downloaded;
     m_updateDownloadProgress = 100;
     refreshUpdateButton();
-    if (m_statusLabel)
-        m_statusLabel->setText(tr("Update downloaded"));
 
     confirmLaunchDownloadedUpdate();
 }
@@ -1540,12 +1837,11 @@ std::wstring QtMainWindow::downloadedUpdatePath() const
 std::vector<std::wstring> QtMainWindow::openProfileNames() const
 {
     std::vector<std::wstring> names;
-    if (!m_tabs || !m_tabs->tabBar())
+    if (!m_tabBar)
         return names;
 
-    QTabBar *bar = m_tabs->tabBar();
-    for (int index = 1; index < m_tabs->count(); ++index) {
-        const std::wstring name = bar->tabData(index).toString().toStdWString();
+    for (int index = 0; index < m_tabBar->count(); ++index) {
+        const std::wstring name = m_tabBar->tabData(index).toString().toStdWString();
         if (!name.empty())
             names.push_back(name);
     }
@@ -1555,15 +1851,15 @@ std::vector<std::wstring> QtMainWindow::openProfileNames() const
 std::vector<std::wstring> QtMainWindow::connectedProfileNames() const
 {
     std::vector<std::wstring> names;
-    if (!m_tabs || !m_tabs->tabBar())
+    if (!m_tabBar)
         return names;
 
-    for (int index = 1; index < m_tabs->count(); ++index) {
+    for (int index = 0; index < m_tabs->count(); ++index) {
         const QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(index);
         if (!sessionWidget || !sessionWidget->isConnected())
             continue;
 
-        const QString name = m_tabs->tabBar()->tabData(index).toString();
+        const QString name = m_tabBar->tabData(index).toString();
         if (!name.isEmpty())
             names.push_back(name.toStdWString());
     }
@@ -1605,34 +1901,16 @@ bool QtMainWindow::launchDownloadedUpdate() const
     return updater::applyDownloadedUpdate(downloadedPath, currentExePath, openProfileNames());
 }
 
-void QtMainWindow::handleTabMoved(int fromIndex, int toIndex)
-{
-    if (m_adjustingTabMove || !m_tabs || !m_tabs->tabBar())
-        return;
-
-    if (fromIndex != 0 && toIndex != 0)
-        return;
-
-    QTabBar *bar = m_tabs->tabBar();
-    m_adjustingTabMove = true;
-    if (fromIndex == 0)
-        bar->moveTab(toIndex, 0);
-    else
-        bar->moveTab(0, 1);
-    m_adjustingTabMove = false;
-    configureHomeTab();
-}
-
 void QtMainWindow::showTabContextMenu(const QPoint &tabBarPoint)
 {
-    if (!m_tabs || !m_tabs->tabBar())
+    if (!m_tabBar)
         return;
 
-    const int index = m_tabs->tabBar()->tabAt(tabBarPoint);
+    const int index = m_tabBar->tabAt(tabBarPoint);
     if (index < 0)
         return;
 
-    const bool hasSession = index > 0 && sessionWidgetForTab(index);
+    const bool hasSession = index >= 0 && sessionWidgetForTab(index);
     const ui::TabContextMenuState state =
         ui::tabContextMenuState(index, m_tabs->currentIndex(), hasSession, m_isFullScreen);
 
@@ -1645,7 +1923,7 @@ void QtMainWindow::showTabContextMenu(const QPoint &tabBarPoint)
     QAction *closeAction = menu.addAction(tr("Close"));
     closeAction->setEnabled(state.closeEnabled);
 
-    QAction *selected = menu.exec(m_tabs->tabBar()->mapToGlobal(tabBarPoint));
+    QAction *selected = menu.exec(m_tabBar->mapToGlobal(tabBarPoint));
     if (!selected)
         return;
 
@@ -1666,16 +1944,16 @@ void QtMainWindow::reconnectSessionTab(int index)
 
 void QtMainWindow::refreshSessionTabStatuses()
 {
-    if (!m_tabs || !m_tabs->tabBar())
+    if (!m_tabBar)
         return;
 
-    for (int index = 1; index < m_tabs->count(); ++index) {
+    for (int index = 0; index < m_tabs->count(); ++index) {
         QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(index);
         if (!sessionWidget)
             continue;
 
         updateSessionTabState(
-            m_tabs->tabBar()->tabData(index).toString().toStdWString(),
+            m_tabBar->tabData(index).toString().toStdWString(),
             sessionWidget->state());
     }
 }
@@ -1685,14 +1963,14 @@ void QtMainWindow::handleHostResume()
     if (!m_tabs)
         return;
 
-    const int activeSessionIndex = m_tabs->currentIndex() > 0 ? m_tabs->currentIndex() - 1 : -1;
-    for (int tabIndex = 1; tabIndex < m_tabs->count(); ++tabIndex) {
+    const int activeSessionIndex = m_tabs->currentIndex();
+    for (int tabIndex = 0; tabIndex < m_tabs->count(); ++tabIndex) {
         QtRdpSessionWidget *sessionWidget = sessionWidgetForTab(tabIndex);
         if (!sessionWidget)
             continue;
 
         const bool autoReconnect =
-            sessionResumeActionForTab(tabIndex - 1, activeSessionIndex)
+            sessionResumeActionForTab(tabIndex, activeSessionIndex)
             == SessionResumeAction::AutoReconnect;
         sessionWidget->handleHostResume(autoReconnect);
     }
@@ -1801,9 +2079,12 @@ void QtMainWindow::addSessionTab(const Profile &profile)
     }
 
     QWidget *page = createSessionPage(profile);
-    const int index = m_tabs->addTab(page, profileTitle(profile));
-    if (m_tabs->tabBar())
-        m_tabs->tabBar()->setTabData(index, QString::fromStdWString(profile.name));
+    const QString title = profileTitle(profile);
+    const int index = m_tabs->addTab(page, title);
+    m_tabBar->addTab(title);
+    m_tabBar->setTabData(index, QString::fromStdWString(profile.name));
+    m_tabBar->setCurrentIndex(index);
+    m_tabs->tabBar()->setVisible(false);
     updateSessionTabState(profile.name, FreeRdpProcess::State::Idle);
     m_tabs->setCurrentIndex(index);
     refreshProfileList();
@@ -1811,8 +2092,9 @@ void QtMainWindow::addSessionTab(const Profile &profile)
 
 void QtMainWindow::updateSessionTabState(const std::wstring &profileName, FreeRdpProcess::State state)
 {
+    m_sessionStates[profileName] = state;
     const int index = sessionTabIndexForProfileName(profileName);
-    if (index <= 0 || !m_tabs)
+    if (index < 0 || !m_tabs)
         return;
 
     const Profile profile = m_repository.profileByName(profileName);
@@ -1830,9 +2112,16 @@ void QtMainWindow::updateSessionTabState(const std::wstring &profileName, FreeRd
     if (!connectionTooltip.isEmpty())
         tooltip += QStringLiteral("\n") + connectionTooltip;
 
-    m_tabs->setTabText(index, sessionTabTitle(profile, state));
-    m_tabs->setTabToolTip(index, tooltip);
-    m_tabs->setTabIcon(index, sessionStatusIcon(ui::tabStatusForConnection(connected, uiInfo)));
+    m_tabBar->setTabText(index, sessionTabTitle(profile, state));
+    m_tabBar->setTabToolTip(index, tooltip);
+    m_tabBar->setTabIcon(index, sessionStatusIcon(ui::tabStatusForConnection(connected, uiInfo)));
+    refreshProfileList();
+}
+
+FreeRdpProcess::State QtMainWindow::sessionStateForProfile(const QString &profileName) const
+{
+    const auto it = m_sessionStates.find(profileName.toStdWString());
+    return it != m_sessionStates.end() ? it->second : FreeRdpProcess::State::Idle;
 }
 
 int QtMainWindow::sessionTabIndexForProfileName(const std::wstring &profileName) const
@@ -1841,12 +2130,11 @@ int QtMainWindow::sessionTabIndexForProfileName(const std::wstring &profileName)
         return -1;
 
     const QString name = QString::fromStdWString(profileName);
-    QTabBar *bar = m_tabs->tabBar();
-    if (!bar)
+    if (!m_tabBar)
         return -1;
 
-    for (int index = 1; index < m_tabs->count(); ++index) {
-        if (QString::compare(bar->tabData(index).toString(), name, Qt::CaseInsensitive) == 0)
+    for (int index = 0; index < m_tabBar->count(); ++index) {
+        if (QString::compare(m_tabBar->tabData(index).toString(), name, Qt::CaseInsensitive) == 0)
             return index;
     }
     return -1;
@@ -1854,33 +2142,11 @@ int QtMainWindow::sessionTabIndexForProfileName(const std::wstring &profileName)
 
 QtRdpSessionWidget *QtMainWindow::sessionWidgetForTab(int index) const
 {
-    if (!m_tabs || index <= 0 || index >= m_tabs->count())
+    if (!m_tabs || index < 0 || index >= m_tabs->count())
         return nullptr;
 
     QWidget *page = m_tabs->widget(index);
     return page ? page->findChild<QtRdpSessionWidget *>() : nullptr;
-}
-
-QWidget *QtMainWindow::createHomePage() const
-{
-    auto *page = new QWidget;
-    auto *layout = new QVBoxLayout(page);
-    layout->setContentsMargins(28, 28, 28, 28);
-    layout->setSpacing(14);
-
-    auto *title = new QLabel(tr("RdpBox"), page);
-    QFont titleFont = title->font();
-    titleFont.setPointSize(titleFont.pointSize() + 8);
-    titleFont.setBold(true);
-    title->setFont(titleFont);
-
-    auto *status = new QLabel(tr("No active sessions"), page);
-    status->setObjectName(QStringLiteral("mutedLabel"));
-
-    layout->addWidget(title);
-    layout->addWidget(status);
-    layout->addStretch(1);
-    return page;
 }
 
 QWidget *QtMainWindow::createSessionPage(const Profile &profile)
@@ -1912,15 +2178,27 @@ QWidget *QtMainWindow::createSessionPage(const Profile &profile)
 std::vector<QRect> QtMainWindow::captionExclusionRects() const
 {
     std::vector<QRect> rects;
-    for (QWidget *widget : {static_cast<QWidget *>(m_updateButton),
+    for (QWidget *widget : {static_cast<QWidget *>(m_logoButton),
+                            static_cast<QWidget *>(m_updateButton),
+                            static_cast<QWidget *>(m_infoButton),
                             static_cast<QWidget *>(m_minimizeButton),
                             static_cast<QWidget *>(m_maximizeButton),
-                            static_cast<QWidget *>(m_closeButton)}) {
-        if (!widget || !m_titleBar)
+                            static_cast<QWidget *>(m_closeButton),
+                            static_cast<QWidget *>(m_addButton)}) {
+        if (!widget)
             continue;
 
         const QPoint topLeft = widget->mapTo(this, QPoint(0, 0));
         rects.push_back(QRect(topLeft, widget->size()));
+    }
+    // Tabs themselves are interactive (switch/close/reorder); the empty
+    // stretches of the tab bar stay draggable caption.
+    if (m_tabBar) {
+        const QPoint origin = m_tabBar->mapTo(this, QPoint(0, 0));
+        for (int i = 0; i < m_tabBar->count(); ++i) {
+            const QRect tab = m_tabBar->tabRect(i);
+            rects.push_back(QRect(origin + tab.topLeft(), tab.size()));
+        }
     }
     return rects;
 }
