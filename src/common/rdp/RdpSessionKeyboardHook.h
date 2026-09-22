@@ -1,5 +1,7 @@
 #pragma once
 
+#include "common/rdp/RdpKeyboardInputRouter.h"
+
 #include <cstdint>
 
 class CRdpSessionView;
@@ -13,12 +15,25 @@ enum class KeyboardMessageDisposition
     Handled,
 };
 
-bool isKeyboardTarget(const CRdpSessionView *target);
-void setKeyboardTarget(CRdpSessionView *target);
-void clearKeyboardTarget(CRdpSessionView *target);
+// Implemented by session views that want the WH_KEYBOARD_LL hook to capture
+// system keys (Win, Alt+Tab, Esc, ...) and forward them into the session.
+class RdpSystemKeyTarget
+{
+public:
+    virtual ~RdpSystemKeyTarget() = default;
+    virtual bool canCaptureSystemKeys() const = 0;
+    virtual bool hasWindowFocus() const = 0;
+    virtual bool shouldCaptureLowLevelKey(const RdpLowLevelKeyEvent &event,
+                                          const RdpKeyboardPhysicalState &physical) const = 0;
+    virtual std::uint32_t messageForLowLevelKey(const RdpLowLevelKeyEvent &event,
+                                                const RdpKeyboardPhysicalState &physical) const = 0;
+    virtual void forwardNativeKeyMessage(std::uint32_t message,
+                                         std::uintptr_t wParam,
+                                         std::intptr_t lParam) = 0;
+    virtual void releaseKeyboardInputForTargetTransfer() = 0;
+};
 
-KeyboardMessageDisposition handleWindowKeyMessage(CRdpSessionView &target,
-                                                   std::uint32_t message,
-                                                   std::uintptr_t wParam,
-                                                   std::intptr_t lParam);
+bool isKeyboardTarget(const RdpSystemKeyTarget *target);
+void setKeyboardTarget(RdpSystemKeyTarget *target);
+void clearKeyboardTarget(RdpSystemKeyTarget *target);
 }

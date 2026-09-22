@@ -2,7 +2,7 @@
 
 #include <afxdialogex.h>
 
-#include "mfcui/MainWindowShortcuts.h"
+#include "common/ui/MainWindowShortcuts.h"
 
 // Registry-backed persistence for the configurable main-window shortcuts.
 // Falls back to defaults for missing or invalid entries.

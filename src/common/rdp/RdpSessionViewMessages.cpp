@@ -2,10 +2,43 @@
 
 #include "common/rdp/RdpSessionKeyboardHook.h"
 #include "common/rdp/RdpInputEventUtil.h"
+#include "common/ui/MainWindowShortcuts.h"
 #include "common/rdp/RdpCertificatePromptBehavior.h"
 #include "common/rdp/RdpProcessEventBehavior.h"
 
 #include <utility>
+
+namespace rdp::session_view_input
+{
+KeyboardMessageDisposition handleWindowKeyMessage(CRdpSessionView &target,
+                                                  std::uint32_t message,
+                                                  std::uintptr_t wParam,
+                                                  std::intptr_t lParam)
+{
+    if (message != WM_KEYDOWN && message != WM_KEYUP && message != WM_SYSKEYDOWN && message != WM_SYSKEYUP)
+        return KeyboardMessageDisposition::NotHandled;
+
+    const bool down = (message == WM_KEYDOWN || message == WM_SYSKEYDOWN);
+    const bool controlDown = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+    const bool shiftDown = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+    const bool altDown = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+    if (down && ui::isReservedMainWindowShortcut(controlDown,
+                                                 shiftDown,
+                                                 altDown,
+                                                 static_cast<unsigned int>(wParam))) {
+        target.noteConsumedLocalShortcutKey(static_cast<unsigned int>(wParam));
+        return KeyboardMessageDisposition::PassThrough;
+    }
+
+    if (!down && target.consumeReservedShortcutKey(static_cast<unsigned int>(wParam)))
+        return KeyboardMessageDisposition::PassThrough;
+
+    target.forwardNativeKeyMessage(static_cast<std::uint32_t>(message),
+                                   static_cast<std::uintptr_t>(wParam),
+                                   static_cast<std::intptr_t>(lParam));
+    return KeyboardMessageDisposition::Handled;
+}
+}
 
 namespace
 {
@@ -159,6 +192,11 @@ bool CRdpSessionView::canCaptureSystemKeys() const
         && GetSafeHwnd()
         && IsWindowVisible()
         && ::GetFocus() == GetSafeHwnd();
+}
+
+bool CRdpSessionView::hasWindowFocus() const
+{
+    return GetSafeHwnd() && ::GetFocus() == GetSafeHwnd();
 }
 
 unsigned int CRdpSessionView::activeKeyboardModifiers() const

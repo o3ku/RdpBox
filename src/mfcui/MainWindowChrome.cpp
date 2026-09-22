@@ -3,7 +3,7 @@
 #include "common/profiles/ProfileRepository.h"
 #include "mfcui/session/SessionManager.h"
 #include "mfcui/MainWindowLayoutBehavior.h"
-#include "mfcui/MainWindowShortcuts.h"
+#include "common/ui/MainWindowShortcuts.h"
 #include "mfcui/Win10Theme.h"
 #include "common/ui/WindowStateScaling.h"
 #include "mfcui/WindowFrameMetrics.h"

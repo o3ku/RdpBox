@@ -582,11 +582,8 @@ void CRdpSessionView::OnSize(UINT type, int cx, int cy)
         return;
     }
 
-    if (m_resizeBurstTracker.onResize(size)) {
-        beginResolutionUpdate();
-        m_process->requestResize(size);
-        SetTimer(kResizeTimerId, 50, nullptr);
-    }
+    if (m_resizeBurstTracker.onResize(size))
+        SetTimer(kResizeTimerId, 200, nullptr); // trailing debounce: WM_TIMER sends
 
     RedrawWindow(nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
 }

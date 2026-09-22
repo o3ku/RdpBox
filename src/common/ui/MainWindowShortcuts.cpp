@@ -1,4 +1,4 @@
-#include "mfcui/MainWindowShortcuts.h"
+#include "common/ui/MainWindowShortcuts.h"
 
 #include <cwchar>
 
