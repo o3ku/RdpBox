@@ -6,13 +6,21 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
 #include <bcrypt.h>
 #include <wincrypt.h>
 #include <windows.h>
+#else
+#include <openssl/buffer.h>
+#include <openssl/evp.h>
+#include <openssl/rand.h>
+#endif
 
 namespace
 {
-constexpr DWORD kPortableKdfIterations = 120000;
+using BYTE = unsigned char;
+
+constexpr unsigned long kPortableKdfIterations = 120000;
 constexpr size_t kPortableKeyBytes = 32;
 constexpr size_t kPortableNonceBytes = 12;
 constexpr size_t kPortableTagBytes = 16;
@@ -27,6 +35,7 @@ bool g_ready = true;
 std::vector<BYTE> g_portableKey;
 std::mutex g_mutex;
 
+#ifdef _WIN32
 bool ntSuccess(NTSTATUS status)
 {
     return status >= 0;
@@ -250,6 +259,136 @@ bool decryptPortableBytes(const std::vector<BYTE> &key,
     return true;
 }
 }
+#else
+// ---- OpenSSL implementation (same wire format: nonce||tag||ciphertext) ----
+std::string base64Encode(const BYTE *data, std::size_t size)
+{
+    if (!data || size == 0)
+        return {};
+
+    const int encodedSize = EVP_EncodedLength(nullptr, static_cast<int>(size)) ? 0 : 0;
+    static_cast<void>(encodedSize);
+    const int outSize = 4 * ((static_cast<int>(size) + 2) / 3);
+    std::string encoded(static_cast<std::size_t>(outSize), '\0');
+    EVP_EncodeBlock(reinterpret_cast<unsigned char *>(encoded.data()), data, static_cast<int>(size));
+    return encoded;
+}
+
+std::vector<BYTE> base64Decode(const std::string &text)
+{
+    if (text.empty())
+        return {};
+
+    const int maxDecoded = 3 * (static_cast<int>(text.size()) / 4);
+    std::vector<BYTE> decoded(static_cast<std::size_t>(maxDecoded), 0);
+    const int written = EVP_DecodeBlock(decoded.data(),
+                                        reinterpret_cast<const unsigned char *>(text.data()),
+                                        static_cast<int>(text.size()));
+    if (written <= 0)
+        return {};
+
+    // EVP_DecodeBlock does not strip padding.
+    std::size_t size = static_cast<std::size_t>(written);
+    const std::size_t padding = text.size() % 4 == 0 ? text.size() - text.find_last_not_of('=') - 1 : 0;
+    size -= padding;
+    decoded.resize(size);
+    return decoded;
+}
+
+bool generateRandomBytes(BYTE *buffer, unsigned long size)
+{
+    return buffer && size > 0 && RAND_bytes(buffer, static_cast<int>(size)) == 1;
+}
+
+bool derivePortableKeyBytes(const std::wstring &password,
+                            const std::vector<BYTE> &salt,
+                            std::vector<BYTE> &key)
+{
+    key.assign(kPortableKeyBytes, 0);
+    return PKCS5_PBKDF2_HMAC(reinterpret_cast<const char *>(password.data()),
+                             static_cast<int>(password.size() * sizeof(wchar_t)),
+                             salt.data(),
+                             static_cast<int>(salt.size()),
+                             static_cast<int>(kPortableKdfIterations),
+                             EVP_sha256(),
+                             static_cast<int>(key.size()),
+                             key.data()) == 1;
+}
+
+bool encryptPortableBytes(const std::vector<BYTE> &key,
+                          const std::vector<BYTE> &plainText,
+                          std::vector<BYTE> &sealed)
+{
+    if (key.size() != kPortableKeyBytes)
+        return false;
+
+    std::vector<BYTE> nonce(kPortableNonceBytes);
+    std::vector<BYTE> tag(kPortableTagBytes);
+    if (!generateRandomBytes(nonce.data(), static_cast<unsigned long>(nonce.size())))
+        return false;
+
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (!ctx)
+        return false;
+
+    std::vector<BYTE> cipherText(plainText.size());
+    int outLen = 0;
+    bool ok = EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr) == 1
+        && EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, static_cast<int>(nonce.size()), nullptr) == 1
+        && EVP_EncryptInit_ex(ctx, nullptr, nullptr, key.data(), nonce.data()) == 1
+        && (plainText.empty()
+            || (EVP_EncryptUpdate(ctx, cipherText.data(), &outLen, plainText.data(),
+                                  static_cast<int>(plainText.size())) == 1))
+        && EVP_EncryptFinal_ex(ctx, cipherText.data() + outLen, &outLen) == 1
+        && EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, static_cast<int>(tag.size()), tag.data()) == 1;
+
+    EVP_CIPHER_CTX_free(ctx);
+    if (!ok)
+        return false;
+
+    sealed.clear();
+    sealed.insert(sealed.end(), nonce.begin(), nonce.end());
+    sealed.insert(sealed.end(), tag.begin(), tag.end());
+    sealed.insert(sealed.end(), cipherText.begin(), cipherText.end());
+    return true;
+}
+
+bool decryptPortableBytes(const std::vector<BYTE> &key,
+                          const std::vector<BYTE> &sealed,
+                          std::vector<BYTE> &plainText)
+{
+    if (key.size() != kPortableKeyBytes || sealed.size() < (kPortableNonceBytes + kPortableTagBytes))
+        return false;
+
+    const BYTE *nonce = sealed.data();
+    const BYTE *tag = sealed.data() + kPortableNonceBytes;
+    const BYTE *cipherText = sealed.data() + kPortableNonceBytes + kPortableTagBytes;
+    const int cipherSize = static_cast<int>(sealed.size() - kPortableNonceBytes - kPortableTagBytes);
+
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (!ctx)
+        return false;
+
+    plainText.assign(static_cast<std::size_t>(cipherSize), 0);
+    int outLen = 0;
+    bool ok = EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr) == 1
+        && EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, static_cast<int>(kPortableNonceBytes), nullptr) == 1
+        && EVP_DecryptInit_ex(ctx, nullptr, nullptr, key.data(), nonce) == 1
+        && (cipherSize == 0
+            || (EVP_DecryptUpdate(ctx, plainText.data(), &outLen, cipherText, cipherSize) == 1))
+        && EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, static_cast<int>(kPortableTagBytes),
+                               const_cast<BYTE *>(tag)) == 1
+        && EVP_DecryptFinal_ex(ctx, plainText.data() + outLen, &outLen) == 1;
+
+    EVP_CIPHER_CTX_free(ctx);
+    if (!ok) {
+        plainText.clear();
+        return false;
+    }
+    plainText.resize(static_cast<std::size_t>(outLen ? outLen : cipherSize));
+    return true;
+}
+#endif
 
 namespace PasswordProtection
 {
@@ -278,6 +417,7 @@ bool isReady()
     return g_ready;
 }
 
+#ifdef _WIN32
 std::string protectDpapi(const std::wstring &plaintext)
 {
     if (plaintext.empty())
@@ -320,6 +460,18 @@ std::wstring unprotectDpapi(const std::string &encoded, bool *ok)
         *ok = true;
     return password;
 }
+#else
+// No DPAPI off Windows: seal with the portable AES-GCM scheme instead.
+std::string protectDpapi(const std::wstring &plaintext)
+{
+    return protectPortable(plaintext);
+}
+
+std::wstring unprotectDpapi(const std::string &encoded, bool *ok)
+{
+    return unprotectPortable(encoded, ok);
+}
+#endif
 
 std::string protectPortable(const std::wstring &plaintext)
 {
@@ -332,7 +484,7 @@ std::string protectPortable(const std::wstring &plaintext)
     if (!encryptPortableBytes(g_portableKey, plainBytes, sealed))
         return {};
 
-    return base64Encode(sealed.data(), static_cast<DWORD>(sealed.size()));
+    return base64Encode(sealed.data(), static_cast<unsigned long>(sealed.size()));
 }
 
 std::wstring unprotectPortable(const std::string &encoded, bool *ok)

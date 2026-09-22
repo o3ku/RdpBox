@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(RdpBox VERSION 2.0.0 LANGUAGES CXX RC)
+if(WIN32)
+    project(RdpBox VERSION 1.0.0 LANGUAGES CXX RC)
+else()
+    project(RdpBox VERSION 1.0.0 LANGUAGES CXX)
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,18 +16,29 @@ option(BUILD_TEST "Build test targets." OFF)
 option(RDPBOX_BUILD_LEGACY "Build the legacy MFC UI target." OFF)
 option(RDPBOX_BUILD_QT "Build the Qt UI target." OFF)
 
-if(BUILD_TEST OR RDPBOX_BUILD_LEGACY)
-    set(CMAKE_MFC_FLAG 2)
+if(WIN32)
+    if(BUILD_TEST OR RDPBOX_BUILD_LEGACY)
+        set(CMAKE_MFC_FLAG 2)
+    endif()
+
+    find_package(FreeRDP CONFIG REQUIRED)
+    find_package(FreeRDP-Client CONFIG REQUIRED)
+    find_package(WinPR CONFIG REQUIRED)
+
+    get_target_property(FREERDP_INCLUDE_DIRS freerdp INTERFACE_INCLUDE_DIRECTORIES)
+else()
+    # MFC legacy UI and the Windows-only tests are not built off Windows.
+    set(BUILD_TEST OFF CACHE BOOL "" FORCE)
+    set(RDPBOX_BUILD_LEGACY OFF CACHE BOOL "" FORCE)
+
+    find_package(OpenSSL REQUIRED)
+    find_package(Threads REQUIRED)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(FREERDP3 REQUIRED IMPORTED_TARGET freerdp3 freerdp-client3 winpr3)
 endif()
 
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(cJSON CONFIG REQUIRED)
-
-find_package(FreeRDP CONFIG REQUIRED)
-find_package(FreeRDP-Client CONFIG REQUIRED)
-find_package(WinPR CONFIG REQUIRED)
-
-get_target_property(FREERDP_INCLUDE_DIRS freerdp INTERFACE_INCLUDE_DIRECTORIES)
 
 set(RDPBOX_VERSION_OVERRIDE "" CACHE STRING "Override the RdpBox display/update version.")
 
@@ -270,26 +285,50 @@ set(RDPBOX_SOURCES
 )
 
 if(RDPBOX_BUILD_QT)
-    find_package(Qt5 5.15 CONFIG REQUIRED COMPONENTS Widgets)
+    find_package(Qt5 5.15 CONFIG REQUIRED COMPONENTS Widgets Svg)
 
-    add_executable(RdpBox WIN32 ${RDPBOX_QT_SOURCES})
+    if(NOT WIN32)
+        list(REMOVE_ITEM RDPBOX_QT_SOURCES
+            common/rdp/ClipboardWindowReady.h
+            common/rdp/RdpInputEventUtil.cpp
+            common/rdp/WindowsClipboardBackend.cpp
+            common/rdp/WindowsClipboardBackendDataObject.cpp
+            common/rdp/WindowsClipboardBackendWindow.cpp
+            common/rdp/WindowsClipboardBackendInternal.h
+            common/rdp/WindowsClipboardBehavior.cpp
+            resources/resource.h
+            resources/app_icon.rc
+        )
+    endif()
+
+    if(WIN32)
+        add_executable(RdpBox WIN32 ${RDPBOX_QT_SOURCES})
+    else()
+        add_executable(RdpBox ${RDPBOX_QT_SOURCES})
+    endif()
 
     set_target_properties(RdpBox PROPERTIES
         AUTOMOC ON
         AUTORCC ON
+        OUTPUT_NAME "RdpBoxQt"
     )
 
     target_compile_definitions(RdpBox PRIVATE
-        UNICODE
-        _UNICODE
-        _CRT_SECURE_NO_WARNINGS
         RDPBOX_VERSION=L"${RDPBOX_DISPLAY_VERSION}"
         RDPBOX_GITHUB_URL=L"${RDPBOX_GITHUB_URL_VALUE}"
-        WINVER=0x0A00
-        _WIN32_WINNT=0x0A00
-        NOMINMAX
-        WIN32_LEAN_AND_MEAN
     )
+
+    if(WIN32)
+        target_compile_definitions(RdpBox PRIVATE
+            UNICODE
+            _UNICODE
+            _CRT_SECURE_NO_WARNINGS
+            WINVER=0x0A00
+            _WIN32_WINNT=0x0A00
+            NOMINMAX
+            WIN32_LEAN_AND_MEAN
+        )
+    endif()
 
     target_include_directories(RdpBox PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
@@ -301,26 +340,37 @@ if(RDPBOX_BUILD_QT)
         endif()
     endforeach()
 
-    target_link_libraries(RdpBox PRIVATE
-        Qt5::Widgets
-        Qt5::Svg
-        freerdp
-        freerdp-client
-        winpr
-        nlohmann_json::nlohmann_json
-        cjson
+    if(WIN32)
+        target_link_libraries(RdpBox PRIVATE
+            Qt5::Widgets
+            Qt5::Svg
+            freerdp
+            freerdp-client
+            winpr
+            nlohmann_json::nlohmann_json
+            cjson
 
-        Bcrypt
-        Crypt32
-        Imm32
-        Ole32
-        Shell32
-        User32
-        Gdi32
-    )
+            Bcrypt
+            Crypt32
+            Imm32
+            Ole32
+            Shell32
+            User32
+            Gdi32
+        )
 
-    if(TARGET Qt5::WinMain)
-        target_link_libraries(RdpBox PRIVATE Qt5::WinMain)
+        if(TARGET Qt5::WinMain)
+            target_link_libraries(RdpBox PRIVATE Qt5::WinMain)
+        endif()
+    else()
+        target_link_libraries(RdpBox PRIVATE
+            Qt5::Widgets
+            Qt5::Svg
+            PkgConfig::FREERDP3
+            OpenSSL::Crypto
+            nlohmann_json::nlohmann_json
+            Threads::Threads
+        )
     endif()
 endif()
 

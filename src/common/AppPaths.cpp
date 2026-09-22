@@ -4,10 +4,22 @@
 
 #include <atomic>
 #include <cstdio>
+#include <string>
 
+#include "common/Win32String.h"
+
+#ifdef _WIN32
 #include <shlobj.h>
 #include <windows.h>
+#else
+#include <unistd.h>
 
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#endif
+
+#ifdef _WIN32
 namespace
 {
 std::wstring executableModulePath()
@@ -18,15 +30,6 @@ std::wstring executableModulePath()
         return {};
 
     return std::wstring(modulePath, length);
-}
-
-std::wstring executableDirectory()
-{
-    std::wstring path = executableModulePath();
-    const std::wstring::size_type slash = path.find_last_of(L"\\/");
-    if (slash == std::wstring::npos)
-        return {};
-    return path.substr(0, slash);
 }
 
 bool fileExists(const std::wstring &path)
@@ -79,18 +82,13 @@ bool writeFileAtomically(const std::wstring &filePath, const std::string &conten
     return true;
 }
 
-bool writeFile(const std::wstring &filePath, const std::string &contents)
-{
-    return writeFileAtomically(filePath, contents);
-}
-
 std::wstring appDataDirectory()
 {
     wchar_t pathBuffer[MAX_PATH] = {};
     if (FAILED(SHGetFolderPathW(nullptr, CSIDL_APPDATA | CSIDL_FLAG_CREATE, nullptr, SHGFP_TYPE_CURRENT, pathBuffer)))
         return {};
 
-    return std::wstring(pathBuffer) + L"\\RdpBox";
+    return std::wstring(pathBuffer) + L"/RdpBox";
 }
 
 void ensureDirectoryExists(const std::wstring &path)
@@ -99,44 +97,109 @@ void ensureDirectoryExists(const std::wstring &path)
         ::CreateDirectoryW(path.c_str(), nullptr);
 }
 }
-
-namespace AppPaths
+#else
+namespace
 {
-std::wstring executablePath()
+std::wstring executableModulePath()
 {
-    return executableModulePath();
+    char buffer[4096] = {};
+    const ssize_t length = ::readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
+    if (length <= 0)
+        return {};
+    return wideFromUtf8(std::string(buffer, static_cast<std::size_t>(length)));
 }
 
-std::string readFileContent(const std::wstring &filePath)
+bool fileExists(const std::wstring &path)
 {
-    std::FILE *file = nullptr;
-    if (_wfopen_s(&file, filePath.c_str(), L"rb") != 0 || !file)
-        return {};
+    std::error_code ec;
+    return std::filesystem::is_regular_file(std::filesystem::path(path), ec);
+}
 
+std::string readFile(const std::wstring &filePath)
+{
+    std::ifstream in(std::filesystem::path(filePath), std::ios::binary);
+    if (!in)
+        return {};
     std::string contents;
     char buffer[4096];
-    while (const size_t read = std::fread(buffer, 1, sizeof(buffer), file))
-        contents.append(buffer, read);
-
-    std::fclose(file);
+    while (in.read(buffer, sizeof(buffer)) || in.gcount() > 0)
+        contents.append(buffer, static_cast<std::size_t>(in.gcount()));
     return contents;
 }
 
-bool writeFileContent(const std::wstring &filePath, const std::string &contents)
+bool writeFileAtomically(const std::wstring &filePath, const std::string &contents)
 {
-    return writeFileAtomically(filePath, contents);
+    const std::filesystem::path target(filePath);
+    std::filesystem::path temp = target;
+    temp += "." + std::to_string(::getpid()) + ".tmp";
+
+    {
+        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
+        if (!out)
+            return false;
+        if (!contents.empty()
+            && !out.write(contents.data(), static_cast<std::streamsize>(contents.size())))
+            return false;
+    }
+
+    std::error_code ec;
+    std::filesystem::rename(temp, target, ec);
+    if (ec) {
+        std::filesystem::remove(temp, ec);
+        return false;
+    }
+    return true;
+}
+
+std::wstring appDataDirectory()
+{
+    // XDG data home: ~/.local/share/RdpBox
+    const char *xdg = std::getenv("XDG_DATA_HOME");
+    std::string base;
+    if (xdg && *xdg) {
+        base = xdg;
+    } else {
+        const char *home = std::getenv("HOME");
+        if (!home || !*home)
+            return {};
+        base = std::string(home) + "/.local/share";
+    }
+    return wideFromUtf8(base) + L"/RdpBox";
+}
+
+void ensureDirectoryExists(const std::wstring &path)
+{
+    if (path.empty())
+        return;
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::path(path), ec);
 }
 }
+#endif
 
 namespace
 {
+std::wstring executableDirectory()
+{
+    std::wstring path = executableModulePath();
+    const std::wstring::size_type slash = path.find_last_of(L"\\/");
+    if (slash == std::wstring::npos)
+        return {};
+    return path.substr(0, slash);
+}
+
+bool writeFile(const std::wstring &filePath, const std::string &contents)
+{
+    return writeFileAtomically(filePath, contents);
+}
+
 using AppPaths::readFileContent;
 using AppPaths::writeFileContent;
 
 std::wstring portableProfilesPath()
 {
     const std::wstring root = executableDirectory();
-    return root.empty() ? std::wstring() : (root + L"\\profiles.json");
+    return root.empty() ? std::wstring() : (root + L"/profiles.json");
 }
 
 bool readPortableModeFromProfiles()
@@ -196,6 +259,21 @@ bool isPortableMode()
     return g_forcePortable.load() || readPortableModeFromProfiles();
 }
 
+std::wstring executablePath()
+{
+    return executableModulePath();
+}
+
+std::string readFileContent(const std::wstring &filePath)
+{
+    return readFile(filePath);
+}
+
+bool writeFileContent(const std::wstring &filePath, const std::string &contents)
+{
+    return writeFileAtomically(filePath, contents);
+}
+
 std::wstring dataRootPath()
 {
     const std::wstring root = isPortableMode()
@@ -211,7 +289,7 @@ std::wstring dataRootPath()
 std::wstring profilesFilePath()
 {
     const std::wstring root = dataRootPath();
-    return root.empty() ? std::wstring() : (root + L"\\profiles.json");
+    return root.empty() ? std::wstring() : (root + L"/profiles.json");
 }
 
 std::wstring updatesDirectoryPath()
@@ -220,7 +298,7 @@ std::wstring updatesDirectoryPath()
     if (root.empty())
         return {};
 
-    const std::wstring path = root + L"\\updates";
+    const std::wstring path = root + L"/updates";
     ensureDirectoryExists(path);
     return path;
 }

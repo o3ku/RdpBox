@@ -1,7 +1,9 @@
 #include "MainWindowSessionBehavior.h"
 
+#include "common/NativeTypes.h"
+
 #include <algorithm>
-#include <windows.h>
+#include <cwctype>
 
 namespace
 {
@@ -9,12 +11,11 @@ bool equalsInsensitive(const std::wstring &left, const std::wstring &right)
 {
     if (left.size() != right.size())
         return false;
-
-    return CompareStringOrdinal(left.data(),
-                                static_cast<int>(left.size()),
-                                right.data(),
-                                static_cast<int>(right.size()),
-                                TRUE) == CSTR_EQUAL;
+    for (std::size_t i = 0; i < left.size(); ++i) {
+        if (std::towlower(left[i]) != std::towlower(right[i]))
+            return false;
+    }
+    return true;
 }
 }
 

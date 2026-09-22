@@ -4,7 +4,9 @@
 #include <cstddef>
 #include <cstring>
 
+#ifdef _WIN32
 #include <windows.h>
+#endif
 
 namespace
 {
@@ -52,6 +54,7 @@ FrameBuffer opaqueCursorFrame(FrameBuffer buffer)
     return buffer;
 }
 
+#ifdef _WIN32
 HCURSOR createCursorHandleFromFrame(const FrameBuffer &remoteImage, PointI hotspot)
 {
     if (!isValidFrameBuffer(remoteImage))
@@ -117,10 +120,13 @@ HCURSOR createCursorHandleFromFrame(const FrameBuffer &remoteImage, PointI hotsp
 
     return cursor;
 }
+
+#endif // _WIN32
 }
 
 namespace RdpCursorClassifier
 {
+#ifdef _WIN32
 CursorInfo createCursor(const FrameBuffer &remoteImage, PointI hotspot)
 {
     const FrameBuffer cursorFrame = opaqueCursorFrame(remoteImage);
@@ -138,4 +144,19 @@ HCURSOR cursorHandleFromInfo(const CursorInfo &cursorInfo)
 
     return LoadCursor(nullptr, IDC_ARROW);
 }
+#else
+// ponytail: non-Windows falls back to built-in cursor shapes (no pixel
+// cursors); remap Custom to Arrow so the Qt widget picks a sensible shape.
+CursorInfo createCursor(const FrameBuffer &remoteImage, PointI hotspot)
+{
+    static_cast<void>(remoteImage);
+    static_cast<void>(hotspot);
+    return CursorInfo{CursorKind::Arrow, nullptr, true};
+}
+
+HCURSOR cursorHandleFromInfo(const CursorInfo &)
+{
+    return nullptr;
+}
+#endif
 }

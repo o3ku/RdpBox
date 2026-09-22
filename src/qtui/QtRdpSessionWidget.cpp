@@ -23,7 +23,11 @@
 
 #include <algorithm>
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include "common/rdp/RdpWinKeyCodes.h"
+#endif
 
 namespace
 {
@@ -112,7 +116,14 @@ Qt::CursorShape cursorShapeFromKind(CursorKind kind)
 
 bool isVirtualKeyPhysicallyDown(int virtualKey)
 {
+#ifdef _WIN32
     return (::GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+#else
+    // ponytail: no GetAsyncKeyState equivalent off Windows; physical modifier
+    // sync falls back to per-event modifiers.
+    static_cast<void>(virtualKey);
+    return false;
+#endif
 }
 
 unsigned int physicalKeyboardModifiers()
@@ -332,6 +343,12 @@ bool QtRdpSessionWidget::event(QEvent *event)
 
 bool QtRdpSessionWidget::nativeEvent(const QByteArray &eventType, void *message, long *result)
 {
+#ifndef _WIN32
+    static_cast<void>(eventType);
+    static_cast<void>(message);
+    static_cast<void>(result);
+    return QWidget::nativeEvent(eventType, message, result);
+#else
     static_cast<void>(eventType);
 
     auto *nativeMessage = static_cast<MSG *>(message);
@@ -352,6 +369,7 @@ bool QtRdpSessionWidget::nativeEvent(const QByteArray &eventType, void *message,
     }
 
     return false;
+#endif // _WIN32
 }
 
 void QtRdpSessionWidget::paintEvent(QPaintEvent *event)
@@ -894,6 +912,61 @@ void QtRdpSessionWidget::sendKeyEvent(QKeyEvent *event, bool down)
     if (!m_process || !event)
         return;
 
+#ifndef _WIN32
+    // X11/Wayland deliver evdev scan codes (X keycode = evdev + 8); evdev
+    // numbers equal XT set-1 codes on the main block and need a small table
+    // for the E0-prefixed extension keys.
+    const int evdev = event->nativeScanCode() - 8;
+    static const struct
+    {
+        int evdev;
+        std::uint16_t xt;
+    } kExtendedKeys[] = {
+        {97, 0x1D},   // right ctrl
+        {100, 0x38},  // right alt
+        {102, 0x52},  // insert
+        {103, 0x48},  // up
+        {104, 0x47},  // home
+        {105, 0x4B},  // left
+        {106, 0x4D},  // right
+        {107, 0x4F},  // end
+        {108, 0x50},  // down
+        {110, 0x49},  // prior
+        {111, 0x51},  // next
+        {119, 0x53},  // delete
+        {98, 0x35},   // kp divide
+        {99, 0x46},   // sysrq
+        {125, 0x5B},  // left win
+        {126, 0x5C},  // right win
+        {127, 0x5D},  // menu
+    };
+    KeyIdentifier key;
+    key.extended = false;
+    bool identified = false;
+    for (const auto &entry : kExtendedKeys) {
+        if (evdev == entry.evdev) {
+            key.scanCode = entry.xt;
+            key.extended = true;
+            identified = true;
+            break;
+        }
+    }
+    if (!identified) {
+        if (evdev < 1 || evdev > 0x58) {
+            event->ignore();
+            return;
+        }
+        key.scanCode = static_cast<std::uint16_t>(evdev);
+        identified = true;
+    }
+
+    RdpKeyboardInputRouter::KeyAction action;
+    action.key = key;
+    action.down = down;
+    action.wasDown = event->isAutoRepeat();
+    sendKeyboardActions({action});
+    event->accept();
+#else
     const unsigned int virtualKey = static_cast<unsigned int>(event->nativeVirtualKey());
     if (!down && m_reservedShortcutTracker.consumeHandledKeyUp(virtualKey)) {
         event->accept();
@@ -920,6 +993,7 @@ void QtRdpSessionWidget::sendKeyEvent(QKeyEvent *event, bool down)
                                                           physicalKeyboardState(),
                                                           hasFocus()));
     event->accept();
+#endif // _WIN32
 }
 
 void QtRdpSessionWidget::sendKeyboardAction(const RdpKeyboardInputRouter::KeyAction &action)

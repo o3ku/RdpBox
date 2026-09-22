@@ -2,7 +2,7 @@
 
 #include "common/NativeTypes.h"
 
-#include <windows.h>
+#include "common/rdp/RdpWinKeyCodes.h"
 
 void RdpModifierSyncTracker::reset()
 {

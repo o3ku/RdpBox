@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <string>
 
+#ifdef _WIN32
 #include <objbase.h>
 #include <stringapiset.h>
 #include <windows.h>
@@ -68,3 +69,48 @@ inline std::string currentUtcIso8601()
                   st.wHour, st.wMinute, st.wSecond);
     return buffer;
 }
+#else
+#include <chrono>
+#include <codecvt>
+#include <ctime>
+#include <locale>
+#include <random>
+#include <sstream>
+
+// POSIX: plain std implementations for the Win32 helpers.
+inline std::string utf8FromWide(const std::wstring &text)
+{
+    return std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>, wchar_t>().to_bytes(text);
+}
+
+inline std::wstring wideFromUtf8(const std::string &text)
+{
+    return std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>, wchar_t>().from_bytes(text);
+}
+
+inline std::string createGuidString()
+{
+    std::random_device rd;
+    std::uniform_int_distribution<unsigned> dist(0, 0xFFFFFFFFu);
+    const unsigned a = dist(rd), b = dist(rd), c = dist(rd), d = dist(rd);
+    char buffer[40] = {};
+    std::snprintf(buffer, sizeof(buffer),
+                  "%08x-%04x-%04x-%04x-%04x%08x",
+                  a, b >> 16, (b & 0xFFFF) | 0x4000,
+                  (c >> 16) | 0x8000, c & 0xFFFF, d);
+    return buffer;
+}
+
+inline std::string currentUtcIso8601()
+{
+    const std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    std::tm tm = {};
+    gmtime_r(&now, &tm);
+    char buffer[32] = {};
+    std::snprintf(buffer, sizeof(buffer),
+                  "%04d-%02d-%02dT%02d:%02d:%02dZ",
+                  tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+                  tm.tm_hour, tm.tm_min, tm.tm_sec);
+    return buffer;
+}
+#endif
