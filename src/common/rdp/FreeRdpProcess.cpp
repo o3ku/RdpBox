@@ -8,11 +8,15 @@
 #include "RdpClipboardBridge.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <memory>
 #include <mutex>
 #include <thread>
 #include <utility>
+
+#include <winsock2.h>
+#include <ws2tcpip.h>
 
 #include <freerdp3/freerdp/autodetect.h>
 #include <freerdp3/freerdp/client/cliprdr.h>
@@ -27,6 +31,33 @@
 namespace
 {
 constexpr DWORD kEventWaitTimeoutMs = 10;
+
+// FreeRDP resolves the host twice before connecting (a resolvability pre-check
+// plus the real resolve) and aborts the whole connection on a single
+// getaddrinfo failure, reporting "DNS host name was not found" even for
+// numeric IPs when the Windows resolver stalls transiently (sleep/resume,
+// adapter switch). Gate the connection on our own bounded retry instead.
+int resolveWithRetry(const char *host, UINT32 port)
+{
+    char portStr[16] = {};
+    sprintf_s(portStr, "%u", static_cast<unsigned>(port));
+    addrinfo hints = {};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    int lastError = 0;
+    for (int attempt = 0; attempt < 8; ++attempt) {
+        addrinfo *result = nullptr;
+        const int rc = ::getaddrinfo(host, portStr, &hints, &result);
+        if (rc == 0) {
+            ::freeaddrinfo(result);
+            return 0;
+        }
+        lastError = ::WSAGetLastError();
+        if (attempt + 1 < 8)
+            ::Sleep(300);
+    }
+    return lastError;
+}
 }
 
 struct FreeRdpProcess::Private
@@ -177,6 +208,22 @@ void FreeRdpProcess::start(const std::wstring &host,
         }
 
         freerdp *instance = context->instance;
+
+        const char *host = freerdp_settings_get_string(context->settings, FreeRDP_ServerHostname);
+        const UINT32 port = freerdp_settings_get_uint32(context->settings, FreeRDP_ServerPort);
+        const int resolveError = host ? resolveWithRetry(host, port) : 0;
+        if (resolveError != 0) {
+            char message[160] = {};
+            sprintf_s(message, "Could not resolve %.64s after retries (Winsock error %d).",
+                      host, resolveError);
+            {
+                std::scoped_lock lock(m_d->mutex);
+                m_d->lastDisconnectError = message;
+            }
+            updateStateFromBackend(State::Finished);
+            return;
+        }
+
         const BOOL connected = freerdp_connect(instance);
 
         if (connected) {
