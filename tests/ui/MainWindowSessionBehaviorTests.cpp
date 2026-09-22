@@ -2,7 +2,7 @@
 
 #include <windows.h>
 
-#include "ui/MainWindowSessionBehavior.h"
+#include "common/ui/MainWindowSessionBehavior.h"
 
 namespace
 {

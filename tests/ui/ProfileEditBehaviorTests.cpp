@@ -1,6 +1,6 @@
 #include <cassert>
 
-#include "ui/ProfileEditBehavior.h"
+#include "common/ui/ProfileEditBehavior.h"
 
 int main()
 {

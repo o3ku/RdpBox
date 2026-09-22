@@ -1,7 +1,7 @@
 #include <cassert>
 
-#include "ui/WindowFrameMetrics.h"
-#include "ui/Win10Theme.h"
+#include "mfcui/WindowFrameMetrics.h"
+#include "mfcui/Win10Theme.h"
 
 int main()
 {

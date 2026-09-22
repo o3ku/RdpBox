@@ -1,7 +1,7 @@
 #include <cassert>
 #include <vector>
 
-#include "rdp/RdpProcessEventQueueBehavior.h"
+#include "common/rdp/RdpProcessEventQueueBehavior.h"
 
 namespace
 {

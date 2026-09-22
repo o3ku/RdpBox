@@ -1,4 +1,4 @@
-#include "rdp/RdpResolutionRecovery.h"
+#include "common/rdp/RdpResolutionRecovery.h"
 
 int main()
 {

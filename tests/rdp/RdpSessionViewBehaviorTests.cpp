@@ -1,6 +1,6 @@
 #include <cassert>
 
-#include "rdp/RdpSessionViewBehavior.h"
+#include "common/rdp/RdpSessionViewBehavior.h"
 
 int main()
 {

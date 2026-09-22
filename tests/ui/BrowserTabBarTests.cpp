@@ -3,7 +3,7 @@
 #include <afxcmn.h>
 #include <afxwin.h>
 
-#include "ui/BrowserTabBar.h"
+#include "mfcui/BrowserTabBar.h"
 
 namespace
 {

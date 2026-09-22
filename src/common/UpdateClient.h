@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace updater
 {
@@ -24,4 +25,11 @@ bool downloadReleaseAsset(const ReleaseAsset &asset,
                           const std::wstring &targetPath,
                           std::wstring &errorMessage,
                           DownloadProgressCallback progressCallback = {});
+
+// Writes the apply-update PowerShell script and spawns it. Returns true once the
+// helper process is running; it waits for this process to exit, replaces the exe
+// and relaunches it with the given connection names restored.
+bool applyDownloadedUpdate(const std::wstring &downloadedPath,
+                           const std::wstring &currentExePath,
+                           const std::vector<std::wstring> &connectionNames);
 }

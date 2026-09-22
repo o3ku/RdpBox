@@ -1,7 +1,7 @@
 #include <cassert>
 
 #include "resources/resource.h"
-#include "ui/MainWindowTabBehavior.h"
+#include "common/ui/MainWindowTabBehavior.h"
 
 int main()
 {

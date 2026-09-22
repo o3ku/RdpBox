@@ -1,0 +1,752 @@
+#include "MainWindow.h"
+
+#include "common/profiles/ProfileRepository.h"
+#include "mfcui/session/SessionManager.h"
+#include "mfcui/MainWindowLayoutBehavior.h"
+#include "mfcui/MainWindowShortcuts.h"
+#include "mfcui/Win10Theme.h"
+#include "common/ui/WindowStateScaling.h"
+#include "mfcui/WindowFrameMetrics.h"
+#include "resources/resource.h"
+
+#include <dwmapi.h>
+#include <uxtheme.h>
+
+#include <algorithm>
+
+namespace
+{
+constexpr DWORD kDwmwaBorderColor = 34;
+constexpr DWORD kDwmwaWindowCornerPreference = 33;
+constexpr DWORD kDwmcpDoNotRound = 1;
+constexpr COLORREF kDwmColorNone = 0xFFFFFFFE;
+
+CRect toCRect(const ui::LayoutRect &rect)
+{
+    return CRect(rect.left, rect.top, rect.right, rect.bottom);
+}
+
+ui::LayoutPoint toLayoutPoint(CPoint point)
+{
+    return { point.x, point.y };
+}
+
+void adjustMaximizedClientRect(RECT &rect)
+{
+    const int frameX = ::GetSystemMetrics(SM_CXFRAME) + ::GetSystemMetrics(SM_CXPADDEDBORDER);
+    const int frameY = ::GetSystemMetrics(SM_CYFRAME) + ::GetSystemMetrics(SM_CXPADDEDBORDER);
+    rect.left += frameX;
+    rect.right -= frameX;
+    rect.top += frameY;
+    rect.bottom -= frameY;
+}
+
+void applyDwmExtension(HWND hwnd, const WindowFrameMetrics &metrics)
+{
+    if (!hwnd)
+        return;
+
+    MARGINS margins = { 0, 0, metrics.dwmTopInset, 0 };
+    ::DwmExtendFrameIntoClientArea(hwnd, &margins);
+    ::DwmSetWindowAttribute(hwnd, kDwmwaBorderColor, &kDwmColorNone, sizeof(kDwmColorNone));
+    ::DwmSetWindowAttribute(hwnd, kDwmwaWindowCornerPreference, &kDwmcpDoNotRound, sizeof(kDwmcpDoNotRound));
+
+    RECT windowRect = {};
+    if (!::GetWindowRect(hwnd, &windowRect))
+        return;
+
+    const int width = std::max(1, static_cast<int>(windowRect.right - windowRect.left));
+    const int height = std::max(1, static_cast<int>(windowRect.bottom - windowRect.top));
+    HRGN region = ::CreateRectRgn(0, 0, width, height);
+    if (!region)
+        return;
+
+    if (!::SetWindowRgn(hwnd, region, FALSE))
+        ::DeleteObject(region);
+}
+
+CRect logoHoverRectFor(const WindowFrameMetrics &metrics)
+{
+    return toCRect(ui::mainWindowLogoHoverRect(metrics.clientEdgeInset));
+}
+
+bool monitorInfoForRect(const RECT &rect, RECT &monitorRect, RECT &workArea, std::wstring &deviceName)
+{
+    const HMONITOR monitor = ::MonitorFromRect(&rect, MONITOR_DEFAULTTONEAREST);
+    if (!monitor)
+        return false;
+
+    MONITORINFOEXW info = {};
+    info.cbSize = sizeof(info);
+    if (!::GetMonitorInfoW(monitor, &info))
+        return false;
+
+    monitorRect = info.rcMonitor;
+    workArea = info.rcWork;
+    deviceName = info.szDevice;
+    return true;
+}
+
+struct MonitorLookupContext
+{
+    const wchar_t *deviceName = nullptr;
+    RECT monitorRect = {};
+    RECT workArea = {};
+    bool found = false;
+};
+
+BOOL CALLBACK findMonitorByDeviceName(HMONITOR monitor, HDC, LPRECT, LPARAM userData)
+{
+    auto *context = reinterpret_cast<MonitorLookupContext *>(userData);
+    if (!context || !context->deviceName)
+        return TRUE;
+
+    MONITORINFOEXW info = {};
+    info.cbSize = sizeof(info);
+    if (!::GetMonitorInfoW(monitor, &info))
+        return TRUE;
+
+    if (::wcscmp(info.szDevice, context->deviceName) != 0)
+        return TRUE;
+
+    context->monitorRect = info.rcMonitor;
+    context->workArea = info.rcWork;
+    context->found = true;
+    return FALSE;
+}
+
+bool monitorInfoForDeviceName(const std::wstring &deviceName, RECT &monitorRect, RECT &workArea)
+{
+    if (deviceName.empty())
+        return false;
+
+    MonitorLookupContext context;
+    context.deviceName = deviceName.c_str();
+    ::EnumDisplayMonitors(nullptr, nullptr, &findMonitorByDeviceName, reinterpret_cast<LPARAM>(&context));
+    if (!context.found)
+        return false;
+
+    monitorRect = context.monitorRect;
+    workArea = context.workArea;
+    return true;
+}
+
+bool activeMonitorInfo(RECT &monitorRect, RECT &workArea)
+{
+    POINT point = {};
+    if (!::GetCursorPos(&point))
+        point = POINT{0, 0};
+
+    const HMONITOR monitor = ::MonitorFromPoint(point, MONITOR_DEFAULTTOPRIMARY);
+    if (!monitor)
+        return false;
+
+    MONITORINFOEXW info = {};
+    info.cbSize = sizeof(info);
+    if (!::GetMonitorInfoW(monitor, &info))
+        return false;
+
+    monitorRect = info.rcMonitor;
+    workArea = info.rcWork;
+    return true;
+}
+}
+
+BOOL MainWindow::OnEraseBkgnd(CDC *dc)
+{
+    if (!dc)
+        return FALSE;
+
+    CRect clientRect;
+    GetClientRect(&clientRect);
+
+    const WindowFrameMetrics metrics = calculateWindowFrameMetrics(isMaximized(), m_isFullScreen);
+    dc->FillSolidRect(clientRect, metrics.backgroundColor);
+    return TRUE;
+}
+
+BOOL MainWindow::OnNcActivate(BOOL active)
+{
+    UNREFERENCED_PARAMETER(active);
+    return TRUE;
+}
+
+LRESULT MainWindow::OnNcCalcSize(WPARAM wParam, LPARAM lParam)
+{
+    if (isMaximized()) {
+        if (!lParam)
+            return 0;
+
+        if (!wParam) {
+            auto *rect = reinterpret_cast<RECT *>(lParam);
+            adjustMaximizedClientRect(*rect);
+            return 0;
+        }
+
+        auto *params = reinterpret_cast<NCCALCSIZE_PARAMS *>(lParam);
+        adjustMaximizedClientRect(params->rgrc[0]);
+    }
+
+    return 0;
+}
+
+LRESULT MainWindow::OnNcLButtonDown(WPARAM hitTest, LPARAM)
+{
+    if (ui::shouldTrackWindowStateInteraction(WM_NCLBUTTONDOWN, hitTest)) {
+        m_inMoveOrSizeLoop = true;
+        if (m_sessionManager
+            && ui::shouldSuppressSessionResizeDuringWindowInteraction(WM_NCLBUTTONDOWN, hitTest)) {
+            m_sessionManager->setResizeSuppressed(true);
+        }
+    }
+
+    return Default();
+}
+
+LRESULT MainWindow::OnNcHitTest(WPARAM, LPARAM lParam)
+{
+    POINT clientPoint = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+    ScreenToClient(&clientPoint);
+
+    CRect clientRect;
+    GetClientRect(&clientRect);
+    return ui::mainWindowNonClientHitTest({ clientPoint.x, clientPoint.y },
+                                          clientRect.Width(),
+                                          clientRect.Height(),
+                                          isMaximized(),
+                                          m_isFullScreen);
+}
+
+LRESULT MainWindow::OnDwmCompositionChanged(WPARAM, LPARAM)
+{
+    applyDwmExtension(GetSafeHwnd(), calculateWindowFrameMetrics(isMaximized(), m_isFullScreen));
+    return 0;
+}
+
+LRESULT MainWindow::OnNcPaint(WPARAM wParam, LPARAM)
+{
+    if (!isMaximized() || m_isFullScreen)
+        return Default();
+
+    HDC hdc = ::GetWindowDC(GetSafeHwnd());
+    if (!hdc)
+        return 0;
+
+    HBRUSH brush = ::CreateSolidBrush(Win10Theme::kCaptionBg);
+    if (wParam && reinterpret_cast<HRGN>(wParam) != reinterpret_cast<HRGN>(1)) {
+        ::FillRgn(hdc, reinterpret_cast<HRGN>(wParam), brush);
+    } else {
+        CRect winRect;
+        CRect clientRect;
+        GetWindowRect(&winRect);
+        GetClientRect(&clientRect);
+
+        POINT clientOrigin = { 0, 0 };
+        ::ClientToScreen(GetSafeHwnd(), &clientOrigin);
+        CRect clientInWindow(clientOrigin.x - winRect.left,
+                             clientOrigin.y - winRect.top,
+                             clientOrigin.x - winRect.left + clientRect.Width(),
+                             clientOrigin.y - winRect.top + clientRect.Height());
+
+        HRGN winRgn = ::CreateRectRgn(0, 0, winRect.Width(), winRect.Height());
+        HRGN clientRgn = ::CreateRectRgnIndirect(&clientInWindow);
+        HRGN frameRgn = ::CreateRectRgn(0, 0, 0, 0);
+        ::CombineRgn(frameRgn, winRgn, clientRgn, RGN_DIFF);
+        ::FillRgn(hdc, frameRgn, brush);
+        ::DeleteObject(frameRgn);
+        ::DeleteObject(clientRgn);
+        ::DeleteObject(winRgn);
+    }
+
+    ::DeleteObject(brush);
+    ::ReleaseDC(GetSafeHwnd(), hdc);
+    return 0;
+}
+
+void MainWindow::OnLButtonDown(UINT flags, CPoint point)
+{
+    if (logoHitTest(point)) {
+        showLogoMenu();
+        return;
+    }
+
+    const int hit = captionButtonHitTest(point);
+    if (hit == kUpdateCaptionButtonHit) {
+        if (m_updateButtonState == UpdateButtonState::Available)
+            startBackgroundUpdateDownload();
+        else if (m_updateButtonState == UpdateButtonState::Downloaded)
+            confirmLaunchDownloadedUpdate();
+        return;
+    }
+
+    if (hit != 0) {
+        UINT command = SC_CLOSE;
+        if (hit == HTMINBUTTON)
+            command = SC_MINIMIZE;
+        else if (hit == HTMAXBUTTON)
+            command = isMaximized() ? SC_RESTORE : SC_MAXIMIZE;
+        SendMessage(WM_SYSCOMMAND, command, 0);
+        return;
+    }
+
+    if (point.y < ui::kMainWindowCaptionHeight && !m_isFullScreen) {
+        ReleaseCapture();
+        SendMessage(WM_NCLBUTTONDOWN, HTCAPTION, 0);
+        return;
+    }
+
+    CFrameWnd::OnLButtonDown(flags, point);
+}
+
+void MainWindow::OnLButtonDblClk(UINT flags, CPoint point)
+{
+    if (point.y < ui::kMainWindowCaptionHeight && !m_isFullScreen
+        && captionButtonHitTest(point) == 0 && !logoHitTest(point)) {
+        SendMessage(WM_SYSCOMMAND, isMaximized() ? SC_RESTORE : SC_MAXIMIZE, 0);
+        return;
+    }
+
+    CFrameWnd::OnLButtonDblClk(flags, point);
+}
+
+void MainWindow::OnMouseMove(UINT flags, CPoint point)
+{
+    const int hit = captionButtonHitTest(point);
+    if (hit != m_hoverCaptionButton) {
+        m_hoverCaptionButton = hit;
+        invalidateCaptionButtons();
+        if (m_captionTooltip.GetSafeHwnd()) {
+            if (hit == kUpdateCaptionButtonHit)
+                updateCaptionTooltip();
+            else
+                m_captionTooltip.UpdateTipText(L"", this);
+            m_captionTooltip.Pop();
+        }
+    }
+
+    const bool logoHovered = logoHitTest(point);
+    if (logoHovered != m_logoHovered) {
+        m_logoHovered = logoHovered;
+        InvalidateRect(logoRect(), FALSE);
+    }
+
+    if (!m_trackingMouse) {
+        TRACKMOUSEEVENT tme = {};
+        tme.cbSize = sizeof(tme);
+        tme.dwFlags = TME_LEAVE;
+        tme.hwndTrack = GetSafeHwnd();
+        ::TrackMouseEvent(&tme);
+        m_trackingMouse = true;
+    }
+
+    CFrameWnd::OnMouseMove(flags, point);
+}
+
+void MainWindow::OnMouseLeave()
+{
+    m_trackingMouse = false;
+    if (m_hoverCaptionButton != 0) {
+        m_hoverCaptionButton = 0;
+        invalidateCaptionButtons();
+    }
+    if (m_captionTooltip.GetSafeHwnd()) {
+        m_captionTooltip.UpdateTipText(L"", this);
+        m_captionTooltip.Pop();
+    }
+    if (m_logoHovered) {
+        m_logoHovered = false;
+        InvalidateRect(logoRect(), FALSE);
+    }
+}
+
+bool MainWindow::isMaximized() const
+{
+    WINDOWPLACEMENT placement = {};
+    placement.length = sizeof(placement);
+    if (!const_cast<MainWindow *>(this)->GetWindowPlacement(&placement))
+        return false;
+    return placement.showCmd == SW_SHOWMAXIMIZED;
+}
+
+void MainWindow::refreshDwmFrame()
+{
+    applyDwmExtension(GetSafeHwnd(), calculateWindowFrameMetrics(isMaximized(), m_isFullScreen));
+}
+
+void MainWindow::saveWindowState() const
+{
+    if (!GetSafeHwnd() || m_isFullScreen || !m_profileRepository)
+        return;
+
+    WINDOWPLACEMENT placement = {};
+    placement.length = sizeof(placement);
+    if (!const_cast<MainWindow *>(this)->GetWindowPlacement(&placement))
+        return;
+
+    RECT monitorRect = {};
+    RECT workArea = {};
+    std::wstring deviceName;
+    if (!monitorInfoForRect(placement.rcNormalPosition, monitorRect, workArea, deviceName))
+        return;
+
+    const RECT workspaceRect = WindowStateScaling::workspaceRectForMonitorWorkArea(monitorRect, workArea);
+
+    WindowState state;
+    if (!WindowStateScaling::saveToMonitorWorkArea(placement.rcNormalPosition,
+                                                   workspaceRect,
+                                                   static_cast<int>(placement.showCmd),
+                                                   state)) {
+        return;
+    }
+
+    state.monitorDeviceName = deviceName;
+
+    m_profileRepository->saveWindowState(state);
+}
+
+bool MainWindow::restoreWindowState()
+{
+    if (!m_profileRepository)
+        return false;
+
+    const WindowState state = m_profileRepository->loadWindowState();
+    if (!state.valid)
+        return false;
+
+    RECT monitorRect = {};
+    RECT workArea = {};
+    if (!monitorInfoForDeviceName(state.monitorDeviceName, monitorRect, workArea)
+        && !activeMonitorInfo(monitorRect, workArea)) {
+        return false;
+    }
+
+    const RECT workspaceRect = WindowStateScaling::workspaceRectForMonitorWorkArea(monitorRect, workArea);
+    RECT restoredRect = {};
+    if (!WindowStateScaling::restoreFromMonitorWorkArea(state, workspaceRect, restoredRect))
+        return false;
+
+    WINDOWPLACEMENT placement = {};
+    placement.length = sizeof(placement);
+    placement.rcNormalPosition = restoredRect;
+    placement.showCmd = state.showCmd;
+
+    SetWindowPlacement(&placement);
+    return true;
+}
+
+LRESULT MainWindow::OnDpiChanged(WPARAM, LPARAM lParam)
+{
+    if (!GetSafeHwnd() || !lParam)
+        return 0;
+
+    const auto *suggestedRect = reinterpret_cast<const RECT *>(lParam);
+    SetWindowPos(nullptr,
+                 suggestedRect->left,
+                 suggestedRect->top,
+                 suggestedRect->right - suggestedRect->left,
+                 suggestedRect->bottom - suggestedRect->top,
+                 SWP_NOZORDER | SWP_NOACTIVATE);
+
+    applyUiFont();
+    refreshDwmFrame();
+    layoutChildren();
+    invalidateCaptionButtons();
+    return 0;
+}
+
+CRect MainWindow::captionButtonRectFor(int hitCode) const
+{
+    static_assert(kUpdateCaptionButtonHit == ui::kMainWindowUpdateCaptionButtonHit);
+
+    CRect clientRect;
+    const_cast<MainWindow *>(this)->GetClientRect(&clientRect);
+    return toCRect(ui::mainWindowCaptionButtonRectFor(clientRect.right, hitCode, shouldShowUpdateButton()));
+}
+
+int MainWindow::captionButtonHitTest(CPoint clientPoint) const
+{
+    CRect clientRect;
+    const_cast<MainWindow *>(this)->GetClientRect(&clientRect);
+    return ui::mainWindowCaptionButtonHitTest(toLayoutPoint(clientPoint),
+                                              clientRect.right,
+                                              shouldShowUpdateButton());
+}
+
+void MainWindow::invalidateCaptionButtons()
+{
+    CRect rect = shouldShowUpdateButton()
+        ? captionButtonRectFor(kUpdateCaptionButtonHit)
+        : captionButtonRectFor(HTMINBUTTON);
+    rect.right = captionButtonRectFor(HTCLOSE).right;
+    if (!rect.IsRectEmpty())
+        InvalidateRect(rect, FALSE);
+}
+
+void MainWindow::drawCaptionButton(CDC &dc, const CRect &rect, int hitCode) const
+{
+    const bool hovered = (m_hoverCaptionButton == hitCode);
+    COLORREF background = Win10Theme::kCaptionBg;
+    COLORREF glyphColor = Win10Theme::kCaptionText;
+
+    if (hovered) {
+        if (hitCode == HTCLOSE) {
+            background = Win10Theme::kCloseHover;
+            glyphColor = Win10Theme::kCloseHoverText;
+        } else {
+            background = Win10Theme::kCaptionButtonHover;
+        }
+    }
+
+    dc.FillSolidRect(rect, background);
+
+    CPen pen(PS_SOLID, 1, glyphColor);
+    CPen *oldPen = dc.SelectObject(&pen);
+    const int cx = rect.left + rect.Width() / 2;
+    const int cy = rect.top + rect.Height() / 2;
+    constexpr int kGlyph = 5;
+
+    if (hitCode == HTMINBUTTON) {
+        dc.MoveTo(cx - kGlyph, cy);
+        dc.LineTo(cx + kGlyph + 1, cy);
+    } else if (hitCode == kUpdateCaptionButtonHit) {
+        if (m_updateButtonState == UpdateButtonState::Downloading) {
+            const CString progressText = updateButtonText();
+            const int oldBkMode = dc.SetBkMode(TRANSPARENT);
+            const COLORREF oldTextColor = dc.SetTextColor(glyphColor);
+            CRect textRect(rect);
+            dc.DrawText(progressText, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            dc.SetTextColor(oldTextColor);
+            dc.SetBkMode(oldBkMode);
+        } else if (m_updateButtonState == UpdateButtonState::Downloaded) {
+            dc.MoveTo(cx, cy + kGlyph);
+            dc.LineTo(cx, cy - kGlyph + 1);
+            dc.MoveTo(cx - kGlyph + 1, cy - 1);
+            dc.LineTo(cx, cy - kGlyph + 1);
+            dc.LineTo(cx + kGlyph - 1, cy - 1);
+        } else {
+            dc.MoveTo(cx, cy - kGlyph);
+            dc.LineTo(cx, cy + kGlyph - 1);
+            dc.MoveTo(cx - kGlyph + 1, cy + 1);
+            dc.LineTo(cx, cy + kGlyph - 1);
+            dc.LineTo(cx + kGlyph - 1, cy + 1);
+        }
+    } else if (hitCode == HTMAXBUTTON) {
+        CBrush hollow;
+        hollow.CreateStockObject(NULL_BRUSH);
+        CBrush *oldBrush = dc.SelectObject(&hollow);
+        if (isMaximized()) {
+            CRect inner1(cx - kGlyph + 1, cy - kGlyph + 1, cx + kGlyph - 1, cy + kGlyph - 1);
+            CRect inner2(cx - kGlyph + 3, cy - kGlyph - 1, cx + kGlyph + 1, cy + kGlyph - 3);
+            dc.Rectangle(inner1);
+            dc.Rectangle(inner2);
+        } else {
+            CRect inner(cx - kGlyph, cy - kGlyph, cx + kGlyph + 1, cy + kGlyph + 1);
+            dc.Rectangle(inner);
+        }
+        dc.SelectObject(oldBrush);
+    } else if (hitCode == HTCLOSE) {
+        dc.MoveTo(cx - kGlyph, cy - kGlyph);
+        dc.LineTo(cx + kGlyph + 1, cy + kGlyph + 1);
+        dc.MoveTo(cx - kGlyph, cy + kGlyph);
+        dc.LineTo(cx + kGlyph + 1, cy - kGlyph - 1);
+    }
+
+    dc.SelectObject(oldPen);
+}
+
+CRect MainWindow::logoRect() const
+{
+    return toCRect(ui::mainWindowLogoRect());
+}
+
+bool MainWindow::logoHitTest(CPoint clientPoint) const
+{
+    return ui::mainWindowLogoHitTest(toLayoutPoint(clientPoint), m_isFullScreen);
+}
+
+void MainWindow::showLogoMenu()
+{
+    CRect rect = logoRect();
+    ClientToScreen(&rect);
+
+    CMenu menu;
+    menu.CreatePopupMenu();
+    menu.AppendMenu(MF_STRING, ID_MAIN_NEW,
+                    (L"New\t" + ui::shortcutChordText(ui::currentMainWindowShortcuts().newConnection)).c_str());
+    menu.AppendMenu(MF_STRING, ID_MAIN_CONNECTIONS,
+                    (L"Connections\t" + ui::shortcutChordText(ui::currentMainWindowShortcuts().openConnections)).c_str());
+    menu.AppendMenu(MF_SEPARATOR);
+    menu.AppendMenu(MF_STRING, ID_MAIN_SHORTCUTS, L"Shortcuts...");
+    menu.AppendMenu(MF_SEPARATOR);
+    menu.AppendMenu(MF_STRING, ID_MAIN_ABOUT, L"About");
+    menu.TrackPopupMenu(TPM_LEFTALIGN | TPM_TOPALIGN, rect.left, rect.bottom, this);
+}
+
+void MainWindow::OnPaint()
+{
+    PAINTSTRUCT ps = {};
+    HDC hdc = ::BeginPaint(GetSafeHwnd(), &ps);
+
+    CRect clientRect;
+    GetClientRect(&clientRect);
+    CRect captionRect(0, 0, clientRect.right, ui::kMainWindowCaptionHeight);
+    const WindowFrameMetrics metrics = calculateWindowFrameMetrics(isMaximized(), m_isFullScreen);
+
+    // Paint the full client area first so newly exposed edge pixels after live resize
+    // do not depend on a separate erase pass to restore the accent border background.
+    HBRUSH backgroundBrush = ::CreateSolidBrush(metrics.backgroundColor);
+    if (backgroundBrush) {
+        ::FillRect(hdc, &clientRect, backgroundBrush);
+        ::DeleteObject(backgroundBrush);
+    }
+
+    HDC bufferedDc = nullptr;
+    HPAINTBUFFER buffer = ::BeginBufferedPaint(hdc, &captionRect, BPBF_TOPDOWNDIB, nullptr, &bufferedDc);
+    HDC targetDc = bufferedDc ? bufferedDc : hdc;
+    {
+        CDC dc;
+        dc.Attach(targetDc);
+
+        dc.FillSolidRect(captionRect, Win10Theme::kCaptionBg);
+
+        if (m_logoHovered) {
+            CRect hoverRect = logoHoverRectFor(metrics);
+            dc.FillSolidRect(hoverRect, Win10Theme::kCaptionButtonHover);
+        }
+
+        if (m_logoIcon) {
+            const int logoY = (ui::kMainWindowCaptionHeight - ui::kMainWindowLogoSize) / 2;
+            ::DrawIconEx(targetDc,
+                         ui::kMainWindowLogoLeftPadding,
+                         logoY,
+                         m_logoIcon,
+                         ui::kMainWindowLogoSize,
+                         ui::kMainWindowLogoSize,
+                         0,
+                         nullptr,
+                         DI_NORMAL);
+        }
+
+        if (shouldShowUpdateButton())
+            drawCaptionButton(dc, captionButtonRectFor(kUpdateCaptionButtonHit), kUpdateCaptionButtonHit);
+        drawCaptionButton(dc, captionButtonRectFor(HTMINBUTTON), HTMINBUTTON);
+        drawCaptionButton(dc, captionButtonRectFor(HTMAXBUTTON), HTMAXBUTTON);
+        drawCaptionButton(dc, captionButtonRectFor(HTCLOSE), HTCLOSE);
+
+        CPen captionBottomBorderPen(PS_SOLID, 1, Win10Theme::kBrandAccentDark);
+        CPen *oldCaptionBottomBorderPen = dc.SelectObject(&captionBottomBorderPen);
+        dc.MoveTo(0, ui::kMainWindowCaptionHeight - 1);
+        dc.LineTo(clientRect.right, ui::kMainWindowCaptionHeight - 1);
+        dc.SelectObject(oldCaptionBottomBorderPen);
+
+        if (metrics.drawAccentBorder) {
+            CPen borderPen(PS_SOLID, 1, Win10Theme::kBrandAccent);
+            CPen *oldPen = dc.SelectObject(&borderPen);
+            dc.MoveTo(0, 0);
+            dc.LineTo(clientRect.right - 1, 0);
+            dc.MoveTo(0, 0);
+            dc.LineTo(0, ui::kMainWindowCaptionHeight);
+            dc.MoveTo(clientRect.right - 1, 0);
+            dc.LineTo(clientRect.right - 1, ui::kMainWindowCaptionHeight);
+            dc.SelectObject(oldPen);
+        }
+
+        dc.Detach();
+    }
+
+    if (buffer) {
+        ::BufferedPaintSetAlpha(buffer, &captionRect, 255);
+        ::EndBufferedPaint(buffer, TRUE);
+    }
+
+    ::EndPaint(GetSafeHwnd(), &ps);
+}
+
+void MainWindow::layoutChildren()
+{
+    if (!GetSafeHwnd())
+        return;
+
+    CRect clientRect;
+    GetClientRect(&clientRect);
+
+    const ui::MainWindowChildLayout layout = ui::mainWindowChildLayout(clientRect.Width(),
+                                                                       clientRect.Height(),
+                                                                       isMaximized(),
+                                                                       m_isFullScreen,
+                                                                       shouldShowUpdateButton());
+
+    if (layout.tabBarVisible && m_tabBar.GetSafeHwnd()) {
+        const CRect tabRect = toCRect(layout.tabBarRect);
+        m_tabBar.SetWindowPos(nullptr, tabRect.left, tabRect.top,
+                              tabRect.Width(), tabRect.Height(),
+                              SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+    if (m_sessionHost.GetSafeHwnd()) {
+        const CRect hostRect = toCRect(layout.sessionHostRect);
+        m_sessionHost.SetWindowPos(nullptr, hostRect.left, hostRect.top,
+                                   hostRect.Width(), hostRect.Height(),
+                                   SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+
+    if (m_sessionManager)
+        m_sessionManager->layoutSessions();
+
+    if (!layout.tabBarVisible)
+        return;
+
+    if (m_sessionHost.GetSafeHwnd()) {
+        m_sessionHost.RedrawWindow(nullptr, nullptr,
+                                   RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN | RDW_NOERASE);
+    }
+}
+
+void MainWindow::toggleFullScreen()
+{
+    setFullScreen(!m_isFullScreen);
+}
+
+void MainWindow::setFullScreen(bool enabled)
+{
+    if (enabled == m_isFullScreen || !GetSafeHwnd())
+        return;
+
+    if (enabled) {
+        m_savedStyle = GetStyle();
+        m_savedExStyle = GetExStyle();
+        GetWindowRect(&m_savedRect);
+
+        HMONITOR monitor = ::MonitorFromWindow(GetSafeHwnd(), MONITOR_DEFAULTTONEAREST);
+        MONITORINFO info = {};
+        info.cbSize = sizeof(info);
+        if (!::GetMonitorInfoW(monitor, &info))
+            return;
+
+        m_isFullScreen = true;
+        ModifyStyle(WS_OVERLAPPEDWINDOW, WS_POPUP);
+        ModifyStyleEx(WS_EX_CLIENTEDGE | WS_EX_WINDOWEDGE | WS_EX_DLGMODALFRAME | WS_EX_STATICEDGE, 0);
+        if (m_tabBar.GetSafeHwnd())
+            m_tabBar.ShowWindow(SW_HIDE);
+
+        SetWindowPos(nullptr,
+                     info.rcMonitor.left, info.rcMonitor.top,
+                     info.rcMonitor.right - info.rcMonitor.left,
+                     info.rcMonitor.bottom - info.rcMonitor.top,
+                     SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+    } else {
+        m_isFullScreen = false;
+        ModifyStyle(WS_POPUP, m_savedStyle & WS_OVERLAPPEDWINDOW);
+        ModifyStyleEx(0, m_savedExStyle);
+        if (m_tabBar.GetSafeHwnd())
+            m_tabBar.ShowWindow(SW_SHOW);
+
+        SetWindowPos(nullptr,
+                     m_savedRect.left, m_savedRect.top,
+                     m_savedRect.Width(), m_savedRect.Height(),
+                     SWP_NOZORDER | SWP_FRAMECHANGED);
+    }
+
+    layoutChildren();
+    applyDwmExtension(GetSafeHwnd(), calculateWindowFrameMetrics(isMaximized(), m_isFullScreen));
+}

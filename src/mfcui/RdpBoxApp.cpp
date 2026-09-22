@@ -1,0 +1,102 @@
+#include "RdpBoxApp.h"
+
+#include "common/AppPaths.h"
+#include "common/PasswordProtection.h"
+#include "MainWindow.h"
+
+#include <objbase.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
+
+#pragma comment(lib, "ws2_32.lib")
+
+BEGIN_MESSAGE_MAP(CRdpBoxApp, CWinApp)
+END_MESSAGE_MAP()
+
+CRdpBoxApp theApp;
+
+void CRdpBoxApp::setStartupConnectionNames(std::vector<std::wstring> connectionNames)
+{
+    m_startupConnectionNames = std::move(connectionNames);
+}
+
+const std::vector<std::wstring> &CRdpBoxApp::startupConnectionNames() const
+{
+    return m_startupConnectionNames;
+}
+
+bool CRdpBoxApp::ensurePasswordProtectionReady()
+{
+    PasswordProtection::setMode(
+        AppPaths::isPortableMode()
+            ? PasswordProtection::Mode::Portable
+            : PasswordProtection::Mode::Dpapi);
+    return PasswordProtection::isReady();
+}
+
+BOOL CRdpBoxApp::InitInstance()
+{
+    INITCOMMONCONTROLSEX commonControls = {};
+    commonControls.dwSize = sizeof(commonControls);
+    commonControls.dwICC = ICC_WIN95_CLASSES | ICC_TAB_CLASSES | ICC_LISTVIEW_CLASSES;
+    InitCommonControlsEx(&commonControls);
+
+    const HRESULT initResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (FAILED(initResult))
+        return FALSE;
+
+    m_comInitialized = true;
+
+    WSADATA wsaData = {};
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+        cleanupSubsystems();
+        return FALSE;
+    }
+    m_wsaInitialized = true;
+
+    if (!CWinApp::InitInstance()) {
+        cleanupSubsystems();
+        return FALSE;
+    }
+
+    if (!ensurePasswordProtectionReady()) {
+        cleanupSubsystems();
+        return FALSE;
+    }
+
+    auto *frame = new MainWindow();
+    if (!frame->createShell()) {
+        delete frame;
+        cleanupSubsystems();
+        return FALSE;
+    }
+    frame->setStartupConnectionNames(m_startupConnectionNames);
+
+    m_pMainWnd = frame;
+    frame->ShowWindow(SW_SHOW);
+    frame->UpdateWindow();
+    frame->PostMessage(m_startupConnectionNames.empty()
+                           ? MainWindow::WM_APP_OPEN_CONNECTIONS
+                           : MainWindow::WM_APP_OPEN_STARTUP_CONNECTIONS,
+                       FALSE,
+                       0);
+    return TRUE;
+}
+
+int CRdpBoxApp::ExitInstance()
+{
+    cleanupSubsystems();
+    return CWinApp::ExitInstance();
+}
+
+void CRdpBoxApp::cleanupSubsystems()
+{
+    if (m_wsaInitialized) {
+        WSACleanup();
+        m_wsaInitialized = false;
+    }
+    if (m_comInitialized) {
+        CoUninitialize();
+        m_comInitialized = false;
+    }
+}

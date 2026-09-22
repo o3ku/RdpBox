@@ -2,8 +2,8 @@
 
 #include <windows.h>
 
-#include "profiles/ProfileRepository.h"
-#include "ui/WindowStateScaling.h"
+#include "common/profiles/ProfileRepository.h"
+#include "common/ui/WindowStateScaling.h"
 
 namespace
 {

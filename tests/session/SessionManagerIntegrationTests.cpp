@@ -5,7 +5,7 @@
 #include <utility>
 #include <vector>
 
-#include "session/SessionManager.h"
+#include "mfcui/session/SessionManager.h"
 
 namespace
 {

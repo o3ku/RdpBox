@@ -2,7 +2,7 @@
 
 #include <windows.h>
 
-#include "rdp/ClipboardWindowReady.h"
+#include "common/rdp/ClipboardWindowReady.h"
 
 int main()
 {

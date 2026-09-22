@@ -1,6 +1,6 @@
 #include <cassert>
 
-#include "rdp/RdpResizeBurstTracker.h"
+#include "common/rdp/RdpResizeBurstTracker.h"
 
 int main()
 {

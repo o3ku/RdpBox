@@ -2,7 +2,7 @@
 
 #include <windows.h>
 
-#include "ui/Win10Theme.h"
+#include "mfcui/Win10Theme.h"
 
 int main()
 {

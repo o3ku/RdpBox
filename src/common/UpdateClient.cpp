@@ -1,6 +1,7 @@
 #include "common/UpdateClient.h"
 
 #include "common/AppPaths.h"
+#include "common/ConnectionLaunchArgs.h"
 #include "common/Win32String.h"
 
 #include <nlohmann/json.hpp>
@@ -224,17 +225,67 @@ bool sendHttpRequest(const std::wstring &url,
 
     return readResponseBody(static_cast<HINTERNET>(request.get()), responseBytes, errorMessage, progressCallback);
 }
+}
 
-std::wstring downloadTargetPathForAsset(const updater::ReleaseAsset &asset)
+namespace updater
 {
-    const std::wstring updateDir = AppPaths::updatesDirectoryPath();
-    if (updateDir.empty())
-        return {};
+bool applyDownloadedUpdate(const std::wstring &downloadedPath,
+                           const std::wstring &currentExePath,
+                           const std::vector<std::wstring> &connectionNames)
+{
+    const std::wstring updatesDir = AppPaths::updatesDirectoryPath();
+    if (downloadedPath.empty() || currentExePath.empty() || updatesDir.empty())
+        return false;
 
-    std::wstring fileName = asset.assetName;
-    if (!asset.tagName.empty())
-        fileName = L"RdpBox-" + asset.tagName + L".exe";
-    return updateDir + L"\\" + fileName;
+    std::wstring params;
+    if (AppPaths::isPortableMode())
+        params = L"--portable";
+    const std::wstring connectionsArg = launch::buildConnectionsArgumentValue(connectionNames);
+    if (!connectionsArg.empty()) {
+        if (!params.empty())
+            params += L" ";
+        params += L"--connections=\"";
+        params += connectionsArg;
+        params += L"\"";
+    }
+
+    const std::wstring backupExePath = currentExePath + L".bak";
+    const std::wstring scriptPath = updatesDir + L"\\apply-update-"
+        + std::to_wstring(::GetCurrentProcessId()) + L".ps1";
+    const std::wstring logPath = updatesDir + L"\\update-apply.log";
+    const std::wstring script = launch::buildUpdateApplyScript(downloadedPath,
+                                                               currentExePath,
+                                                               backupExePath,
+                                                               params,
+                                                               scriptPath,
+                                                               logPath);
+    if (script.empty())
+        return false;
+    if (!AppPaths::writeFileContent(scriptPath, launch::updateScriptUtf8(script)))
+        return false;
+
+    std::wstring commandLine =
+        L"powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "
+        + launch::powerShellSingleQuotedLiteral(scriptPath);
+    STARTUPINFOW startupInfo = {};
+    startupInfo.cb = sizeof(startupInfo);
+    PROCESS_INFORMATION processInfo = {};
+    BOOL created = ::CreateProcessW(nullptr,
+                                    commandLine.data(),
+                                    nullptr,
+                                    nullptr,
+                                    FALSE,
+                                    CREATE_NO_WINDOW,
+                                    nullptr,
+                                    nullptr,
+                                    &startupInfo,
+                                    &processInfo);
+    if (!created)
+        return false;
+
+    ::CloseHandle(processInfo.hThread);
+    ::CloseHandle(processInfo.hProcess);
+    return true;
 }
 }
 

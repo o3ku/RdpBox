@@ -1,6 +1,6 @@
 #include <cassert>
 
-#include "rdp/RdpReservedShortcutTracker.h"
+#include "common/rdp/RdpReservedShortcutTracker.h"
 
 int main()
 {

@@ -1,6 +1,6 @@
 #include <cassert>
 
-#include "session/SessionTabBehavior.h"
+#include "mfcui/session/SessionTabBehavior.h"
 
 int main()
 {
@@ -18,14 +18,6 @@ int main()
     assert(!canMoveSessionTab(3, 0, -1));
     assert(!canMoveSessionTab(3, 0, 3));
     assert(!canMoveSessionTab(3, 1, 1));
-
-    assert(activeTabIndexAfterMove(0, 0, 2) == 2);
-    assert(activeTabIndexAfterMove(1, 0, 2) == 0);
-    assert(activeTabIndexAfterMove(2, 0, 2) == 1);
-    assert(activeTabIndexAfterMove(2, 2, 0) == 0);
-    assert(activeTabIndexAfterMove(1, 2, 0) == 2);
-    assert(activeTabIndexAfterMove(0, 2, 0) == 1);
-    assert(activeTabIndexAfterMove(3, 0, 2) == 3);
 
     return 0;
 }

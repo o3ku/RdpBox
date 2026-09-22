@@ -2,7 +2,7 @@
 
 #include <windows.h>
 
-#include "rdp/RdpInputEventUtil.h"
+#include "common/rdp/RdpInputEventUtil.h"
 
 int main()
 {

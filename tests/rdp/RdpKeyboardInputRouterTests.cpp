@@ -8,8 +8,8 @@
 #endif
 
 #include "common/NativeTypes.h"
-#include "rdp/RdpInputEventUtil.h"
-#include "rdp/RdpKeyboardInputRouter.h"
+#include "common/rdp/RdpInputEventUtil.h"
+#include "common/rdp/RdpKeyboardInputRouter.h"
 
 namespace
 {

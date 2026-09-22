@@ -4,7 +4,7 @@
 #include <windows.h>
 
 #include "common/NativeTypes.h"
-#include "rdp/RdpCursorClassifier.h"
+#include "common/rdp/RdpCursorClassifier.h"
 
 namespace
 {
@@ -99,67 +99,8 @@ void setPixel(FrameBuffer &frame, int x, int y)
     frame.pixels[offset + 3] = 0xFF;
 }
 
-FrameBuffer makeColumnSplitResizeCursorFrame()
-{
-    FrameBuffer frame = makeCursorFrame(16, 16);
 
-    for (int y = 3; y <= 12; ++y)
-        setPixel(frame, 8, y);
 
-    for (int x = 3; x <= 6; ++x)
-        setPixel(frame, x, 8);
-    setPixel(frame, 2, 8);
-    setPixel(frame, 3, 7);
-    setPixel(frame, 3, 9);
-    setPixel(frame, 4, 6);
-    setPixel(frame, 4, 10);
-
-    for (int x = 10; x <= 13; ++x)
-        setPixel(frame, x, 8);
-    setPixel(frame, 14, 8);
-    setPixel(frame, 13, 7);
-    setPixel(frame, 13, 9);
-    setPixel(frame, 12, 6);
-    setPixel(frame, 12, 10);
-
-    return frame;
-}
-
-FrameBuffer makeRowSplitResizeCursorFrame()
-{
-    FrameBuffer frame = makeCursorFrame(16, 16);
-
-    for (int x = 3; x <= 12; ++x)
-        setPixel(frame, x, 8);
-
-    for (int y = 3; y <= 6; ++y)
-        setPixel(frame, 8, y);
-    setPixel(frame, 8, 2);
-    setPixel(frame, 7, 3);
-    setPixel(frame, 9, 3);
-    setPixel(frame, 6, 4);
-    setPixel(frame, 10, 4);
-
-    for (int y = 10; y <= 13; ++y)
-        setPixel(frame, 8, y);
-    setPixel(frame, 8, 14);
-    setPixel(frame, 7, 13);
-    setPixel(frame, 9, 13);
-    setPixel(frame, 6, 12);
-    setPixel(frame, 10, 12);
-
-    return frame;
-}
-
-FrameBuffer makeVerticalLineCursorFrame()
-{
-    FrameBuffer frame = makeCursorFrame(16, 16);
-
-    for (int y = 2; y <= 13; ++y)
-        setPixel(frame, 8, y);
-
-    return frame;
-}
 
 FrameBuffer makeMagnifierCursorFrame()
 {
@@ -218,9 +159,6 @@ int main()
     const FrameBuffer frame = cursorFrameFromHandle(LoadCursor(nullptr, IDC_IBEAM));
     assert(!frame.empty());
 
-    const auto shape = RdpCursorClassifier::classifyShape(frame, PointI{0, 0});
-    assert(!shape.has_value());
-
     const CursorInfo iBeamCursor = RdpCursorClassifier::createCursor(frame, PointI{0, 0});
     assert(iBeamCursor.kind == CursorKind::Custom);
     assert(iBeamCursor.handle != nullptr);
@@ -230,38 +168,11 @@ int main()
     const FrameBuffer arrowFrame = cursorFrameFromHandle(LoadCursor(nullptr, IDC_ARROW));
     assert(!arrowFrame.empty());
 
-    const auto arrowShape = RdpCursorClassifier::classifyShape(arrowFrame, PointI{0, 0});
-    assert(!arrowShape.has_value());
-
     const CursorInfo arrowCursor = RdpCursorClassifier::createCursor(arrowFrame, PointI{0, 0});
     assert(arrowCursor.kind == CursorKind::Custom);
     assert(arrowCursor.handle != nullptr);
     if (arrowCursor.ownsHandle && arrowCursor.handle)
         DestroyCursor(arrowCursor.handle);
-
-    const auto columnSplitShape = RdpCursorClassifier::classifyShape(makeColumnSplitResizeCursorFrame(), PointI{8, 8});
-    assert(!columnSplitShape.has_value());
-
-    const auto rowSplitShape = RdpCursorClassifier::classifyShape(makeRowSplitResizeCursorFrame(), PointI{8, 8});
-    assert(!rowSplitShape.has_value());
-
-    const auto verticalLineShape = RdpCursorClassifier::classifyShape(makeVerticalLineCursorFrame(), PointI{8, 8});
-    assert(!verticalLineShape.has_value());
-
-    const FrameBuffer sizeNwseFrame = cursorFrameFromHandle(LoadCursor(nullptr, IDC_SIZENWSE));
-    assert(!sizeNwseFrame.empty());
-
-    const auto sizeNwseShape = RdpCursorClassifier::classifyShape(sizeNwseFrame, PointI{0, 0});
-    assert(!sizeNwseShape.has_value());
-
-    const FrameBuffer sizeNeswFrame = cursorFrameFromHandle(LoadCursor(nullptr, IDC_SIZENESW));
-    assert(!sizeNeswFrame.empty());
-
-    const auto sizeNeswShape = RdpCursorClassifier::classifyShape(sizeNeswFrame, PointI{0, 0});
-    assert(!sizeNeswShape.has_value());
-
-    const auto magnifierShape = RdpCursorClassifier::classifyShape(makeMagnifierCursorFrame(), PointI{5, 5});
-    assert(!magnifierShape.has_value());
 
     const CursorInfo magnifierCursor = RdpCursorClassifier::createCursor(makeMagnifierCursorFrame(), PointI{5, 5});
     assert(magnifierCursor.kind == CursorKind::Custom);

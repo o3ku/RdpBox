@@ -1,4 +1,4 @@
-#include "qt/QtShortcutSettings.h"
+#include "qtui/QtShortcutSettings.h"
 
 #include <QCoreApplication>
 #include <QTemporaryDir>

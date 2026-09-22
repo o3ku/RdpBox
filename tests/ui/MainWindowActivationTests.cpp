@@ -1,6 +1,6 @@
 #include <cassert>
 
-#include "ui/MainWindowActivation.h"
+#include "common/ui/MainWindowActivation.h"
 
 int main()
 {

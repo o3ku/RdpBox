@@ -3,8 +3,8 @@
 #include <windows.h>
 
 #include "common/NativeTypes.h"
-#include "rdp/RdpInputModifiers.h"
-#include "rdp/RdpModifierSyncTracker.h"
+#include "common/rdp/RdpInputModifiers.h"
+#include "common/rdp/RdpModifierSyncTracker.h"
 
 int main()
 {
