@@ -6,7 +6,7 @@
 #include "mfcui/session/SessionManager.h"
 #include "mfcui/ConnectionListDialog.h"
 #include "common/ui/MainWindowSessionBehavior.h"
-#include "mfcui/MainWindowShortcuts.h"
+#include "common/ui/MainWindowShortcuts.h"
 #include "common/ui/MainWindowTabBehavior.h"
 #include "mfcui/ProfileEditDialog.h"
 #include "mfcui/ShortcutsDialog.h"

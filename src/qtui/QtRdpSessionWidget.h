@@ -4,6 +4,7 @@
 #include "common/profiles/Profile.h"
 #include "common/rdp/FreeRdpProcess.h"
 #include "common/rdp/RdpKeyboardInputRouter.h"
+#include "common/rdp/RdpSessionKeyboardHook.h"
 #include "common/rdp/RdpMouseMoveCoalescer.h"
 #include "common/rdp/RdpReservedShortcutTracker.h"
 #include "common/rdp/RdpResizeBurstTracker.h"
@@ -18,7 +19,7 @@
 class QLabel;
 class QTimer;
 
-class QtRdpSessionWidget : public QWidget
+class QtRdpSessionWidget : public QWidget, public rdp::session_view_input::RdpSystemKeyTarget
 {
 public:
     explicit QtRdpSessionWidget(Profile profile, QWidget *parent = nullptr);
@@ -48,6 +49,18 @@ protected:
     void keyReleaseEvent(QKeyEvent *event) override;
     void focusInEvent(QFocusEvent *event) override;
     void focusOutEvent(QFocusEvent *event) override;
+
+    // RdpSystemKeyTarget: WH_KEYBOARD_LL hook entry points (Win/Alt+Tab/Esc...).
+    bool canCaptureSystemKeys() const override;
+    bool hasWindowFocus() const override;
+    bool shouldCaptureLowLevelKey(const RdpLowLevelKeyEvent &event,
+                                  const RdpKeyboardPhysicalState &physical) const override;
+    std::uint32_t messageForLowLevelKey(const RdpLowLevelKeyEvent &event,
+                                        const RdpKeyboardPhysicalState &physical) const override;
+    void forwardNativeKeyMessage(std::uint32_t message,
+                                 std::uintptr_t wParam,
+                                 std::intptr_t lParam) override;
+    void releaseKeyboardInputForTargetTransfer() override;
 
 private:
     void bindProcessCallbacks();

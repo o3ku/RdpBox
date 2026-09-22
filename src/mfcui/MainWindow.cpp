@@ -6,7 +6,7 @@
 #include "mfcui/session/SessionManager.h"
 #include "mfcui/AboutDialog.h"
 #include "common/ui/MainWindowActivation.h"
-#include "mfcui/MainWindowShortcuts.h"
+#include "common/ui/MainWindowShortcuts.h"
 #include "mfcui/ShortcutsDialog.h"
 #include "mfcui/Win10Theme.h"
 #include "resources/resource.h"

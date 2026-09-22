@@ -1,15 +1,15 @@
 #include "common/rdp/RdpSessionKeyboardHook.h"
 
-#include "RdpSessionView.h"
-
 #include "common/rdp/RdpInputEventUtil.h"
-#include "mfcui/MainWindowShortcuts.h"
+#include "common/ui/MainWindowShortcuts.h"
 
 #include <cstdint>
 
+using rdp::session_view_input::RdpSystemKeyTarget;
+
 namespace
 {
-CRdpSessionView *g_systemKeyTarget = nullptr;
+RdpSystemKeyTarget *g_systemKeyTarget = nullptr;
 HHOOK g_keyboardHook = nullptr;
 
 bool isVirtualKeyPhysicallyDown(int virtualKey)
@@ -75,7 +75,7 @@ RdpLowLevelKeyEvent lowLevelKeyEventFromInfo(const KBDLLHOOKSTRUCT *info, bool k
         static_cast<unsigned int>(info->vkCode),
         static_cast<unsigned int>(info->flags),
         keyUp,
-        g_systemKeyTarget && ::GetFocus() == g_systemKeyTarget->GetSafeHwnd(),
+        g_systemKeyTarget && g_systemKeyTarget->hasWindowFocus(),
         isReservedLowLevelShortcut(info)
     };
 }
@@ -134,12 +134,12 @@ void releaseKeyboardHookIfUnused()
 
 namespace rdp::session_view_input
 {
-bool isKeyboardTarget(const CRdpSessionView *target)
+bool isKeyboardTarget(const RdpSystemKeyTarget *target)
 {
     return g_systemKeyTarget == target;
 }
 
-void setKeyboardTarget(CRdpSessionView *target)
+void setKeyboardTarget(RdpSystemKeyTarget *target)
 {
     if (g_systemKeyTarget == target) {
         if (g_systemKeyTarget)
@@ -147,7 +147,7 @@ void setKeyboardTarget(CRdpSessionView *target)
         return;
     }
 
-    CRdpSessionView *oldTarget = g_systemKeyTarget;
+    RdpSystemKeyTarget *oldTarget = g_systemKeyTarget;
     g_systemKeyTarget = target;
 
     if (oldTarget)
@@ -157,39 +157,10 @@ void setKeyboardTarget(CRdpSessionView *target)
         ensureKeyboardHook();
 }
 
-void clearKeyboardTarget(CRdpSessionView *target)
+void clearKeyboardTarget(RdpSystemKeyTarget *target)
 {
     if (g_systemKeyTarget == target)
         g_systemKeyTarget = nullptr;
     releaseKeyboardHookIfUnused();
-}
-
-KeyboardMessageDisposition handleWindowKeyMessage(CRdpSessionView &target,
-                                                  std::uint32_t message,
-                                                  std::uintptr_t wParam,
-                                                  std::intptr_t lParam)
-{
-    if (message != WM_KEYDOWN && message != WM_KEYUP && message != WM_SYSKEYDOWN && message != WM_SYSKEYUP)
-        return KeyboardMessageDisposition::NotHandled;
-
-    const bool down = (message == WM_KEYDOWN || message == WM_SYSKEYDOWN);
-    const bool controlDown = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-    const bool shiftDown = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
-    const bool altDown = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
-    if (down && ui::isReservedMainWindowShortcut(controlDown,
-                                                 shiftDown,
-                                                 altDown,
-                                                 static_cast<unsigned int>(wParam))) {
-        target.noteConsumedLocalShortcutKey(static_cast<unsigned int>(wParam));
-        return KeyboardMessageDisposition::PassThrough;
-    }
-
-    if (!down && target.consumeReservedShortcutKey(static_cast<unsigned int>(wParam)))
-        return KeyboardMessageDisposition::PassThrough;
-
-    target.forwardNativeKeyMessage(static_cast<std::uint32_t>(message),
-                                   static_cast<std::uintptr_t>(wParam),
-                                   static_cast<std::intptr_t>(lParam));
-    return KeyboardMessageDisposition::Handled;
 }
 }

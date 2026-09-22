@@ -28,7 +28,7 @@
 namespace
 {
 constexpr int kMouseMoveTimerIntervalMs = 16;
-constexpr int kResizeTimerIntervalMs = 50;
+constexpr int kResizeTimerIntervalMs = 200;
 constexpr int kRecoveryTimerIntervalMs = 2500;
 
 rdp::certificate_prompt::Challenge promptChallengeFromProcessChallenge(
@@ -226,6 +226,7 @@ QtRdpSessionWidget::QtRdpSessionWidget(Profile profile, QWidget *parent)
 
 QtRdpSessionWidget::~QtRdpSessionWidget()
 {
+    rdp::session_view_input::clearKeyboardTarget(this);
     stopProcess();
 }
 
@@ -465,6 +466,7 @@ void QtRdpSessionWidget::keyReleaseEvent(QKeyEvent *event)
 void QtRdpSessionWidget::focusInEvent(QFocusEvent *event)
 {
     QWidget::focusInEvent(event);
+    rdp::session_view_input::setKeyboardTarget(this);
     if (m_process)
         m_process->sendFocusIn();
     releaseAllPressedKeys();
@@ -473,6 +475,7 @@ void QtRdpSessionWidget::focusInEvent(QFocusEvent *event)
 void QtRdpSessionWidget::focusOutEvent(QFocusEvent *event)
 {
     QWidget::focusOutEvent(event);
+    rdp::session_view_input::clearKeyboardTarget(this);
     releasePressedMouseButtons();
     flushPendingMouseMove();
     releaseAllPressedKeys();
@@ -687,13 +690,8 @@ void QtRdpSessionWidget::requestResize()
         return;
 
     const SizeI size = viewSize();
-    if (!m_resizeBurstTracker.onResize(size))
-        return;
-
-    beginResolutionUpdate();
-    m_process->requestResize(size);
-    if (m_resizeTimer)
-        m_resizeTimer->start();
+    if (m_resizeBurstTracker.onResize(size) && m_resizeTimer)
+        m_resizeTimer->start(); // trailing debounce: the tick sends
 }
 
 void QtRdpSessionWidget::handleResizeTimer()
@@ -843,6 +841,52 @@ void QtRdpSessionWidget::sendMouseButton(QMouseEvent *event, bool down)
         grabMouse();
     else
         releaseMouse();
+}
+
+bool QtRdpSessionWidget::canCaptureSystemKeys() const
+{
+    return m_process && m_state == FreeRdpProcess::State::Running && isVisible() && hasFocus();
+}
+
+bool QtRdpSessionWidget::hasWindowFocus() const
+{
+    return hasFocus();
+}
+
+void QtRdpSessionWidget::releaseKeyboardInputForTargetTransfer()
+{
+    releaseAllPressedKeys();
+}
+
+bool QtRdpSessionWidget::shouldCaptureLowLevelKey(const RdpLowLevelKeyEvent &event,
+                                                  const RdpKeyboardPhysicalState &physical) const
+{
+    return m_keyboardRouter.shouldCaptureLowLevelKey(event, physical);
+}
+
+std::uint32_t QtRdpSessionWidget::messageForLowLevelKey(const RdpLowLevelKeyEvent &event,
+                                                        const RdpKeyboardPhysicalState &physical) const
+{
+    return m_keyboardRouter.messageForLowLevelKey(event, physical);
+}
+
+void QtRdpSessionWidget::forwardNativeKeyMessage(std::uint32_t message,
+                                                 std::uintptr_t wParam,
+                                                 std::intptr_t lParam)
+{
+    if (!m_process)
+        return;
+
+    const unsigned int virtualKey = static_cast<unsigned int>(wParam);
+    const auto nativeEvent = keyEventInfoFromMessage(message, wParam, lParam);
+    if (!nativeEvent)
+        return;
+
+    sendKeyboardActions(m_keyboardRouter.handleKeyMessage(message,
+                                                          virtualKey,
+                                                          *nativeEvent,
+                                                          physicalKeyboardState(),
+                                                          hasFocus()));
 }
 
 void QtRdpSessionWidget::sendKeyEvent(QKeyEvent *event, bool down)

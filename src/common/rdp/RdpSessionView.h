@@ -17,9 +17,11 @@
 #include "common/rdp/RdpResumeRecovery.h"
 #include "common/rdp/RdpSessionMouseState.h"
 #include "common/rdp/RdpSessionKeyboardState.h"
+#include "common/rdp/RdpKeyboardInputRouter.h"
 #include "common/rdp/RdpResizeBurstTracker.h"
+#include "common/rdp/RdpSessionKeyboardHook.h"
 
-class CRdpSessionView : public CWnd
+class CRdpSessionView : public CWnd, public rdp::session_view_input::RdpSystemKeyTarget
 {
     DECLARE_DYNAMIC(CRdpSessionView)
 
@@ -47,16 +49,17 @@ public:
     void handleHostResume(bool autoReconnect);
     void handleBecameVisible();
 
-    bool canCaptureSystemKeys() const;
+    bool canCaptureSystemKeys() const override;
+    bool hasWindowFocus() const override;
     unsigned int activeKeyboardModifiers() const;
     bool shouldCaptureLowLevelKey(const RdpLowLevelKeyEvent &event,
-                                  const RdpKeyboardPhysicalState &physical) const;
+                                  const RdpKeyboardPhysicalState &physical) const override;
     std::uint32_t messageForLowLevelKey(const RdpLowLevelKeyEvent &event,
-                                        const RdpKeyboardPhysicalState &physical) const;
+                                        const RdpKeyboardPhysicalState &physical) const override;
     void noteConsumedLocalShortcutKey(unsigned int virtualKey);
     bool consumeReservedShortcutKey(unsigned int virtualKey);
-    void forwardNativeKeyMessage(std::uint32_t message, std::uintptr_t wParam, std::intptr_t lParam);
-    void releaseKeyboardInputForTargetTransfer();
+    void forwardNativeKeyMessage(std::uint32_t message, std::uintptr_t wParam, std::intptr_t lParam) override;
+    void releaseKeyboardInputForTargetTransfer() override;
 
 protected:
     afx_msg BOOL OnEraseBkgnd(CDC *dc);

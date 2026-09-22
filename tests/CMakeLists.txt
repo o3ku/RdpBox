@@ -494,7 +494,7 @@ add_test(NAME MainWindowActivationTests COMMAND MainWindowActivationTests)
 
 add_executable(MainWindowShortcutsTests
     ui/MainWindowShortcutsTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/mfcui/MainWindowShortcuts.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/ui/MainWindowShortcuts.cpp
 )
 
 target_include_directories(MainWindowShortcutsTests PRIVATE
