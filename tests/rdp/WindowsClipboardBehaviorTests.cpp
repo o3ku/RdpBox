@@ -3,7 +3,7 @@
 
 #include <windows.h>
 
-#include "rdp/WindowsClipboardBehavior.h"
+#include "common/rdp/WindowsClipboardBehavior.h"
 
 int main()
 {

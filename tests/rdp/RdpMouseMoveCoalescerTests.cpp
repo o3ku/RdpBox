@@ -2,7 +2,7 @@
 #include <optional>
 
 #include "common/NativeTypes.h"
-#include "rdp/RdpMouseMoveCoalescer.h"
+#include "common/rdp/RdpMouseMoveCoalescer.h"
 
 namespace
 {

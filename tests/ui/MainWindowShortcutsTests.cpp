@@ -2,7 +2,7 @@
 
 #include <windows.h>
 
-#include "ui/MainWindowShortcuts.h"
+#include "mfcui/MainWindowShortcuts.h"
 
 int main()
 {

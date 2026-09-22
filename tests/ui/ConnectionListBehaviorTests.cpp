@@ -1,7 +1,7 @@
 #include <cassert>
 #include <utility>
 
-#include "ui/ConnectionListBehavior.h"
+#include "common/ui/ConnectionListBehavior.h"
 
 namespace
 {

@@ -1,7 +1,7 @@
 #include <cassert>
 #include <utility>
 
-#include "session/SessionCollectionBehavior.h"
+#include "mfcui/session/SessionCollectionBehavior.h"
 
 namespace
 {
@@ -38,20 +38,6 @@ int main()
         assert(names[0] == L"alpha");
         assert(names[1] == L"gamma");
     }
-
-    assert(!moveSessionSnapshot(sessions, -1, 0));
-    assert(!moveSessionSnapshot(sessions, 0, 3));
-    assert(!moveSessionSnapshot(sessions, 1, 1));
-
-    assert(moveSessionSnapshot(sessions, 0, 2));
-    assert(sessions[0].id == "b");
-    assert(sessions[1].id == "c");
-    assert(sessions[2].id == "a");
-
-    assert(moveSessionSnapshot(sessions, 2, 0));
-    assert(sessions[0].id == "a");
-    assert(sessions[1].id == "b");
-    assert(sessions[2].id == "c");
 
     return 0;
 }

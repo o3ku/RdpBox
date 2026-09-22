@@ -1,7 +1,7 @@
 #include <cassert>
 
 #include "common/NativeTypes.h"
-#include "rdp/FrameBufferMemory.h"
+#include "common/rdp/FrameBufferMemory.h"
 
 int main()
 {

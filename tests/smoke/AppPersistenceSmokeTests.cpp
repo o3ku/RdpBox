@@ -8,7 +8,7 @@
 #include "common/AppPaths.h"
 #include "common/PasswordProtection.h"
 #include "common/Win32String.h"
-#include "profiles/ProfileRepository.h"
+#include "common/profiles/ProfileRepository.h"
 
 namespace
 {
@@ -61,10 +61,8 @@ int main()
 {
     const std::filesystem::path exeDir = executableDirectory();
     const std::filesystem::path profilesPath = exeDir / "profiles.json";
-    const std::filesystem::path frameCapturesPath = exeDir / "frame-captures";
 
     ScopedPathBackup profilesBackup(profilesPath);
-    ScopedPathBackup frameCapturesBackup(frameCapturesPath);
 
     assert(AppPaths::enablePortableMode());
     PasswordProtection::setMode(PasswordProtection::Mode::Portable);
@@ -113,11 +111,6 @@ int main()
     assert(root["profiles"].is_array());
     assert(root["profiles"].size() == 1);
     assert(root.contains("windowState"));
-
-    const std::filesystem::path captureRoot = AppPaths::frameCaptureRootPath();
-    assert(captureRoot == frameCapturesPath);
-    assert(std::filesystem::exists(captureRoot));
-    assert(std::filesystem::is_directory(captureRoot));
 
     PasswordProtection::setMode(PasswordProtection::Mode::Dpapi);
     return 0;

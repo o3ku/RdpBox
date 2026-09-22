@@ -1,6 +1,6 @@
 #include <cassert>
 
-#include "rdp/RdpReconnectInteraction.h"
+#include "common/rdp/RdpReconnectInteraction.h"
 
 int main()
 {

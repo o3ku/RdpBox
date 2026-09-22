@@ -7,7 +7,7 @@
 
 #include "common/PasswordProtection.h"
 #include "common/Win32String.h"
-#include "profiles/ProfileRepository.h"
+#include "common/profiles/ProfileRepository.h"
 
 namespace
 {

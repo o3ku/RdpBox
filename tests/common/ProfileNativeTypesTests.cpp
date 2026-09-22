@@ -1,7 +1,7 @@
 #include <cassert>
 
 #include "common/NativeTypes.h"
-#include "profiles/Profile.h"
+#include "common/profiles/Profile.h"
 
 int main()
 {

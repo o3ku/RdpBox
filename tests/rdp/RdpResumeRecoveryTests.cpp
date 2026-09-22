@@ -1,6 +1,6 @@
 #include <cassert>
 
-#include "rdp/RdpResumeRecovery.h"
+#include "common/rdp/RdpResumeRecovery.h"
 
 int main()
 {

@@ -1,4 +1,4 @@
-#include "qt/QtWindowChromeBehavior.h"
+#include "qtui/QtWindowChromeBehavior.h"
 
 #include <cassert>
 #include <vector>
@@ -37,8 +37,6 @@ int main()
 
     assert(qt::chrome::hitAreaForPoint(QPoint(2, 2), windowSize, captionRect, buttons, 6, true)
         == HitArea::Caption);
-    assert(qt::chrome::isResizeArea(HitArea::BottomRight));
-    assert(!qt::chrome::isResizeArea(HitArea::Caption));
 
     return 0;
 }

@@ -1,6 +1,6 @@
 #include <cassert>
 
-#include "ui/MainWindowUpdateBehavior.h"
+#include "common/ui/MainWindowUpdateBehavior.h"
 
 int main()
 {

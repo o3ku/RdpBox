@@ -1,7 +1,7 @@
 #include <windows.h>
 
 #include "common/NativeTypes.h"
-#include "rdp/RdpInputModifiers.h"
+#include "common/rdp/RdpInputModifiers.h"
 
 int main()
 {

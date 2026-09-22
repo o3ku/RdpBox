@@ -1,6 +1,6 @@
 #include <cassert>
 
-#include "rdp/RdpCertificatePromptBehavior.h"
+#include "common/rdp/RdpCertificatePromptBehavior.h"
 
 namespace
 {

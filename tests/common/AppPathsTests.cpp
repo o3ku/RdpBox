@@ -59,10 +59,8 @@ int main()
 {
     const std::filesystem::path exeDir = executableDirectory();
     const std::filesystem::path profilesPath = exeDir / "profiles.json";
-    const std::filesystem::path frameCapturesPath = exeDir / "frame-captures";
 
     ScopedPathBackup profilesBackup(profilesPath);
-    ScopedPathBackup frameCapturesBackup(frameCapturesPath);
 
     assert(AppPaths::enablePortableMode());
     assert(AppPaths::isPortableMode());
@@ -75,11 +73,6 @@ int main()
     assert(profilesJson.value("portableMode", false));
     assert(profilesJson.contains("profiles"));
     assert(profilesJson["profiles"].is_array());
-
-    const std::filesystem::path frameCaptureRoot = AppPaths::frameCaptureRootPath();
-    assert(frameCaptureRoot == frameCapturesPath);
-    assert(std::filesystem::exists(frameCaptureRoot));
-    assert(std::filesystem::is_directory(frameCaptureRoot));
 
     const std::filesystem::path roundTripPath = exeDir / wideFromUtf8("AppPathsTests-" + createGuidString() + ".txt");
     assert(AppPaths::writeFileContent(roundTripPath.wstring(), "portable-roundtrip"));

@@ -1,6 +1,6 @@
 #include <cassert>
 
-#include "ui/MainWindowStatePersistence.h"
+#include "mfcui/MainWindowStatePersistence.h"
 
 int main()
 {

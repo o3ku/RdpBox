@@ -2,7 +2,7 @@
 
 #include <afxwin.h>
 
-#include "ui/ParentResizeForwarder.h"
+#include "mfcui/ParentResizeForwarder.h"
 
 namespace
 {

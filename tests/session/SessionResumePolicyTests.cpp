@@ -1,4 +1,4 @@
-#include "session/SessionResumePolicy.h"
+#include "common/session/SessionResumePolicy.h"
 
 int main()
 {

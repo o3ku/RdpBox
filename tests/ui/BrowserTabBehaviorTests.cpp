@@ -1,6 +1,6 @@
 #include <cassert>
 
-#include "ui/BrowserTabBehavior.h"
+#include "mfcui/BrowserTabBehavior.h"
 
 int main()
 {

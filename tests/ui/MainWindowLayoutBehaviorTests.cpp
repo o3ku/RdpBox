@@ -1,6 +1,6 @@
 #include <cassert>
 
-#include "ui/MainWindowLayoutBehavior.h"
+#include "mfcui/MainWindowLayoutBehavior.h"
 
 namespace
 {
