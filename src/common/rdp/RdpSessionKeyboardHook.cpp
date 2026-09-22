@@ -7,6 +7,34 @@
 
 using rdp::session_view_input::RdpSystemKeyTarget;
 
+#ifndef _WIN32
+// Low-level system-key capture is a WH_KEYBOARD_LL facility; off Windows the
+// target bookkeeping stays functional but no keys are intercepted.
+namespace rdp::session_view_input
+{
+namespace
+{
+RdpSystemKeyTarget *g_systemKeyTarget = nullptr;
+}
+
+bool isKeyboardTarget(const RdpSystemKeyTarget *target)
+{
+    return g_systemKeyTarget == target;
+}
+
+void setKeyboardTarget(RdpSystemKeyTarget *target)
+{
+    g_systemKeyTarget = target;
+}
+
+void clearKeyboardTarget(RdpSystemKeyTarget *target)
+{
+    if (g_systemKeyTarget == target)
+        g_systemKeyTarget = nullptr;
+}
+}
+#else
+
 namespace
 {
 RdpSystemKeyTarget *g_systemKeyTarget = nullptr;
@@ -164,3 +192,4 @@ void clearKeyboardTarget(RdpSystemKeyTarget *target)
     releaseKeyboardHookIfUnused();
 }
 }
+#endif // _WIN32

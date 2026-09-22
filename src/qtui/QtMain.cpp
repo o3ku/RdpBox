@@ -18,8 +18,10 @@
 #include <QIcon>
 #include <QStringList>
 
+#ifdef _WIN32
 #include <winsock2.h>
 #include <windows.h>
+#endif
 
 namespace
 {
@@ -330,6 +332,7 @@ void applyApplicationTheme(QApplication &application)
 
 int main(int argc, char *argv[])
 {
+#ifdef _WIN32
     // FreeRDP/WinPR assumes the process initialized Winsock (like the MFC app
     // does); without this, getaddrinfo intermittently fails with 10093
     // (WSANOTINITIALISED) depending on whether QtNetwork happened to init it.
@@ -347,6 +350,7 @@ int main(int argc, char *argv[])
         }
         return 0;
     }
+#endif
 
     // No "?" context-help button on any dialog.
     QCoreApplication::setAttribute(Qt::AA_DisableWindowContextHelpButton);
@@ -371,9 +375,11 @@ int main(int argc, char *argv[])
     window.show();
 
     const int exitCode = application.exec();
+#ifdef _WIN32
     if (mutex)
         ::CloseHandle(mutex);
     if (wsaInitialized)
         ::WSACleanup();
+#endif
     return exitCode;
 }

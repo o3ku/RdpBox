@@ -40,6 +40,25 @@
         "BUILD_TEST": "ON",
         "CMAKE_BUILD_TYPE": "Debug"
       }
+    },
+    {
+      "name": "linux-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "RDPBOX_BUILD_QT": "ON"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "linux-release",
+      "inherits": "linux-base"
     }
   ],
   "buildPresets": [
@@ -54,6 +73,10 @@
     {
       "name": "msvc-debug-test",
       "configurePreset": "msvc-debug-test"
+    },
+    {
+      "name": "linux-release",
+      "configurePreset": "linux-release"
     }
   ],
   "testPresets": [

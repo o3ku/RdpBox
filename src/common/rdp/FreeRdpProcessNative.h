@@ -12,7 +12,9 @@
 #include <freerdp3/freerdp/freerdp.h>
 #include <freerdp3/freerdp/graphics.h>
 
-#include <windows.h>
+#ifndef _WIN32
+#include <winpr/winpr.h>
+#endif
 
 struct NativeRdpContext
 {

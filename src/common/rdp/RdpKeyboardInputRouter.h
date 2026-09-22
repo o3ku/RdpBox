@@ -8,7 +8,8 @@
 #include <cstdint>
 #include <vector>
 
-#include <windows.h>
+#include "common/NativeTypes.h"
+#include "common/rdp/RdpWinKeyCodes.h"
 
 struct RdpKeyboardPhysicalState
 {

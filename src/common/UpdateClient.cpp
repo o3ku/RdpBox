@@ -11,11 +11,59 @@
 #include <memory>
 #include <vector>
 
+#ifdef _WIN32
 #include <winhttp.h>
+#endif
 
+#ifdef _WIN32
 #pragma comment(lib, "winhttp.lib")
+#endif
 
+// Portable version-tag parsing (shared by every platform).
 namespace
+{
+std::wstring stripVersionPrefix(const std::wstring &tag)
+{
+    if (!tag.empty() && (tag.front() == L'v' || tag.front() == L'V'))
+        return tag.substr(1);
+    return tag;
+}
+
+int wideToInt(const std::wstring &digits)
+{
+    int value = 0;
+    for (wchar_t ch : digits)
+        value = value * 10 + (ch - L'0');
+    return value;
+}
+
+std::vector<int> parseVersionComponents(const std::wstring &tag)
+{
+    std::vector<int> components;
+    std::wstring current;
+    for (wchar_t ch : stripVersionPrefix(tag)) {
+        if (ch >= L'0' && ch <= L'9') {
+            current.push_back(ch);
+            continue;
+        }
+        if (ch == L'.') {
+            if (!current.empty()) {
+                components.push_back(wideToInt(current));
+                current.clear();
+            }
+            continue;
+        }
+        break;
+    }
+
+    if (!current.empty())
+        components.push_back(wideToInt(current));
+    return components;
+}
+}  // anonymous namespace
+
+#ifdef _WIN32
+namespace winhttp_detail
 {
 struct WinHttpHandleCloser
 {
@@ -35,37 +83,6 @@ struct ParsedUrl
     INTERNET_PORT port = INTERNET_DEFAULT_HTTPS_PORT;
     bool secure = true;
 };
-
-std::wstring stripVersionPrefix(const std::wstring &tag)
-{
-    if (!tag.empty() && (tag.front() == L'v' || tag.front() == L'V'))
-        return tag.substr(1);
-    return tag;
-}
-
-std::vector<int> parseVersionComponents(const std::wstring &tag)
-{
-    std::vector<int> components;
-    std::wstring current;
-    for (wchar_t ch : stripVersionPrefix(tag)) {
-        if (ch >= L'0' && ch <= L'9') {
-            current.push_back(ch);
-            continue;
-        }
-        if (ch == L'.') {
-            if (!current.empty()) {
-                components.push_back(_wtoi(current.c_str()));
-                current.clear();
-            }
-            continue;
-        }
-        break;
-    }
-
-    if (!current.empty())
-        components.push_back(_wtoi(current.c_str()));
-    return components;
-}
 
 bool parseUrl(const std::wstring &url, ParsedUrl &parsed)
 {
@@ -89,6 +106,17 @@ bool parseUrl(const std::wstring &url, ParsedUrl &parsed)
 }
 
 bool readResponseBody(HINTERNET request,
+                      std::vector<std::uint8_t> &bytes,
+                      std::wstring &errorMessage,
+                      const updater::DownloadProgressCallback &progressCallback);
+
+bool sendHttpRequest(const std::wstring &url,
+                     const wchar_t *acceptTypes[],
+                     std::vector<std::uint8_t> &responseBytes,
+                     std::wstring &errorMessage,
+                     const updater::DownloadProgressCallback &progressCallback = {});
+
+bool winhttp_detail::readResponseBody(HINTERNET request,
                       std::vector<std::uint8_t> &bytes,
                       std::wstring &errorMessage,
                       const updater::DownloadProgressCallback &progressCallback)
@@ -134,11 +162,11 @@ bool readResponseBody(HINTERNET request,
     }
 }
 
-bool sendHttpRequest(const std::wstring &url,
+bool winhttp_detail::sendHttpRequest(const std::wstring &url,
                      const wchar_t *acceptTypes[],
                      std::vector<std::uint8_t> &responseBytes,
                      std::wstring &errorMessage,
-                     const updater::DownloadProgressCallback &progressCallback = {})
+                     const updater::DownloadProgressCallback &progressCallback)
 {
     ParsedUrl parsed;
     if (!parseUrl(url, parsed)) {
@@ -223,12 +251,14 @@ bool sendHttpRequest(const std::wstring &url,
         return false;
     }
 
-    return readResponseBody(static_cast<HINTERNET>(request.get()), responseBytes, errorMessage, progressCallback);
+    return winhttp_detail::readResponseBody(static_cast<HINTERNET>(request.get()), responseBytes, errorMessage, progressCallback);
 }
-}
+}  // namespace winhttp_detail
+#endif  // _WIN32
 
 namespace updater
 {
+#ifdef _WIN32
 bool applyDownloadedUpdate(const std::wstring &downloadedPath,
                            const std::wstring &currentExePath,
                            const std::vector<std::wstring> &connectionNames)
@@ -287,6 +317,14 @@ bool applyDownloadedUpdate(const std::wstring &downloadedPath,
     ::CloseHandle(processInfo.hProcess);
     return true;
 }
+#else
+bool applyDownloadedUpdate(const std::wstring &,
+                           const std::wstring &,
+                           const std::vector<std::wstring> &)
+{
+    return false;  // the update flow is a Windows-only harness for now
+}
+#endif
 }
 
 namespace updater
@@ -305,6 +343,7 @@ bool isNewerReleaseTag(const std::wstring &currentTag, const std::wstring &candi
     return false;
 }
 
+#ifdef _WIN32
 bool fetchLatestRelease(const std::wstring &owner,
                         const std::wstring &repository,
                         const std::wstring &assetName,
@@ -315,7 +354,7 @@ bool fetchLatestRelease(const std::wstring &owner,
         L"https://api.github.com/repos/" + owner + L"/" + repository + L"/releases/latest";
     const wchar_t *acceptTypes[] = { L"*/*", nullptr };
     std::vector<std::uint8_t> responseBytes;
-    if (!sendHttpRequest(url, acceptTypes, responseBytes, errorMessage))
+    if (!winhttp_detail::sendHttpRequest(url, acceptTypes, responseBytes, errorMessage))
         return false;
 
     nlohmann::json root = nlohmann::json::parse(responseBytes.begin(), responseBytes.end(), nullptr, false);
@@ -365,7 +404,7 @@ bool downloadReleaseAsset(const ReleaseAsset &asset,
 {
     const wchar_t *acceptTypes[] = { L"*/*", nullptr };
     std::vector<std::uint8_t> bytes;
-    if (!sendHttpRequest(asset.downloadUrl, acceptTypes, bytes, errorMessage, progressCallback))
+    if (!winhttp_detail::sendHttpRequest(asset.downloadUrl, acceptTypes, bytes, errorMessage, progressCallback))
         return false;
 
     if (!AppPaths::writeFileContent(targetPath,
@@ -376,4 +415,24 @@ bool downloadReleaseAsset(const ReleaseAsset &asset,
     }
     return true;
 }
+#else
+bool fetchLatestRelease(const std::wstring &,
+                        const std::wstring &,
+                        const std::wstring &,
+                        ReleaseAsset &,
+                        std::wstring &errorMessage)
+{
+    errorMessage = L"Updates are not supported on this platform.";
+    return false;
+}
+
+bool downloadReleaseAsset(const ReleaseAsset &,
+                          const std::wstring &,
+                          std::wstring &errorMessage,
+                          DownloadProgressCallback)
+{
+    errorMessage = L"Updates are not supported on this platform.";
+    return false;
+}
+#endif
 }

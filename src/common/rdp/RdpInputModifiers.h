@@ -1,7 +1,8 @@
 #pragma once
 
 #include <cstdint>
-#include <windows.h>
+#include "common/NativeTypes.h"
+#include "common/rdp/RdpWinKeyCodes.h"
 
 namespace rdp
 {

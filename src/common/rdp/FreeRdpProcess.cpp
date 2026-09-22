@@ -15,8 +15,10 @@
 #include <thread>
 #include <utility>
 
+#ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#endif
 
 #include <freerdp3/freerdp/autodetect.h>
 #include <freerdp3/freerdp/client/cliprdr.h>
@@ -26,7 +28,13 @@
 #include <freerdp3/freerdp/settings_types.h>
 #include <freerdp3/freerdp/update.h>
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+// winpr provides the Win32 synchronization surface (CreateEventW, Sleep,
+// WaitForMultipleObjects, DWORD...) on POSIX.
+#include <winpr/winpr.h>
+#endif
 
 namespace
 {
@@ -40,7 +48,7 @@ constexpr DWORD kEventWaitTimeoutMs = 10;
 int resolveWithRetry(const char *host, UINT32 port)
 {
     char portStr[16] = {};
-    sprintf_s(portStr, "%u", static_cast<unsigned>(port));
+    std::snprintf(portStr, sizeof(portStr), "%u", static_cast<unsigned>(port));
     addrinfo hints = {};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
@@ -52,7 +60,11 @@ int resolveWithRetry(const char *host, UINT32 port)
             ::freeaddrinfo(result);
             return 0;
         }
+#ifdef _WIN32
         lastError = ::WSAGetLastError();
+#else
+        lastError = rc;  // getaddrinfo error code (no Winsock layer off Windows)
+#endif
         if (attempt + 1 < 8)
             ::Sleep(300);
     }

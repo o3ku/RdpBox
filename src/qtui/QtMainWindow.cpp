@@ -45,6 +45,7 @@ void applyApplicationTheme(QApplication &application); // QtMain.cpp (global)
 #include <QPushButton>
 #include <QPixmap>
 #include <QShortcut>
+#include <QScreen>
 #include <QSettings>
 #include <QSplitter>
 #include <QStatusBar>
@@ -61,7 +62,9 @@ void applyApplicationTheme(QApplication &application); // QtMain.cpp (global)
 #include <QTimer>
 #include <QToolButton>
 
+#ifdef _WIN32
 #include <windows.h>
+#endif
 
 #include "qtui/FramelessWin.h"
 
@@ -389,6 +392,7 @@ QString qtUpdateButtonText(ui::UpdateUiState state, int downloadProgress)
     return QString::fromStdWString(ui::updateButtonText(state, downloadProgress));
 }
 
+#ifdef _WIN32
 bool monitorInfoForRect(const RECT &rect, RECT &monitorRect, RECT &workArea, std::wstring &deviceName)
 {
     const HMONITOR monitor = ::MonitorFromRect(&rect, MONITOR_DEFAULTTONEAREST);
@@ -468,6 +472,34 @@ bool activeMonitorInfo(RECT &monitorRect, RECT &workArea)
     monitorRect = info.rcMonitor;
     workArea = info.rcWork;
     return true;
+
+#else
+RECT rectFromQRect(const QRect &rect)
+{
+    RECT value = {};
+    value.left = rect.left();
+    value.top = rect.top();
+    value.right = rect.left() + rect.width();
+    value.bottom = rect.top() + rect.height();
+    return value;
+}
+
+bool monitorInfoForScreen(const QScreen *screen, RECT &monitorRect, RECT &workArea, std::wstring &deviceName)
+{
+    if (!screen)
+        return false;
+    monitorRect = rectFromQRect(screen->geometry());
+    workArea = rectFromQRect(screen->availableGeometry());
+    deviceName = screen->name().toStdWString();
+    return true;
+}
+
+bool monitorInfoForScreen(const QScreen *screen, RECT &monitorRect, RECT &workArea)
+{
+    std::wstring ignored;
+    return monitorInfoForScreen(screen, monitorRect, workArea, ignored);
+}
+#endif
 }
 
 class ProfileListWidget final : public QListWidget
@@ -655,6 +687,9 @@ bool QtMainWindow::eventFilter(QObject *object, QEvent *event)
 
 bool QtMainWindow::nativeEvent(const QByteArray &eventType, void *message, long *result)
 {
+#ifndef _WIN32
+    return QMainWindow::nativeEvent(eventType, message, result);
+#else
     if (eventType != "windows_generic_MSG" && eventType != "windows_dispatcher_MSG")
         return QMainWindow::nativeEvent(eventType, message, result);
 
@@ -697,6 +732,8 @@ bool QtMainWindow::nativeEvent(const QByteArray &eventType, void *message, long 
     }
 
     return QMainWindow::nativeEvent(eventType, message, result);
+#endif // _WIN32
+
 }
 
 void QtMainWindow::changeEvent(QEvent *event)
@@ -1140,6 +1177,7 @@ void QtMainWindow::saveWindowState() const
     if (m_isFullScreen)
         return;
 
+#ifdef _WIN32
     HWND hwnd = reinterpret_cast<HWND>(const_cast<QtMainWindow *>(this)->winId());
     if (!hwnd || ::IsIconic(hwnd))
         return;
@@ -1167,6 +1205,27 @@ void QtMainWindow::saveWindowState() const
 
     state.monitorDeviceName = deviceName;
     m_repository.saveWindowState(state);
+#else
+    QScreen *screen = windowHandle() ? windowHandle()->screen() : nullptr;
+    if (!screen)
+        return;
+    const QRect geometry = isMaximized() ? normalGeometry() : this->geometry();
+    RECT monitorRect = {};
+    RECT workArea = {};
+    std::wstring deviceName;
+    if (!monitorInfoForScreen(screen, monitorRect, workArea, deviceName))
+        return;
+    const RECT workspaceRect = WindowStateScaling::workspaceRectForMonitorWorkArea(monitorRect, workArea);
+    WindowState state;
+    if (!WindowStateScaling::saveToMonitorWorkArea(rectFromQRect(geometry),
+                                                   workspaceRect,
+                                                   isMaximized() ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL,
+                                                   state)) {
+        return;
+    }
+    state.monitorDeviceName = deviceName;
+    m_repository.saveWindowState(state);
+#endif
 }
 
 bool QtMainWindow::restoreWindowState()
@@ -1175,6 +1234,7 @@ bool QtMainWindow::restoreWindowState()
     if (!state.valid)
         return false;
 
+#ifdef _WIN32
     RECT monitorRect = {};
     RECT workArea = {};
     if (!monitorInfoForDeviceName(state.monitorDeviceName, monitorRect, workArea)
@@ -1194,6 +1254,30 @@ bool QtMainWindow::restoreWindowState()
                          restoredRect.right - restoredRect.left,
                          restoredRect.bottom - restoredRect.top);
     setGeometry(geometry);
+#else
+    QScreen *screen = nullptr;
+    for (QScreen *candidate : QGuiApplication::screens()) {
+        if (candidate->name().toStdWString() == state.monitorDeviceName) {
+            screen = candidate;
+            break;
+        }
+    }
+    if (!screen)
+        screen = QGuiApplication::primaryScreen();
+    RECT monitorRect = {};
+    RECT workArea = {};
+    if (!monitorInfoForScreen(screen, monitorRect, workArea))
+        return false;
+    const RECT workspaceRect = WindowStateScaling::workspaceRectForMonitorWorkArea(monitorRect, workArea);
+    RECT restoredRect = {};
+    if (!WindowStateScaling::restoreFromMonitorWorkArea(state, workspaceRect, restoredRect))
+        return false;
+    const QRect geometry(restoredRect.left,
+                         restoredRect.top,
+                         restoredRect.right - restoredRect.left,
+                         restoredRect.bottom - restoredRect.top);
+    setGeometry(geometry);
+#endif
     if (state.showCmd == SW_SHOWMAXIMIZED)
         setWindowState(windowState() | Qt::WindowMaximized);
     refreshWindowControls();

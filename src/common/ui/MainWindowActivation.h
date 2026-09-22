@@ -1,6 +1,7 @@
 #pragma once
 
-#include <windows.h>
+#include "common/NativeTypes.h"
+#include "common/rdp/RdpWinKeyCodes.h"
 
 namespace ui
 {

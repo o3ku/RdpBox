@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <cwctype>
 
-#include <windows.h>
+
 
 namespace
 {
