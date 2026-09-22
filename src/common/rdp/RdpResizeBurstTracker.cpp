@@ -8,12 +8,13 @@ void RdpResizeBurstTracker::reset()
 
 bool RdpResizeBurstTracker::onResize(const SizeI &size)
 {
-    if (m_active)
-        return false;
-
+    (void)size;
+    // Pure trailing debounce: never send on the leading edge — the caller
+    // arms its timer on the first resize of a burst and sends from the tick,
+    // so transient intermediate resolutions are never requested.
+    const bool wasInactive = !m_active;
     m_active = true;
-    m_lastSentSize = size;
-    return true;
+    return wasInactive;
 }
 
 bool RdpResizeBurstTracker::onTimeout(const SizeI &size)
