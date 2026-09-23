@@ -1761,7 +1761,7 @@ void QtMainWindow::startBackgroundUpdateCheck(bool userInitiated)
         auto result = std::make_shared<updater::ReleaseAsset>();
         std::wstring error;
         bool hasUpdate = false;
-        const bool success = updater::fetchLatestRelease(L"o3ku", L"RdpBox", L"RdpBox.exe", *result, error);
+        const bool success = updater::fetchLatestRelease(L"o3ku", L"RdpBox", L"RdpBoxQt.exe", *result, error);
         if (success)
             hasUpdate = updater::isNewerReleaseTag(RDPBOX_VERSION, result->tagName);
 
