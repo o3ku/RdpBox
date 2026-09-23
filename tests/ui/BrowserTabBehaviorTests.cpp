@@ -15,10 +15,10 @@ int main()
         assert(layout.size() == 3);
         assert(layout[0].left == 0);
         assert(layout[0].right == 220);
-        assert(layout[0].closeLeft == 198);
+        assert(layout[0].closeLeft == 196);
         assert(layout[0].closeRight == 214);
-        assert(layout[0].closeTop == 12);
-        assert(layout[0].closeBottom == 28);
+        assert(layout[0].closeTop == 11);
+        assert(layout[0].closeBottom == 29);
         assert(layout[1].left == 220);
         assert(layout[1].right == 440);
     }

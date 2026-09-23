@@ -181,6 +181,11 @@ public:
         return m_view && m_view->isConnected();
     }
 
+    bool isSessionEnded() const override
+    {
+        return !m_view || m_view->isSessionEnded();
+    }
+
 private:
     std::unique_ptr<CRdpSessionView> m_view;
 };

@@ -23,12 +23,16 @@ int main()
     assert(!ui::mainWindowLogoHitTest({ 10, 10 }, true));
 
     assertRect(ui::mainWindowUpdateButtonRect(800), 624, 0, 662, 34);
-    assert(ui::mainWindowCaptionButtonReserveWidth(false) == 138);
-    assert(ui::mainWindowCaptionButtonReserveWidth(true) == 176);
+    assert(ui::mainWindowCaptionButtonReserveWidth(false) == 184);
+    assert(ui::mainWindowCaptionButtonReserveWidth(true) == 222);
 
     assertRect(ui::mainWindowCaptionButtonRectFor(800, HTCLOSE, false), 754, 0, 800, 34);
     assertRect(ui::mainWindowCaptionButtonRectFor(800, HTMAXBUTTON, false), 708, 0, 754, 34);
     assertRect(ui::mainWindowCaptionButtonRectFor(800, HTMINBUTTON, false), 662, 0, 708, 34);
+    assertRect(ui::mainWindowCaptionButtonRectFor(800, ui::kMainWindowAddConnectionButtonHit, false),
+               616, 0, 662, 34);
+    assertRect(ui::mainWindowCaptionButtonRectFor(800, ui::kMainWindowAddConnectionButtonHit, true),
+               578, 0, 624, 34);
     assertRect(ui::mainWindowCaptionButtonRectFor(800, ui::kMainWindowUpdateCaptionButtonHit, true),
                624, 0, 662, 34);
     assertRect(ui::mainWindowCaptionButtonRectFor(800, ui::kMainWindowUpdateCaptionButtonHit, false),
@@ -37,9 +41,13 @@ int main()
     assert(ui::mainWindowCaptionButtonHitTest({ 799, 0 }, 800, false) == HTCLOSE);
     assert(ui::mainWindowCaptionButtonHitTest({ 753, 10 }, 800, false) == HTMAXBUTTON);
     assert(ui::mainWindowCaptionButtonHitTest({ 707, 10 }, 800, false) == HTMINBUTTON);
-    assert(ui::mainWindowCaptionButtonHitTest({ 624, 10 }, 800, true)
+    assert(ui::mainWindowCaptionButtonHitTest({ 661, 10 }, 800, false)
+           == ui::kMainWindowAddConnectionButtonHit);
+    assert(ui::mainWindowCaptionButtonHitTest({ 630, 10 }, 800, true)
            == ui::kMainWindowUpdateCaptionButtonHit);
-    assert(ui::mainWindowCaptionButtonHitTest({ 630, 10 }, 800, false) == 0);
+    assert(ui::mainWindowCaptionButtonHitTest({ 600, 10 }, 800, true)
+           == ui::kMainWindowAddConnectionButtonHit);
+    assert(ui::mainWindowCaptionButtonHitTest({ 570, 10 }, 800, false) == 0);
     assert(ui::mainWindowCaptionButtonHitTest({ 799, 34 }, 800, true) == 0);
     assert(ui::mainWindowCaptionButtonHitTest({ 800, 10 }, 800, true) == 0);
 
@@ -59,7 +67,7 @@ int main()
         const ui::MainWindowChildLayout layout =
             ui::mainWindowChildLayout(800, 600, false, false, false);
         assert(layout.tabBarVisible);
-        assertRect(layout.tabBarRect, 38, 1, 662, 33);
+        assertRect(layout.tabBarRect, 38, 1, 616, 33);
         assertRect(layout.sessionHostRect, 1, 34, 799, 599);
     }
 
@@ -67,7 +75,7 @@ int main()
         const ui::MainWindowChildLayout layout =
             ui::mainWindowChildLayout(800, 600, false, false, true);
         assert(layout.tabBarVisible);
-        assertRect(layout.tabBarRect, 38, 1, 624, 33);
+        assertRect(layout.tabBarRect, 38, 1, 578, 33);
         assertRect(layout.sessionHostRect, 1, 34, 799, 599);
     }
 
@@ -75,7 +83,7 @@ int main()
         const ui::MainWindowChildLayout layout =
             ui::mainWindowChildLayout(800, 600, true, false, false);
         assert(layout.tabBarVisible);
-        assertRect(layout.tabBarRect, 38, 0, 662, 33);
+        assertRect(layout.tabBarRect, 38, 0, 616, 33);
         assertRect(layout.sessionHostRect, 0, 34, 800, 600);
     }
 

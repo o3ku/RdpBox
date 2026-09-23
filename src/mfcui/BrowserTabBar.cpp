@@ -372,13 +372,13 @@ void BrowserTabBar::OnPaint()
         const COLORREF crossColor = closeHovered
             ? Win10Theme::kCloseHoverText
             : (selected ? Win10Theme::kBrandAccentText : Win10Theme::kCaptionTextSubtle);
-        CPen pen(PS_SOLID, 1, crossColor);
+        CPen pen(PS_SOLID, 2, crossColor);
         CPen *oldPen = memDc.SelectObject(&pen);
-        const int inset = 5;
+        const int inset = 4;
         memDc.MoveTo(item.closeRect.left + inset, item.closeRect.top + inset);
-        memDc.LineTo(item.closeRect.right - inset, item.closeRect.bottom - inset);
+        memDc.LineTo(item.closeRect.right - inset - 1, item.closeRect.bottom - inset - 1);
         memDc.MoveTo(item.closeRect.right - inset - 1, item.closeRect.top + inset);
-        memDc.LineTo(item.closeRect.left + inset - 1, item.closeRect.bottom - inset);
+        memDc.LineTo(item.closeRect.left + inset, item.closeRect.bottom - inset - 1);
         memDc.SelectObject(oldPen);
     }
 

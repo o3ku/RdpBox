@@ -26,8 +26,6 @@ void ProfileEditDialog::DoDataExchange(CDataExchange *dx)
     DDX_Text(dx, IDC_PROFILE_DOMAIN, m_domain);
     DDX_Text(dx, IDC_PROFILE_USERNAME, m_username);
     DDX_Text(dx, IDC_PROFILE_PASSWORD, m_password);
-    DDX_Check(dx, IDC_PROFILE_CLIPBOARD, m_clipboardEnabled);
-    DDX_Check(dx, IDC_PROFILE_IGNORE_CERT, m_ignoreCertificate);
     DDX_Check(dx, IDC_PROFILE_FULLSCREEN, m_fullScreenOnConnect);
     DDX_Control(dx, IDOK, m_btnOK);
     DDX_Control(dx, IDCANCEL, m_btnCancel);
@@ -76,8 +74,6 @@ void ProfileEditDialog::setProfile(const Profile &profile)
     m_domain = profile.domain.c_str();
     m_username = profile.username.c_str();
     m_password = profile.password.c_str();
-    m_clipboardEnabled = profile.clipboardEnabled ? TRUE : FALSE;
-    m_ignoreCertificate = profile.ignoreCertificate ? TRUE : FALSE;
     m_fullScreenOnConnect = profile.fullScreenOnConnect ? TRUE : FALSE;
 }
 
@@ -90,8 +86,8 @@ Profile ProfileEditDialog::profile() const
     p.domain = static_cast<LPCWSTR>(m_domain);
     p.username = static_cast<LPCWSTR>(m_username);
     p.password = static_cast<LPCWSTR>(m_password);
-    p.clipboardEnabled = m_clipboardEnabled != FALSE;
-    p.ignoreCertificate = m_ignoreCertificate != FALSE;
+    p.clipboardEnabled = true;   // no longer a UI option: always on
+    p.ignoreCertificate = true;  // no longer a UI option: always on
     p.fullScreenOnConnect = m_fullScreenOnConnect != FALSE;
     return p;
 }

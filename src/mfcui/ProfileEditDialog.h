@@ -32,8 +32,6 @@ private:
     CString m_domain;
     CString m_username;
     CString m_password;
-    BOOL m_clipboardEnabled = TRUE;
-    BOOL m_ignoreCertificate = TRUE;
     BOOL m_fullScreenOnConnect = FALSE;
 
     FlatButton m_btnOK;

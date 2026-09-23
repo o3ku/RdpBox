@@ -15,12 +15,39 @@ struct ConnectionListButtonState
     bool connectEnabled = false;
 };
 
-bool isProfileConnected(const std::wstring &profileName,
-                        const std::vector<std::wstring> &connectedProfileNames);
+enum class ConnectionSessionPhase
+{
+    Connecting,
+    Connected,
+    Disconnected
+};
+
+struct ConnectionSessionState
+{
+    std::wstring profileName;
+    ConnectionSessionPhase phase = ConnectionSessionPhase::Disconnected;
+};
+
+inline bool operator==(const ConnectionSessionState &left, const ConnectionSessionState &right)
+{
+    return left.profileName == right.profileName && left.phase == right.phase;
+}
+
+std::vector<std::wstring> connectedProfileNamesForStates(
+    const std::vector<ConnectionSessionState> &sessionStates);
 
 std::wstring connectionListStatusText(
     const std::wstring &profileName,
+    const std::vector<ConnectionSessionState> &sessionStates);
+
+// Names-only legacy view (connected or nothing) used by the Qt subtitle path.
+std::wstring connectionListStatusText(
+    const std::wstring &profileName,
     const std::vector<std::wstring> &connectedProfileNames);
+
+// Kept for button-state logic that only needs the connected subset.
+bool isProfileConnected(const std::wstring &profileName,
+                        const std::vector<std::wstring> &connectedProfileNames);
 
 ConnectionListButtonState connectionListButtonState(
     const std::vector<Profile> &visibleProfiles,

@@ -30,6 +30,26 @@ std::string SessionManager::openSession(const Profile &profile)
     if (!m_tabs || !m_host || !m_viewFactory)
         return {};
 
+    // One session per profile: a live (connecting/connected) one is activated,
+    // a failed one is closed so the fresh attempt replaces its tab.
+    for (std::size_t i = 0; i < m_sessions.size();) {
+        Session &existing = m_sessions[i];
+        if (existing.profileName != profile.name) {
+            ++i;
+            continue;
+        }
+        if (!existing.view || !existing.view->isSessionEnded()) {
+            const int index = static_cast<int>(i);
+            if (m_tabs)
+                m_tabs->setSelectedIndex(index);
+            showSessionAtIndex(index);
+            if (existing.view)
+                existing.view->focus();
+            return existing.id;
+        }
+        closeSession(existing.id);   // erases at i; re-check the same slot
+    }
+
     Session session;
     session.id = createGuidString();
     session.profileName = profile.name;
@@ -194,6 +214,42 @@ bool SessionManager::isTabConnected(int index) const
 std::vector<std::wstring> SessionManager::connectedProfileNames() const
 {
     return connectedProfileNamesForSessions(snapshots());
+}
+
+std::vector<ConnectionSessionState> SessionManager::profileSessionStates() const
+{
+    // One session per profile is enforced by openSession; if several somehow
+    // exist, the most live phase wins.
+    const auto rank = [](ConnectionSessionPhase phase) {
+        switch (phase) {
+        case ConnectionSessionPhase::Connected: return 2;
+        case ConnectionSessionPhase::Connecting: return 1;
+        case ConnectionSessionPhase::Disconnected: return 0;
+        }
+        return 0;
+    };
+
+    std::vector<ConnectionSessionState> result;
+    for (const Session &session : m_sessions) {
+        ConnectionSessionState state;
+        state.profileName = session.profileName;
+        if (session.view && session.view->isConnected())
+            state.phase = ConnectionSessionPhase::Connected;
+        else if (!session.view || session.view->isSessionEnded())
+            state.phase = ConnectionSessionPhase::Disconnected;
+        else
+            state.phase = ConnectionSessionPhase::Connecting;
+
+        auto it = std::find_if(result.begin(), result.end(),
+                               [&](const ConnectionSessionState &existing) {
+                                   return existing.profileName == session.profileName;
+                               });
+        if (it == result.end())
+            result.push_back(std::move(state));
+        else if (rank(state.phase) > rank(it->phase))
+            *it = std::move(state);
+    }
+    return result;
 }
 
 std::vector<std::wstring> SessionManager::openProfileNames() const

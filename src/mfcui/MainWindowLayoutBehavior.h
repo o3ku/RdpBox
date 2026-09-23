@@ -12,6 +12,7 @@ constexpr int kMainWindowCaptionButtonWidth = 46;
 constexpr int kMainWindowUpdateButtonWidth = 38;
 constexpr int kMainWindowResizeBorderWidth = 6;
 constexpr int kMainWindowUpdateCaptionButtonHit = 0x4001;
+constexpr int kMainWindowAddConnectionButtonHit = 0x4002;
 
 struct LayoutPoint
 {

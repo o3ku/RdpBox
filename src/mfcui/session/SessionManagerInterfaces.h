@@ -56,6 +56,7 @@ public:
     virtual void focus() = 0;
     virtual FreeRdpProcess::ConnectionInfo connectionInfo() const = 0;
     virtual bool isConnected() const = 0;
+    virtual bool isSessionEnded() const = 0;   // Finished/failed, safe to replace
 };
 
 class ISessionViewFactory

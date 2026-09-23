@@ -9,7 +9,7 @@ namespace
 {
 constexpr int kTabMinWidth = 120;
 constexpr int kTabMaxWidth = 220;
-constexpr int kCloseButtonSize = 16;
+constexpr int kCloseButtonSize = 18;
 constexpr int kCloseButtonMargin = 6;
 constexpr int kDragThreshold = 4;
 }

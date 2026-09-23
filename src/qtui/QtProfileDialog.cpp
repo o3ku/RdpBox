@@ -23,14 +23,11 @@ QtProfileDialog::QtProfileDialog(QWidget *parent)
     m_domainEdit = new QLineEdit(this);
     m_usernameEdit = new QLineEdit(this);
     m_passwordEdit = new QLineEdit(this);
-    m_clipboardCheck = new QCheckBox(tr("Enable clipboard"), this);
-    m_ignoreCertificateCheck = new QCheckBox(tr("Ignore certificate errors"), this);
     m_fullScreenCheck = new QCheckBox(tr("Open full screen"), this);
 
     m_portEdit->setRange(1, 65535);
     m_portEdit->setValue(3389);
     m_passwordEdit->setEchoMode(QLineEdit::Password);
-    m_clipboardCheck->setChecked(true);
 
     auto *formLayout = new QFormLayout;
     formLayout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
@@ -40,8 +37,6 @@ QtProfileDialog::QtProfileDialog(QWidget *parent)
     formLayout->addRow(tr("Domain"), m_domainEdit);
     formLayout->addRow(tr("Username"), m_usernameEdit);
     formLayout->addRow(tr("Password"), m_passwordEdit);
-    formLayout->addRow(QString(), m_clipboardCheck);
-    formLayout->addRow(QString(), m_ignoreCertificateCheck);
     formLayout->addRow(QString(), m_fullScreenCheck);
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
@@ -62,8 +57,6 @@ void QtProfileDialog::setProfile(const Profile &profile)
     m_domainEdit->setText(QString::fromStdWString(profile.domain));
     m_usernameEdit->setText(QString::fromStdWString(profile.username));
     m_passwordEdit->setText(QString::fromStdWString(profile.password));
-    m_clipboardCheck->setChecked(profile.clipboardEnabled);
-    m_ignoreCertificateCheck->setChecked(profile.ignoreCertificate);
     m_fullScreenCheck->setChecked(profile.fullScreenOnConnect);
 }
 
@@ -76,8 +69,8 @@ Profile QtProfileDialog::profile() const
     profile.domain = m_domainEdit->text().trimmed().toStdWString();
     profile.username = m_usernameEdit->text().trimmed().toStdWString();
     profile.password = m_passwordEdit->text().toStdWString();
-    profile.clipboardEnabled = m_clipboardCheck->isChecked();
-    profile.ignoreCertificate = m_ignoreCertificateCheck->isChecked();
+    profile.clipboardEnabled = true;   // no longer a UI option: always on
+    profile.ignoreCertificate = true;  // no longer a UI option: always on
     profile.fullScreenOnConnect = m_fullScreenCheck->isChecked();
     return profile;
 }

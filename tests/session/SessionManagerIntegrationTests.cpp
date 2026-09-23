@@ -19,6 +19,7 @@ struct FakeViewState
     FreeRdpProcess::ConnectionInfo info;
     bool created = true;
     bool connected = false;
+    bool ended = false;
     bool destroyed = false;
     bool visible = false;
     int connectCount = 0;
@@ -121,6 +122,11 @@ public:
     bool isConnected() const override
     {
         return m_state->connected;
+    }
+
+    bool isSessionEnded() const override
+    {
+        return m_state->ended;
     }
 
 private:
@@ -260,6 +266,44 @@ int main()
         assert(!id.empty());
         assert(tabs.titles.size() == 1);
         assert(tabs.titles[0] == L"(unnamed)");
+    }
+
+    {
+        // One tab per profile: re-opening a live session activates it.
+        FakeTabs tabs;
+        FakeHost host;
+        FakeViewFactory factory;
+        SessionManager manager(&tabs, &host, &factory);
+
+        const std::string first = manager.openSession(profile(L"alpha"));
+        factory.views[0]->ended = false;
+        const std::string again = manager.openSession(profile(L"alpha"));
+
+        assert(again == first);
+        assert(tabs.titles.size() == 1);
+        assert(factory.views.size() == 1);
+        assert(factory.views[0]->connectCount == 1);
+        assert(tabs.selected == 0);
+    }
+
+    {
+        // A failed session is replaced: re-opening closes the dead tab and
+        // creates a fresh one.
+        FakeTabs tabs;
+        FakeHost host;
+        FakeViewFactory factory;
+        SessionManager manager(&tabs, &host, &factory);
+
+        const std::string first = manager.openSession(profile(L"alpha"));
+        factory.views[0]->ended = true;
+        const std::string second = manager.openSession(profile(L"alpha"));
+
+        assert(second != first);
+        assert(tabs.titles.size() == 1);
+        assert(factory.views.size() == 2);
+        assert(factory.views[0]->destroyed);
+        assert(factory.views[1]->connectCount == 1);
+        assert(manager.sessionIdByTabIndex(0) == second);
     }
 
     {

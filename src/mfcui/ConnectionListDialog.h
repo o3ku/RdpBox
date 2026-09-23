@@ -5,6 +5,7 @@
 #include <afxwin.h>
 
 #include "common/profiles/Profile.h"
+#include "common/ui/ConnectionListBehavior.h"
 #include "mfcui/FlatButton.h"
 
 #include <functional>
@@ -19,10 +20,10 @@ class ConnectionListDialog : public CDialogEx
     DECLARE_DYNAMIC(ConnectionListDialog)
 
 public:
-    using ConnectedNamesProvider = std::function<std::vector<std::wstring>()>;
+    using SessionStatesProvider = std::function<std::vector<ConnectionSessionState>()>;
 
     ConnectionListDialog(ProfileRepository *repo,
-                         const ConnectedNamesProvider &connectedNamesProvider,
+                         const SessionStatesProvider &statesProvider,
                          CWnd *parent = nullptr);
     virtual ~ConnectionListDialog();
 
@@ -38,6 +39,7 @@ protected:
 
     afx_msg void OnSearchChanged();
     afx_msg void OnItemDoubleClicked(NMHDR *notify, LRESULT *result);
+    afx_msg void OnItemRightClicked(NMHDR *notify, LRESULT *result);
     afx_msg void OnNewClicked();
     afx_msg void OnEditClicked();
     afx_msg void OnDeleteClicked();
@@ -75,8 +77,9 @@ private:
     bool moveCurrentSelectionBy(int delta);
 
     ProfileRepository *m_repo = nullptr;
-    ConnectedNamesProvider m_connectedNamesProvider;
-    std::vector<std::wstring> m_connectedProfileNames;
+    SessionStatesProvider m_statesProvider;
+    std::vector<ConnectionSessionState> m_sessionStates;
+    std::vector<std::wstring> m_connectedProfileNames;   // derived: connected subset
     std::vector<Profile> m_currentProfiles;
     std::vector<std::wstring> m_selectedProfileNames;
     CString m_searchText;

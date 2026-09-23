@@ -8,6 +8,7 @@
 #include "resources/resource.h"
 
 #include <uxtheme.h>
+#include <windowsx.h>
 
 #include <algorithm>
 
@@ -32,6 +33,7 @@ const int kDefaultColumnWidths[kColumnCount] = {150, 180, 100, 60, 80};
 BEGIN_MESSAGE_MAP(ConnectionListDialog, CDialogEx)
     ON_EN_CHANGE(IDC_CONNECTION_SEARCH, &ConnectionListDialog::OnSearchChanged)
     ON_NOTIFY(NM_DBLCLK, IDC_CONNECTION_LIST, &ConnectionListDialog::OnItemDoubleClicked)
+    ON_NOTIFY(NM_RCLICK, IDC_CONNECTION_LIST, &ConnectionListDialog::OnItemRightClicked)
     ON_NOTIFY(LVN_BEGINDRAG, IDC_CONNECTION_LIST, &ConnectionListDialog::OnBeginDragList)
     ON_NOTIFY(NM_CUSTOMDRAW, IDC_CONNECTION_LIST, &ConnectionListDialog::OnCustomDrawList)
     ON_BN_CLICKED(IDC_CONNECTION_NEW, &ConnectionListDialog::OnNewClicked)
@@ -47,14 +49,16 @@ BEGIN_MESSAGE_MAP(ConnectionListDialog, CDialogEx)
 END_MESSAGE_MAP()
 
 ConnectionListDialog::ConnectionListDialog(ProfileRepository *repo,
-                                             const ConnectedNamesProvider &connectedNamesProvider,
+                                             const SessionStatesProvider &statesProvider,
                                              CWnd *parent)
     : CDialogEx(IDD_CONNECTION_DIALOG, parent)
     , m_repo(repo)
-    , m_connectedNamesProvider(connectedNamesProvider)
+    , m_statesProvider(statesProvider)
 {
-    if (m_connectedNamesProvider)
-        m_connectedProfileNames = m_connectedNamesProvider();
+    if (m_statesProvider) {
+        m_sessionStates = m_statesProvider();
+        m_connectedProfileNames = connectedProfileNamesForStates(m_sessionStates);
+    }
 }
 
 ConnectionListDialog::~ConnectionListDialog() = default;
@@ -149,7 +153,7 @@ BOOL ConnectionListDialog::OnInitDialog()
     if (m_repo)
         refreshList(m_repo->profiles());
 
-    if (m_connectedNamesProvider)
+    if (m_statesProvider)
         SetTimer(kStatusTimerId, kStatusTimerIntervalMs, nullptr);
 
     updateButtonStates();
@@ -190,6 +194,55 @@ void ConnectionListDialog::OnItemDoubleClicked(NMHDR *notify, LRESULT *result)
     auto *nmItem = reinterpret_cast<NMITEMACTIVATE*>(notify);
     if (nmItem && nmItem->iItem >= 0)
         OnConnectClicked();
+}
+
+void ConnectionListDialog::OnItemRightClicked(NMHDR *notify, LRESULT *result)
+{
+    UNREFERENCED_PARAMETER(notify);
+    *result = 0;
+
+    auto *list = static_cast<CListCtrl *>(GetDlgItem(IDC_CONNECTION_LIST));
+    if (!list)
+        return;
+
+    // NM_RCLICK gives no coordinates; use the message cursor position.
+    const DWORD cursorPos = GetMessagePos();
+    const CPoint screenPoint(GET_X_LPARAM(cursorPos), GET_Y_LPARAM(cursorPos));
+    CPoint clientPoint(screenPoint);
+    list->ScreenToClient(&clientPoint);
+
+    LVHITTESTINFO hit = {};
+    hit.pt = clientPoint;
+    const int item = ListView_HitTest(list->GetSafeHwnd(), &hit);
+    if (item < 0)
+        return;
+
+    // Menu actions act on the current selection; move it to the row clicked.
+    selectSingleRow(item);
+
+    enum
+    {
+        kMenuConnect = 1,
+        kMenuEdit,
+        kMenuDuplicate,
+        kMenuDelete
+    };
+    CMenu menu;
+    if (!menu.CreatePopupMenu())
+        return;
+    menu.AppendMenu(MF_STRING, kMenuConnect, L"Connect");
+    menu.AppendMenu(MF_SEPARATOR);
+    menu.AppendMenu(MF_STRING, kMenuEdit, L"Edit");
+    menu.AppendMenu(MF_STRING, kMenuDuplicate, L"Duplicate");
+    menu.AppendMenu(MF_STRING, kMenuDelete, L"Delete");
+    switch (menu.TrackPopupMenu(TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                                screenPoint.x, screenPoint.y, this)) {
+    case kMenuConnect: OnConnectClicked(); break;
+    case kMenuEdit: OnEditClicked(); break;
+    case kMenuDuplicate: OnDuplicateClicked(); break;
+    case kMenuDelete: OnDeleteClicked(); break;
+    default: break;
+    }
 }
 
 void ConnectionListDialog::OnNewClicked()
@@ -361,7 +414,7 @@ void ConnectionListDialog::refreshList(const std::vector<Profile> &profiles)
         list->SetItemText(idx, kColumnUser, user);
         list->SetItemText(idx, kColumnPort, portStr);
         list->SetItemText(idx, kColumnStatus,
-            connectionListStatusText(p.name, m_connectedProfileNames).c_str());
+            connectionListStatusText(p.name, m_sessionStates).c_str());
         list->SetItemData(idx, static_cast<DWORD_PTR>(idx));
     }
 
@@ -637,10 +690,11 @@ std::size_t ConnectionListDialog::repositoryTargetIndexForVisibleInsertIndex(int
 
 void ConnectionListDialog::OnTimer(UINT_PTR eventId)
 {
-    if (eventId == kStatusTimerId && m_connectedNamesProvider) {
-        std::vector<std::wstring> connected = m_connectedNamesProvider();
-        if (connected != m_connectedProfileNames) {
-            m_connectedProfileNames = std::move(connected);
+    if (eventId == kStatusTimerId && m_statesProvider) {
+        std::vector<ConnectionSessionState> states = m_statesProvider();
+        if (states != m_sessionStates) {
+            m_sessionStates = std::move(states);
+            m_connectedProfileNames = connectedProfileNamesForStates(m_sessionStates);
             refreshStatusTexts();
         }
         return;
@@ -675,7 +729,7 @@ void ConnectionListDialog::refreshStatusTexts()
     for (int i = 0; i < count; ++i) {
         list->SetItemText(i, kColumnStatus,
             connectionListStatusText(m_currentProfiles[static_cast<std::size_t>(i)].name,
-                                     m_connectedProfileNames).c_str());
+                                     m_sessionStates).c_str());
     }
     updateButtonStates();
 }

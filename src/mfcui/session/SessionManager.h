@@ -2,6 +2,7 @@
 
 #include "common/profiles/Profile.h"
 #include "common/rdp/FreeRdpProcess.h"
+#include "common/ui/ConnectionListBehavior.h"
 #include "mfcui/session/SessionCollectionBehavior.h"
 #include "mfcui/session/SessionManagerInterfaces.h"
 
@@ -45,6 +46,7 @@ public:
     FreeRdpProcess::ConnectionInfo connectionInfoForTab(int index) const;
     bool isTabConnected(int index) const;
     std::vector<std::wstring> connectedProfileNames() const;
+    std::vector<ConnectionSessionState> profileSessionStates() const;
     std::vector<std::wstring> openProfileNames() const;
 
 private:

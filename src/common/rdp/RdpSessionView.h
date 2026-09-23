@@ -43,6 +43,7 @@ public:
 
     FreeRdpProcess::ConnectionInfo connectionInfo() const;
     bool isConnected() const;
+    bool isSessionEnded() const;
 
     void setResizeSuppressed(bool suppressed);
     void flushPendingResize();
