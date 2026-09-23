@@ -13,6 +13,12 @@ std::wstring updateReleaseFileName(const std::wstring &tagName)
 {
     if (tagName.empty())
         return L"RdpBox.exe";
+    // Network-controlled string flows into a filesystem path: whitelist it.
+    // Empty return means "unusable tag"; callers must skip the download.
+    static const wchar_t *const kAllowed =
+        L"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-";
+    if (tagName.find_first_not_of(kAllowed) != std::wstring::npos)
+        return {};
     return L"RdpBox-" + tagName + L".exe";
 }
 

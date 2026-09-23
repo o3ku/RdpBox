@@ -109,9 +109,9 @@ Qt::CursorShape cursorShapeFromKind(CursorKind kind)
         return Qt::SizeAllCursor;
     case CursorKind::Arrow:
     case CursorKind::Custom:
-    default:
         return Qt::ArrowCursor;
     }
+    return Qt::ArrowCursor;
 }
 
 bool isVirtualKeyPhysicallyDown(int virtualKey)
@@ -184,9 +184,12 @@ unsigned int mouseButtonBit(MouseButton button)
         return 1u << 1;
     case MouseButton::Middle:
         return 1u << 2;
-    default:
-        return 0;
+    case MouseButton::None:
+    case MouseButton::Back:
+    case MouseButton::Forward:
+        return 0; // extended buttons are not forwarded (same as before)
     }
+    return 0;
 }
 
 bool shouldSuppressTextInputMessage(UINT message)
@@ -247,7 +250,6 @@ void QtRdpSessionWidget::connectToHost()
         return;
 
     m_keyboardRouter.reset();
-    m_reservedShortcutTracker.reset();
     m_pressedMouseButtons = 0;
     m_hasLastPointerPoint = false;
     m_resolutionRecovery.reset();
@@ -317,11 +319,6 @@ FreeRdpProcess::ConnectionInfo QtRdpSessionWidget::connectionInfo() const
 void QtRdpSessionWidget::setStateChangedCallback(std::function<void(FreeRdpProcess::State)> callback)
 {
     m_stateChanged = std::move(callback);
-}
-
-void QtRdpSessionWidget::noteConsumedLocalShortcutKey(unsigned int virtualKey)
-{
-    m_reservedShortcutTracker.noteHandledKeyDown(virtualKey);
 }
 
 bool QtRdpSessionWidget::event(QEvent *event)
@@ -534,12 +531,14 @@ void QtRdpSessionWidget::bindProcessCallbacks()
         }, Qt::QueuedConnection);
     });
     m_process->setCertificateChallengeCallback([this, weakProcess](const FreeRdpProcess::CertificateChallenge &challenge) {
-        bool accepted = false;
-        QMetaObject::invokeMethod(this, [this, &accepted, challenge]() {
-            accepted = confirmCertificate(challenge);
-        }, Qt::BlockingQueuedConnection);
-        if (auto process = weakProcess.lock())
-            process->resolveCertificateChallenge(accepted);
+        // Non-blocking on purpose: the worker waits on certDecided/certAbort
+        // events, so a BlockingQueuedConnection here can deadlock against
+        // stop()'s join when the UI thread runs a nested loop (power resume).
+        QMetaObject::invokeMethod(this, [this, weakProcess, challenge]() {
+            if (weakProcess.lock() != m_process)
+                return;
+            promptCertificateChallenge(challenge, weakProcess);
+        }, Qt::QueuedConnection);
     });
 }
 
@@ -578,7 +577,6 @@ void QtRdpSessionWidget::stopProcess(bool showDisconnectedOverlay)
     m_frameGateActive = false;
     m_frameGateRemaining = 0;
     m_keyboardRouter.reset();
-    m_reservedShortcutTracker.reset();
     m_process->stop();
     if (showDisconnectedOverlay)
         updateState(FreeRdpProcess::State::Finished);
@@ -586,6 +584,8 @@ void QtRdpSessionWidget::stopProcess(bool showDisconnectedOverlay)
 
 void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
 {
+    if (state != FreeRdpProcess::State::Starting && m_certPrompt)
+        m_certPrompt->close(); // connection moved on: dismiss and reject
     m_state = state;
     m_overlayText = stateText(state, m_reconnecting);
     if (state == FreeRdpProcess::State::Finished && m_process) {
@@ -600,7 +600,6 @@ void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
                 rdp::session_view::initialFrameDiscardCount(!info.codecName.empty());
         }
         m_keyboardRouter.reset();
-        m_reservedShortcutTracker.reset();
         m_mouseMoveCoalescer.reset();
         if (m_mouseMoveTimer)
             m_mouseMoveTimer->stop();
@@ -768,20 +767,32 @@ void QtRdpSessionWidget::handleMouseMoveTimer()
         m_mouseMoveTimer->stop();
 }
 
-bool QtRdpSessionWidget::confirmCertificate(const FreeRdpProcess::CertificateChallenge &challenge)
+void QtRdpSessionWidget::promptCertificateChallenge(const FreeRdpProcess::CertificateChallenge &challenge,
+                                                    std::weak_ptr<FreeRdpProcess> weakProcess)
 {
+    if (m_certPrompt)
+        m_certPrompt->close(); // superseded or stale challenge: reject it
+
     const auto prompt = rdp::certificate_prompt::promptForChallenge(
         promptChallengeFromProcessChallenge(challenge));
 
-    QMessageBox messageBox(this);
-    messageBox.setWindowTitle(tr("Verify Certificate"));
-    messageBox.setText(QString::fromStdWString(prompt.message));
-    messageBox.setIcon(prompt.icon == rdp::certificate_prompt::PromptIcon::Warning
+    auto *messageBox = new QMessageBox(this);
+    messageBox->setAttribute(Qt::WA_DeleteOnClose);
+    messageBox->setWindowTitle(tr("Verify Certificate"));
+    messageBox->setText(QString::fromStdWString(prompt.message));
+    messageBox->setIcon(prompt.icon == rdp::certificate_prompt::PromptIcon::Warning
                            ? QMessageBox::Warning
                            : QMessageBox::Question);
-    messageBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
-    messageBox.setDefaultButton(QMessageBox::No);
-    return messageBox.exec() == QMessageBox::Yes;
+    messageBox->setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+    messageBox->setDefaultButton(QMessageBox::No);
+    m_certPrompt = messageBox;
+    connect(messageBox, &QMessageBox::finished, this, [this, weakProcess](int result) {
+        if (m_certPrompt.data() == sender())
+            m_certPrompt = nullptr;
+        if (auto process = weakProcess.lock())
+            process->resolveCertificateChallenge(result == QMessageBox::Yes);
+    });
+    messageBox->show();
 }
 
 SizeI QtRdpSessionWidget::viewSize() const
@@ -968,11 +979,6 @@ void QtRdpSessionWidget::sendKeyEvent(QKeyEvent *event, bool down)
     event->accept();
 #else
     const unsigned int virtualKey = static_cast<unsigned int>(event->nativeVirtualKey());
-    if (!down && m_reservedShortcutTracker.consumeHandledKeyUp(virtualKey)) {
-        event->accept();
-        return;
-    }
-
     const auto key = keyIdentifierFromVirtualKey(virtualKey);
     if (!key) {
         event->ignore();
@@ -1036,10 +1042,8 @@ void QtRdpSessionWidget::releaseAllPressedKeys()
 {
     if (!m_process || m_process->state() != FreeRdpProcess::State::Running) {
         m_keyboardRouter.reset();
-        m_reservedShortcutTracker.reset();
         return;
     }
 
     sendKeyboardActions(m_keyboardRouter.releaseAllPressedKeys());
-    m_reservedShortcutTracker.reset();
 }

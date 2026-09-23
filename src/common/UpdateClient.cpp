@@ -9,7 +9,12 @@
 #include <algorithm>
 #include <cstdio>
 #include <memory>
+#include <sstream>
 #include <vector>
+
+#ifdef _WIN32
+#include <bcrypt.h>
+#endif
 
 #ifdef _WIN32
 #include <winhttp.h>
@@ -184,6 +189,12 @@ bool winhttp_detail::sendHttpRequest(const std::wstring &url,
         return false;
     }
 
+    // Resolve/connect/send/receive timeouts (ms): bounds stalled update
+    // sockets so a dead server cannot pin the download thread forever.
+    // ponytail: no overall transfer deadline; a slow-drip under 30s/recv
+    // still passes. Add a deadline + cancel button if that bites.
+    ::WinHttpSetTimeouts(static_cast<HINTERNET>(session.get()), 10'000, 10'000, 30'000, 30'000);
+
     UniqueWinHttpHandle connection(::WinHttpConnect(static_cast<HINTERNET>(session.get()),
                                                     parsed.host.c_str(),
                                                     parsed.port,
@@ -206,7 +217,7 @@ bool winhttp_detail::sendHttpRequest(const std::wstring &url,
         return false;
     }
 
-    DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
+    DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_DISALLOW_HTTPS_TO_HTTP;
     ::WinHttpSetOption(static_cast<HINTERNET>(request.get()),
                        WINHTTP_OPTION_REDIRECT_POLICY,
                        &redirectPolicy,
@@ -415,6 +426,161 @@ bool downloadReleaseAsset(const ReleaseAsset &asset,
     }
     return true;
 }
+
+namespace
+{
+std::string toLowerAscii(std::string value)
+{
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
+}
+
+bool sha256FileHex(const std::wstring &path, std::string &hexOut, std::wstring &errorMessage)
+{
+    BCRYPT_ALG_HANDLE algorithm = nullptr;
+    if (!BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0))) {
+        errorMessage = L"Failed to open SHA-256 provider.";
+        return false;
+    }
+    BCRYPT_HASH_HANDLE hash = nullptr;
+    if (!BCRYPT_SUCCESS(BCryptCreateHash(algorithm, &hash, nullptr, 0, nullptr, 0, 0))) {
+        BCryptCloseAlgorithmProvider(algorithm, 0);
+        errorMessage = L"Failed to create SHA-256 hash.";
+        return false;
+    }
+
+    FILE *file = nullptr;
+    if (_wfopen_s(&file, path.c_str(), L"rb") != 0 || !file) {
+        BCryptDestroyHash(hash);
+        BCryptCloseAlgorithmProvider(algorithm, 0);
+        errorMessage = L"Failed to open downloaded update for hashing.";
+        return false;
+    }
+
+    std::vector<std::uint8_t> buffer(1 << 16);
+    bool ok = true;
+    for (;;) {
+        const size_t read = fread(buffer.data(), 1, buffer.size(), file);
+        if (read > 0 && !BCRYPT_SUCCESS(BCryptHashData(hash, buffer.data(), static_cast<ULONG>(read), 0))) {
+            errorMessage = L"Failed to hash downloaded update.";
+            ok = false;
+            break;
+        }
+        if (read < buffer.size()) {
+            if (ferror(file)) {
+                errorMessage = L"Failed to read downloaded update for hashing.";
+                ok = false;
+            }
+            break;
+        }
+    }
+    fclose(file);
+
+    std::uint8_t digest[32] = {};
+    if (ok && !BCRYPT_SUCCESS(BCryptFinishHash(hash, digest, sizeof(digest), 0))) {
+        errorMessage = L"Failed to finish SHA-256 hash.";
+        ok = false;
+    }
+    BCryptDestroyHash(hash);
+    BCryptCloseAlgorithmProvider(algorithm, 0);
+    if (!ok)
+        return false;
+
+    static const char *const kHex = "0123456789abcdef";
+    hexOut.clear();
+    hexOut.reserve(sizeof(digest) * 2);
+    for (const std::uint8_t byte : digest) {
+        hexOut.push_back(kHex[byte >> 4]);
+        hexOut.push_back(kHex[byte & 0x0f]);
+    }
+    return true;
+}
+
+bool findReleaseAssetDownloadUrl(const std::wstring &owner,
+                                 const std::wstring &repository,
+                                 const std::wstring &assetName,
+                                 std::wstring &downloadUrl,
+                                 std::wstring &errorMessage)
+{
+    const std::wstring url =
+        L"https://api.github.com/repos/" + owner + L"/" + repository + L"/releases/latest";
+    const wchar_t *acceptTypes[] = { L"*/*", nullptr };
+    std::vector<std::uint8_t> responseBytes;
+    if (!winhttp_detail::sendHttpRequest(url, acceptTypes, responseBytes, errorMessage))
+        return false;
+
+    nlohmann::json root = nlohmann::json::parse(responseBytes.begin(), responseBytes.end(), nullptr, false);
+    if (!root.is_object()) {
+        errorMessage = L"Failed to parse release metadata.";
+        return false;
+    }
+    const auto assets = root.find("assets");
+    if (assets == root.end() || !assets->is_array()) {
+        errorMessage = L"Latest release does not contain assets.";
+        return false;
+    }
+    for (const auto &item : *assets) {
+        if (!item.is_object())
+            continue;
+        if (wideFromUtf8(item.value("name", "")) != assetName)
+            continue;
+        downloadUrl = wideFromUtf8(item.value("browser_download_url", ""));
+        return !downloadUrl.empty();
+    }
+    errorMessage = L"Release does not contain the requested asset.";
+    return false;
+}
+}
+
+bool verifyDownloadedAssetSha256(const std::wstring &owner,
+                                 const std::wstring &repository,
+                                 const std::wstring &assetName,
+                                 const std::wstring &downloadedPath,
+                                 std::wstring &errorMessage)
+{
+    std::wstring sumsUrl;
+    if (!findReleaseAssetDownloadUrl(owner, repository, L"SHA256SUMS.txt", sumsUrl, errorMessage))
+        return false;
+
+    const wchar_t *acceptTypes[] = { L"*/*", nullptr };
+    std::vector<std::uint8_t> sumsBytes;
+    if (!winhttp_detail::sendHttpRequest(sumsUrl, acceptTypes, sumsBytes, errorMessage))
+        return false;
+    const std::string sums(sumsBytes.begin(), sumsBytes.end());
+    const std::string asset = utf8FromWide(assetName);
+
+    // Line format: "<hex>  <name>" (sha256sum output, optional '*' marker).
+    std::string expected;
+    std::istringstream stream(sums);
+    std::string line;
+    while (std::getline(stream, line)) {
+        const auto sep = line.find_first_of(" \t");
+        if (sep == std::string::npos)
+            continue;
+        const auto nameStart = line.find_first_not_of(" \t*", sep);
+        if (nameStart == std::string::npos)
+            continue;
+        if (line.substr(nameStart) == asset) {
+            expected = line.substr(0, sep);
+            break;
+        }
+    }
+    if (expected.empty()) {
+        errorMessage = L"SHA256SUMS.txt does not list the downloaded asset.";
+        return false;
+    }
+
+    std::string actual;
+    if (!sha256FileHex(downloadedPath, actual, errorMessage))
+        return false;
+    if (toLowerAscii(actual) != toLowerAscii(expected)) {
+        errorMessage = L"Downloaded update failed the SHA-256 check.";
+        return false;
+    }
+    return true;
+}
 #else
 bool fetchLatestRelease(const std::wstring &,
                         const std::wstring &,
@@ -430,6 +596,16 @@ bool downloadReleaseAsset(const ReleaseAsset &,
                           const std::wstring &,
                           std::wstring &errorMessage,
                           DownloadProgressCallback)
+{
+    errorMessage = L"Updates are not supported on this platform.";
+    return false;
+}
+
+bool verifyDownloadedAssetSha256(const std::wstring &,
+                                 const std::wstring &,
+                                 const std::wstring &,
+                                 const std::wstring &,
+                                 std::wstring &errorMessage)
 {
     errorMessage = L"Updates are not supported on this platform.";
     return false;

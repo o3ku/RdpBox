@@ -32,11 +32,17 @@ public:
     WindowState loadWindowState() const;
     void saveWindowState(const WindowState &state) const;
 
+    // True when the most recent save() failed to write the file (disk full,
+    // lock, permission). Lets callers warn without conflating with the
+    // mutators' logical false returns (name collision, not found).
+    bool saveFailed() const;
+
 private:
     void load();
-    void save() const;
+    bool save() const;
     bool containsName(const std::wstring &name, const std::wstring *excludedName = nullptr) const;
 
     std::wstring m_filePath;
     std::vector<Profile> m_profiles;
+    mutable bool m_lastSaveFailed = false;
 };

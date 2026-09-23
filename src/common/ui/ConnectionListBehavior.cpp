@@ -85,7 +85,8 @@ std::optional<int> keyboardMoveDeltaForConnectionList(bool controlDown,
 
 std::vector<int> retainedSelectionRowsForProfiles(
     const std::vector<Profile> &visibleProfiles,
-    const std::vector<std::wstring> &preferredProfileNames)
+    const std::vector<std::wstring> &preferredProfileNames,
+    bool allowFallbackSelection)
 {
     std::vector<int> rows;
     for (int index = 0; index < static_cast<int>(visibleProfiles.size()); ++index) {
@@ -96,7 +97,7 @@ std::vector<int> retainedSelectionRowsForProfiles(
         }
     }
 
-    if (rows.empty() && !visibleProfiles.empty())
+    if (allowFallbackSelection && rows.empty() && !visibleProfiles.empty())
         rows.push_back(0);
 
     return rows;

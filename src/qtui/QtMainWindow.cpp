@@ -82,7 +82,6 @@ void applyApplicationTheme(QApplication &application); // QtMain.cpp (global)
 namespace
 {
 constexpr int kTitleBarHeight = 42;
-constexpr int kResizeBorderWidth = 6;
 constexpr int kUpdateCheckIntervalMs = 24 * 60 * 60 * 1000;
 
 
@@ -329,7 +328,8 @@ QString connectionDotStyleSheet(FreeRdpProcess::State state)
         return QStringLiteral("background: #22c55e; border-radius: 5px;");
     case FreeRdpProcess::State::Starting:
         return QStringLiteral("background: #f59e0b; border-radius: 5px;");
-    default:
+    case FreeRdpProcess::State::Idle:
+    case FreeRdpProcess::State::Finished:
         return QStringLiteral("background: #9aa3ad; border-radius: 5px;");
     }
 }
@@ -352,7 +352,6 @@ QIcon sessionStatusIcon(ui::MainWindowTabStatus status)
         color = QColor(239, 68, 68);
         break;
     case ui::MainWindowTabStatus::Inactive:
-    default:
         return {};
     }
 
@@ -582,7 +581,11 @@ protected:
             return;
 
         if (m_dragSourceRow < 0 || selectedItems().size() != 1 || !m_dropCallback) {
-            QListWidget::dropEvent(event);
+            // Unrecognized drop state: the repository order is the source of
+            // truth; do NOT fall back to the base class move (a background
+            // rebuild can land us here with a cleared selection and the view
+            // would silently diverge from the stored order).
+            event->ignore();
             return;
         }
 
@@ -737,14 +740,48 @@ bool QtMainWindow::nativeEvent(const QByteArray &eventType, void *message, long 
 
 }
 
+QtMainWindow::~QtMainWindow()
+{
+    // Join background update threads before QObject teardown invalidates the
+    // QPointer window they marshal results through.
+    if (m_updateCheckThread.joinable())
+        m_updateCheckThread.join();
+    if (m_updateDownloadThread.joinable())
+        m_updateDownloadThread.join();
+}
+
 void QtMainWindow::changeEvent(QEvent *event)
 {
     QMainWindow::changeEvent(event);
+    if (event->type() == QEvent::LanguageChange)
+        retranslateUi();
     if (event->type() == QEvent::WindowStateChange) {
         refreshWindowControls();
-        if (!m_restoringWindowState)
-            saveWindowState();
+        saveWindowState();
     }
+}
+
+void QtMainWindow::retranslateUi()
+{
+    // Persistent strings set in buildUi(); dialogs rebuild on open, so only
+    // these need live retranslation. Add new persistent strings here too.
+    if (m_logoButton)
+        m_logoButton->setToolTip(tr("Toggle connections panel"));
+    if (m_addButton)
+        m_addButton->setToolTip(tr("New connection"));
+    if (m_infoButton)
+        m_infoButton->setToolTip(tr("Settings"));
+    if (m_searchEdit)
+        m_searchEdit->setPlaceholderText(tr("Search"));
+    if (m_connectionsTitle)
+        m_connectionsTitle->setText(tr("Connections"));
+    if (m_minimizeButton)
+        m_minimizeButton->setToolTip(tr("Minimize"));
+    if (m_closeButton)
+        m_closeButton->setToolTip(tr("Close"));
+    refreshWindowControls();    // Maximize/Restore tooltip
+    refreshUpdateButton();      // dynamic tooltip + label text
+    refreshSessionTabStatuses(); // tab titles/tooltips carry state words
 }
 
 void QtMainWindow::closeEvent(QCloseEvent *event)
@@ -921,12 +958,12 @@ void QtMainWindow::buildTitleBar(QVBoxLayout *rootLayout)
     auto *connectionsLayout = new QHBoxLayout(m_connectionsHeader);
     connectionsLayout->setContentsMargins(0, 0, 0, 0);
     connectionsLayout->setSpacing(8);
-    auto *title = new QLabel(tr("Connections"), m_connectionsHeader);
-    QFont titleFont = title->font();
+    m_connectionsTitle = new QLabel(tr("Connections"), m_connectionsHeader);
+    QFont titleFont = m_connectionsTitle->font();
     titleFont.setPointSize(titleFont.pointSize() + 2);
     titleFont.setBold(true);
-    title->setFont(titleFont);
-    connectionsLayout->addWidget(title);
+    m_connectionsTitle->setFont(titleFont);
+    connectionsLayout->addWidget(m_connectionsTitle);
     connectionsLayout->addStretch(1);
     m_addButton = new QToolButton(m_connectionsHeader);
     m_addButton->setObjectName(QStringLiteral("addButton"));
@@ -1092,13 +1129,13 @@ void QtMainWindow::applyShortcutSettings()
 }
 
 
-void QtMainWindow::refreshProfileList()
+void QtMainWindow::refreshProfileList(bool allowSelectionFallback)
 {
     const std::vector<std::wstring> previousSelection = selectedProfileNames();
     const std::vector<Profile> profiles = currentVisibleProfiles();
     const std::vector<std::wstring> connectedNames = connectedProfileNames();
     const std::vector<int> retainedRows =
-        retainedSelectionRowsForProfiles(profiles, previousSelection);
+        retainedSelectionRowsForProfiles(profiles, previousSelection, allowSelectionFallback);
 
     m_profileList->clear();
     for (const Profile &profile : profiles) {
@@ -1132,6 +1169,7 @@ void QtMainWindow::refreshProfileList()
         }
     }
 
+    warnProfilePersistFailed(); // choke point: every mutator flow refreshes here
     refreshActions();
 }
 
@@ -1296,32 +1334,15 @@ int QtMainWindow::nativeHitTestForPoint(const QPoint &windowPoint) const
         size(),
         captionRect,
         captionExclusionRects(),
-        kResizeBorderWidth,
         isMaximized());
 
     switch (area) {
     case qt::chrome::HitArea::Caption:
         return HTCAPTION;
-    case qt::chrome::HitArea::Left:
-        return HTLEFT;
-    case qt::chrome::HitArea::Right:
-        return HTRIGHT;
-    case qt::chrome::HitArea::Top:
-        return HTTOP;
-    case qt::chrome::HitArea::Bottom:
-        return HTBOTTOM;
-    case qt::chrome::HitArea::TopLeft:
-        return HTTOPLEFT;
-    case qt::chrome::HitArea::TopRight:
-        return HTTOPRIGHT;
-    case qt::chrome::HitArea::BottomLeft:
-        return HTBOTTOMLEFT;
-    case qt::chrome::HitArea::BottomRight:
-        return HTBOTTOMRIGHT;
     case qt::chrome::HitArea::Client:
-    default:
         return HTCLIENT;
     }
+    return HTCLIENT;
 }
 
 void QtMainWindow::addProfile(bool connectAfterAdd)
@@ -1360,6 +1381,8 @@ void QtMainWindow::editSelectedProfile()
         return;
     }
 
+    if (currentName != profile.name)
+        migrateSessionIdentity(currentName, profile.name);
     refreshProfileList();
     selectProfileByName(profile.name);
 }
@@ -1501,8 +1524,9 @@ void QtMainWindow::touchLastConnectedAt(const Profile &profile)
         return;
 
     stored.lastConnectedAt = currentUtcIso8601();
-    if (m_repository.updateProfile(stored.name, stored))
-        refreshProfileList();
+    m_repository.updateProfile(stored.name, stored);
+    // No refreshProfileList() here: the caller's state change already
+    // refreshed, and the sidebar does not display lastConnectedAt.
 }
 
 void QtMainWindow::toggleFullScreen()
@@ -1596,7 +1620,41 @@ void QtMainWindow::showSettingsDialog()
     languageCombo->addItem(tr("English"), QString());
     languageCombo->addItem(QStringLiteral("\u7b80\u4f53\u4e2d\u6587"), QStringLiteral("zh"));
     languageCombo->setCurrentIndex(std::max(0, languageCombo->findData(languageBefore)));
-    languageCombo->setToolTip(tr("Takes effect after restart"));
+    // Theme/language apply live on combo change; Cancel reverts.
+    auto applyThemeNow = [&]() {
+        applyApplicationTheme(*qApp);
+        rethemeCaptionIcons();
+    };
+    auto applyLanguageNow = [&]() {
+        applyApplicationTheme(*qApp); // swaps the installed translator
+        // Re-translate persistent UIs: LanguageChange reaches every top-level
+        // widget (this window retranslates in changeEvent).
+        QEvent languageChange(QEvent::LanguageChange);
+        const QWidgetList topLevel = QApplication::topLevelWidgets();
+        for (QWidget *widget : topLevel)
+            QCoreApplication::sendEvent(widget, &languageChange);
+        retranslateUi();
+    };
+    connect(themeCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [&themeCombo, &applyThemeNow](int index) {
+                QSettings().setValue(QStringLiteral("theme"), themeCombo->itemData(index).toString());
+                applyThemeNow();
+            });
+    connect(languageCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [&languageCombo, &applyLanguageNow](int index) {
+                QSettings().setValue(QStringLiteral("language"), languageCombo->itemData(index).toString());
+                applyLanguageNow();
+            });
+    connect(&dialog, &QDialog::rejected, this, [&]() {
+        if (QSettings().value(QStringLiteral("theme")).toString() != themeBefore) {
+            QSettings().setValue(QStringLiteral("theme"), themeBefore);
+            applyThemeNow();
+        }
+        if (QSettings().value(QStringLiteral("language")).toString() != languageBefore) {
+            QSettings().setValue(QStringLiteral("language"), languageBefore);
+            applyLanguageNow();
+        }
+    });
     auto *generalForm = new QFormLayout;
     generalForm->addRow(tr("Theme"), themeCombo);
     generalForm->addRow(tr("Language"), languageCombo);
@@ -1608,7 +1666,6 @@ void QtMainWindow::showSettingsDialog()
 
     // --- Shortcuts tab ----------------------------------------------------
     QWidget shortcutsPage;
-    shortcutsPage.setObjectName(QStringLiteral("settingsTab"));
     shortcutsPage.setObjectName(QStringLiteral("settingsTab"));
     const rdpbox::ShortcutSettings current = rdpbox::currentShortcuts();
     auto *newConnectionEdit = new QKeySequenceEdit(current.newConnection, &shortcutsPage);
@@ -1706,14 +1763,7 @@ void QtMainWindow::showSettingsDialog()
     if (dialog.exec() != QDialog::Accepted)
         return;
 
-    const QString themeAfter = themeCombo->currentData().toString();
-    const QString languageAfter = languageCombo->currentData().toString();
-    settingsStore.setValue(QStringLiteral("theme"), themeAfter);
-    settingsStore.setValue(QStringLiteral("language"), languageAfter);
-    if (themeAfter != themeBefore) {
-        applyApplicationTheme(*qApp);
-        rethemeCaptionIcons();
-    }
+    // Theme/language already persisted and applied live on combo change.
 
     rdpbox::ShortcutSettings settings = current;
     settings.newConnection = newConnectionEdit->keySequence();
@@ -1738,7 +1788,6 @@ void QtMainWindow::handleUpdateButtonClicked()
         startBackgroundUpdateCheck(true);
         break;
     case ui::UpdateUiState::Downloading:
-    default:
         break;
     }
 }
@@ -1756,8 +1805,10 @@ void QtMainWindow::startBackgroundUpdateCheck(bool userInitiated)
     m_updateCheckInFlight = true;
     const std::uint64_t generation = ++m_updateCheckGeneration;
 
+    if (m_updateCheckThread.joinable())
+        m_updateCheckThread.join(); // previous check already completed
     QPointer<QtMainWindow> target(this);
-    std::thread([target, generation, userInitiated]() {
+    m_updateCheckThread = std::thread([target, generation, userInitiated]() {
         auto result = std::make_shared<updater::ReleaseAsset>();
         std::wstring error;
         bool hasUpdate = false;
@@ -1785,7 +1836,7 @@ void QtMainWindow::startBackgroundUpdateCheck(bool userInitiated)
                                                *result,
                                                hasUpdate);
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void QtMainWindow::startBackgroundUpdateDownload()
@@ -1801,12 +1852,13 @@ void QtMainWindow::startBackgroundUpdateDownload()
     const std::uint64_t generation = ++m_updateDownloadGeneration;
     const updater::ReleaseAsset release = m_updateRelease;
     QPointer<QtMainWindow> target(this);
-    std::thread([target, generation, release]() {
+    m_updateDownloadThread = std::thread([target, generation, release]() {
         std::wstring error;
         const std::wstring updatesDir = AppPaths::updatesDirectoryPath();
-        const std::wstring targetPath = updatesDir.empty()
+        const std::wstring updateFileName = ui::updateReleaseFileName(release.tagName);
+        const std::wstring targetPath = (updatesDir.empty() || updateFileName.empty())
             ? std::wstring()
-            : (updatesDir + L"\\" + ui::updateReleaseFileName(release.tagName));
+            : (updatesDir + L"\\" + updateFileName);
 
         auto progressCallback = [target, generation](std::uint64_t bytesReceived, std::uint64_t totalBytes) {
             if (!target)
@@ -1820,7 +1872,10 @@ void QtMainWindow::startBackgroundUpdateDownload()
         };
 
         const bool success = !targetPath.empty()
-            && updater::downloadReleaseAsset(release, targetPath, error, progressCallback);
+            && updater::downloadReleaseAsset(release, targetPath, error, progressCallback)
+            // Integrity gate: refuse to execute anything that does not match
+            // the release's published SHA256SUMS entry.
+            && updater::verifyDownloadedAssetSha256(L"o3ku", L"RdpBox", release.assetName, targetPath, error);
 
         if (!target)
             return;
@@ -1829,7 +1884,7 @@ void QtMainWindow::startBackgroundUpdateDownload()
             if (target)
                 target->handleUpdateDownloadCompleted(generation, success, error);
         }, Qt::QueuedConnection);
-    }).detach();
+    });
 }
 
 void QtMainWindow::handleUpdateCheckCompleted(std::uint64_t generation,
@@ -2082,11 +2137,6 @@ void QtMainWindow::openConnectionsByName(const std::vector<std::wstring> &connec
         addSessionTab(profile);
 }
 
-Profile QtMainWindow::selectedProfile() const
-{
-    return m_repository.profileByName(selectedProfileName());
-}
-
 std::wstring QtMainWindow::selectedProfileName() const
 {
     if (!m_profileList || !m_profileList->currentItem())
@@ -2177,10 +2227,17 @@ void QtMainWindow::addSessionTab(const Profile &profile)
 
 void QtMainWindow::updateSessionTabState(const std::wstring &profileName, FreeRdpProcess::State state)
 {
-    m_sessionStates[profileName] = state;
     const int index = sessionTabIndexForProfileName(profileName);
-    if (index < 0 || !m_tabs)
-        return;
+    if (!m_tabs || index < 0)
+        return; // closed/unknown session: don't (re)create state entries
+
+    // Tab title/tooltip/icon are refreshed every call (the 2s status poll
+    // depends on it for RTT-tinted icons), but the sidebar rebuild and the
+    // state map only change when the state actually changed.
+    const auto known = m_sessionStates.find(profileName);
+    const bool stateChanged = known == m_sessionStates.end() || known->second != state;
+    if (stateChanged)
+        m_sessionStates[profileName] = state;
 
     const Profile profile = m_repository.profileByName(profileName);
     if (!profile.isValid())
@@ -2200,7 +2257,50 @@ void QtMainWindow::updateSessionTabState(const std::wstring &profileName, FreeRd
     m_tabBar->setTabText(index, sessionTabTitle(profile, state));
     m_tabBar->setTabToolTip(index, tooltip);
     m_tabBar->setTabIcon(index, sessionStatusIcon(ui::tabStatusForConnection(connected, uiInfo)));
-    refreshProfileList();
+    if (stateChanged)
+        refreshProfileList(false); // background refresh: never steal selection
+}
+
+void QtMainWindow::migrateSessionIdentity(const std::wstring &oldName, const std::wstring &newName)
+{
+    const int index = sessionTabIndexForProfileName(oldName);
+    if (index < 0)
+        return;
+
+    m_tabBar->setTabData(index, QString::fromStdWString(newName));
+    const auto state = m_sessionStates.find(oldName);
+    if (state != m_sessionStates.end()) {
+        const FreeRdpProcess::State sessionState = state->second;
+        m_sessionStates.erase(state);
+        m_sessionStates[newName] = sessionState;
+    }
+    updateSessionTabState(newName, sessionStateForProfile(QString::fromStdWString(newName)));
+}
+
+std::wstring QtMainWindow::sessionProfileNameForWidget(const QtRdpSessionWidget *widget) const
+{
+    if (!m_tabs || !widget)
+        return {};
+    for (int index = 0; index < m_tabs->count(); ++index) {
+        if (sessionWidgetForTab(index) == widget)
+            return m_tabBar->tabData(index).toString().toStdWString();
+    }
+    return {};
+}
+
+void QtMainWindow::warnProfilePersistFailed()
+{
+    if (!m_repository.saveFailed() || m_persistWarningShown)
+        return;
+    m_persistWarningShown = true;
+    auto *messageBox = new QMessageBox(this);
+    messageBox->setIcon(QMessageBox::Warning);
+    messageBox->setWindowTitle(tr("Connection"));
+    messageBox->setText(tr("Saving profiles failed. Recent changes may be lost on exit "
+                           "(check disk space or locks on profiles.json)."));
+    messageBox->setStandardButtons(QMessageBox::Ok);
+    messageBox->setAttribute(Qt::WA_DeleteOnClose);
+    messageBox->show();
 }
 
 FreeRdpProcess::State QtMainWindow::sessionStateForProfile(const QString &profileName) const
@@ -2243,14 +2343,21 @@ QWidget *QtMainWindow::createSessionPage(const Profile &profile)
 
     auto *surface = new QtRdpSessionWidget(profile, page);
     surface->setObjectName(QStringLiteral("sessionSurface"));
-    surface->setStateChangedCallback([this, profile](FreeRdpProcess::State state) {
-        updateSessionTabState(profile.name, state);
+    surface->setStateChangedCallback([this, surface](FreeRdpProcess::State state) {
+        // Identity comes from the tab at fire time so renaming the profile
+        // re-keys the session instead of stranding it on a stale name copy.
+        const std::wstring sessionName = sessionProfileNameForWidget(surface);
+        if (sessionName.empty())
+            return;
+        updateSessionTabState(sessionName, state);
         if (state == FreeRdpProcess::State::Running) {
-            touchLastConnectedAt(profile);
-            if (ui::connectionCompletedPlan(profile, m_isFullScreen).enterFullScreen)
-                setFullScreen(true);
+            const Profile profile = m_repository.profileByName(sessionName);
+            if (profile.isValid()) {
+                touchLastConnectedAt(profile);
+                if (ui::connectionCompletedPlan(profile, m_isFullScreen).enterFullScreen)
+                    setFullScreen(true);
+            }
         }
-        refreshProfileList();
     });
 
     layout->addWidget(surface, 1);

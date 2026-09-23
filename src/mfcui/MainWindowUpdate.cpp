@@ -240,9 +240,10 @@ void MainWindow::startBackgroundUpdateDownload()
         auto result = std::make_unique<UpdateDownloadResult>();
         result->generation = generation;
         std::wstring error;
-        const std::wstring targetPath = AppPaths::updatesDirectoryPath().empty()
+        const std::wstring updateFileName = ui::updateReleaseFileName(release.tagName);
+        const std::wstring targetPath = (AppPaths::updatesDirectoryPath().empty() || updateFileName.empty())
             ? std::wstring()
-            : (AppPaths::updatesDirectoryPath() + L"\\" + ui::updateReleaseFileName(release.tagName));
+            : (AppPaths::updatesDirectoryPath() + L"\\" + updateFileName);
         auto progressCallback = [hwnd, generation](std::uint64_t bytesReceived, std::uint64_t totalBytes) {
             if (!::IsWindow(hwnd))
                 return;
@@ -252,7 +253,8 @@ void MainWindow::startBackgroundUpdateDownload()
                            static_cast<WPARAM>(progress),
                            static_cast<LPARAM>(generation));
         };
-        if (!targetPath.empty() && updater::downloadReleaseAsset(release, targetPath, error, progressCallback)) {
+        if (!targetPath.empty() && updater::downloadReleaseAsset(release, targetPath, error, progressCallback)
+            && updater::verifyDownloadedAssetSha256(L"o3ku", L"RdpBox", release.assetName, targetPath, error)) {
             result->success = true;
         } else {
             result->success = false;

@@ -410,6 +410,10 @@ target_link_libraries(UpdateClientTests PRIVATE
     Shell32
 )
 
+if(WIN32)
+    target_link_libraries(UpdateClientTests PRIVATE Bcrypt)
+endif()
+
 add_test(NAME UpdateClientTests COMMAND UpdateClientTests)
 
 add_executable(AppPathsTests

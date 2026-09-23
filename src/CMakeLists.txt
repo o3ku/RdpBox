@@ -338,6 +338,15 @@ if(RDPBOX_BUILD_QT)
         ${CMAKE_CURRENT_SOURCE_DIR}
     )
 
+    # Ship pre-built UI translations next to the executable
+    # (runtime loads <appdir>/translations/rdpbox_*.qm).
+    add_custom_command(TARGET RdpBox POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:RdpBox>/translations"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/qtui/translations/rdpbox_zh.qm"
+            "$<TARGET_FILE_DIR:RdpBox>/translations/rdpbox_zh.qm"
+    )
+
     foreach(_freerdp_include_dir IN LISTS FREERDP_INCLUDE_DIRS)
         if(EXISTS "${_freerdp_include_dir}/freerdp3")
             target_include_directories(RdpBox PRIVATE "${_freerdp_include_dir}/freerdp3")

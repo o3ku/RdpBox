@@ -6,21 +6,24 @@
 #include "common/rdp/RdpKeyboardInputRouter.h"
 #include "common/rdp/RdpSessionKeyboardHook.h"
 #include "common/rdp/RdpMouseMoveCoalescer.h"
-#include "common/rdp/RdpReservedShortcutTracker.h"
 #include "common/rdp/RdpResizeBurstTracker.h"
 #include "common/rdp/RdpResolutionRecovery.h"
 
 #include <QWidget>
+#include <QPointer>
 
 #include <functional>
 #include <memory>
 #include <vector>
 
 class QLabel;
+class QMessageBox;
 class QTimer;
 
 class QtRdpSessionWidget : public QWidget, public rdp::session_view_input::RdpSystemKeyTarget
 {
+    Q_OBJECT
+
 public:
     explicit QtRdpSessionWidget(Profile profile, QWidget *parent = nullptr);
     ~QtRdpSessionWidget() override;
@@ -33,7 +36,6 @@ public:
     FreeRdpProcess::State state() const;
     FreeRdpProcess::ConnectionInfo connectionInfo() const;
     void setStateChangedCallback(std::function<void(FreeRdpProcess::State)> callback);
-    void noteConsumedLocalShortcutKey(unsigned int virtualKey);
 
 protected:
     bool event(QEvent *event) override;
@@ -76,7 +78,8 @@ private:
     void handleResizeTimer();
     void flushPendingMouseMove();
     void handleMouseMoveTimer();
-    bool confirmCertificate(const FreeRdpProcess::CertificateChallenge &challenge);
+    void promptCertificateChallenge(const FreeRdpProcess::CertificateChallenge &challenge,
+                                    std::weak_ptr<FreeRdpProcess> weakProcess);
     SizeI viewSize() const;
     PointI pointFromMouseEvent(const QMouseEvent *event) const;
     unsigned int mouseFlagsFromEvent(const QMouseEvent *event) const;
@@ -96,13 +99,13 @@ private:
     QString m_overlayText;
     std::function<void(FreeRdpProcess::State)> m_stateChanged;
     RdpKeyboardInputRouter m_keyboardRouter;
-    RdpReservedShortcutTracker m_reservedShortcutTracker;
     RdpMouseMoveCoalescer m_mouseMoveCoalescer;
     RdpResizeBurstTracker m_resizeBurstTracker;
     RdpResolutionRecovery m_resolutionRecovery;
     QTimer *m_mouseMoveTimer = nullptr;
     QTimer *m_resizeTimer = nullptr;
     QTimer *m_recoveryTimer = nullptr;
+    QPointer<QMessageBox> m_certPrompt;
     unsigned int m_pressedMouseButtons = 0;
     PointI m_lastPointerPoint;
     bool m_hasLastPointerPoint = false;

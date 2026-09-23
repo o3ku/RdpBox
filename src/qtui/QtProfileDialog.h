@@ -10,6 +10,8 @@ class QSpinBox;
 
 class QtProfileDialog : public QDialog
 {
+    Q_OBJECT
+
 public:
     explicit QtProfileDialog(QWidget *parent = nullptr);
 
