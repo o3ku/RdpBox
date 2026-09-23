@@ -47,7 +47,7 @@ jobs:
       - name: Package portable bundle
         run: |
           set -euo pipefail
-          VERSION="${RDPBOX_VERSION:-1.0.0}"
+          VERSION="$(grep -oP "project\(RdpBox VERSION \K[0-9.]+" src/CMakeLists.txt | head -1)"
           STAGE="dist/RdpBoxQt-${VERSION}-linux-x64"
           mkdir -p "${STAGE}/lib" "${STAGE}/plugins/platforms" "${STAGE}/plugins/imageformats"
 
