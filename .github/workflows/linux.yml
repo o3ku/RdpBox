@@ -44,9 +44,42 @@ jobs:
       - name: Build
         run: cmake --build --preset linux-release --parallel
 
+      - name: Package portable bundle
+        run: |
+          set -euo pipefail
+          VERSION="${RDPBOX_VERSION:-1.0.0}"
+          STAGE="dist/RdpBoxQt-${VERSION}-linux-x64"
+          mkdir -p "${STAGE}/lib" "${STAGE}/plugins/platforms" "${STAGE}/plugins/imageformats"
+
+          cp build/linux-release/src/RdpBoxQt "${STAGE}/RdpBoxQt"
+
+          # Bundle the exe's non-base shared objects (Qt5 / freerdp / winpr / cjson).
+          ldd build/linux-release/src/RdpBoxQt | awk '/=> \/|^\//{print $3}' | sort -u | while read -r lib; do
+            case "${lib}" in
+              */libQt5*|*/libfreerdp*|*/libwinpr*|*/libcjson*|*/libssl*|*/libcrypto*)
+                cp -L "${lib}" "${STAGE}/lib/" ;;
+            esac
+          done
+
+          PLUGDIR="$(qtchooser -print/qt5/plugins 2>/dev/null || qmake -qt=5 -query QT_INSTALL_PLUGINS 2>/dev/null || echo /usr/lib/x86_64-linux-gnu/qt5/plugins)"
+          cp "${PLUGDIR}/platforms/libqxcb.so" "${STAGE}/plugins/platforms/"
+          cp "${PLUGDIR}/imageformats/libqsvg.so" "${STAGE}/plugins/imageformats/" || true
+
+          cat > "${STAGE}/RdpBoxQt.sh" <<'EOS'
+          #!/bin/sh
+          HERE="$(cd "$(dirname "$0")" && pwd)"
+          export LD_LIBRARY_PATH="${HERE}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+          export QT_PLUGIN_PATH="${HERE}/plugins"
+          exec "${HERE}/RdpBoxQt" "$@"
+          EOS
+          sed -i 's/^          //' "${STAGE}/RdpBoxQt.sh"
+          chmod +x "${STAGE}/RdpBoxQt.sh"
+
+          tar -czf "dist/RdpBoxQt-${VERSION}-linux-x64.tar.gz" -C dist "RdpBoxQt-${VERSION}-linux-x64"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: RdpBoxQt-linux-x64
-          path: build/linux-release/src/RdpBoxQt
+          path: dist/*.tar.gz
           if-no-files-found: error
