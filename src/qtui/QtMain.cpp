@@ -104,6 +104,7 @@ const ThemeColors &darkThemeColors()
 
 bool windowsAppsUseLightTheme()
 {
+#ifdef _WIN32
     DWORD value = 1;
     DWORD size = sizeof(value);
     if (RegGetValueW(HKEY_CURRENT_USER,
@@ -111,6 +112,11 @@ bool windowsAppsUseLightTheme()
                      L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &value, &size) != ERROR_SUCCESS)
         return true;
     return value != 0;
+#else
+    // No registry off Windows; follow the platform palette luminance instead.
+    const QColor background = QPalette().color(QPalette::Window);
+    return (background.red() * 299 + background.green() * 587 + background.blue() * 114) / 1000 >= 128;
+#endif
 }
 
 void applyThemePalette(QApplication &application, const ThemeColors &colors)
