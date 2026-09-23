@@ -1,0 +1,52 @@
+name: Linux CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: linux-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (Ubuntu 24.04)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config \
+            qtbase5-dev libqt5svg5-dev \
+            nlohmann-json3-dev libcjson-dev \
+            libfreerdp3-dev libfreerdp-client3-dev libwinpr3-dev
+
+      - name: Verify pkg-config modules
+        run: |
+          pkg-config --modversion freerdp3 freerdp-client3 winpr3 cjson
+
+      - name: Configure
+        run: cmake --preset linux-release
+
+      - name: Build
+        run: cmake --build --preset linux-release --parallel
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RdpBoxQt-linux-x64
+          path: build/linux-release/src/RdpBoxQt
+          if-no-files-found: error

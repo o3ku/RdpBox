@@ -35,10 +35,14 @@ else()
     find_package(Threads REQUIRED)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(FREERDP3 REQUIRED IMPORTED_TARGET freerdp3 freerdp-client3 winpr3)
+    # Debian's libcjson-dev ships pkg-config only, no CMake config.
+    pkg_check_modules(CJSON REQUIRED IMPORTED_TARGET cjson)
 endif()
 
 find_package(nlohmann_json CONFIG REQUIRED)
-find_package(cJSON CONFIG REQUIRED)
+if(WIN32)
+    find_package(cJSON CONFIG REQUIRED)
+endif()
 
 set(RDPBOX_VERSION_OVERRIDE "" CACHE STRING "Override the RdpBox display/update version.")
 
@@ -367,6 +371,7 @@ if(RDPBOX_BUILD_QT)
             Qt5::Widgets
             Qt5::Svg
             PkgConfig::FREERDP3
+            PkgConfig::CJSON
             OpenSSL::Crypto
             nlohmann_json::nlohmann_json
             Threads::Threads
