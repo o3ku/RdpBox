@@ -71,6 +71,7 @@ int main()
     assert(ui::shortcutChordText({VK_F11, false, false, false}) == L"F11");
     assert(ui::shortcutChordText({VK_UP, false, false, false}) == L"Up");
     assert(ui::shortcutChordText({VK_DELETE, true, false, false}) == L"Ctrl+Del");
+    assert(ui::shortcutChordText({0, false, false, false}) == L"(none)");
     assert(ui::shortcutChordText({VK_BACK, true, false, false}) == L"Ctrl+Backspace");
     assert(ui::shortcutChordText({VK_HOME, true, false, false}) == L"Ctrl+Home");
 

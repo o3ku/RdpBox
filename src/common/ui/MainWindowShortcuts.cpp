@@ -101,6 +101,8 @@ bool isValidShortcutChord(const ShortcutChord &chord)
 std::wstring shortcutChordText(const ShortcutChord &chord)
 {
     std::wstring text;
+    if (chord.virtualKey == 0)
+        return L"(none)";
     if (chord.ctrl)
         text += L"Ctrl+";
     if (chord.shift)

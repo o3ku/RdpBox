@@ -65,7 +65,9 @@ ui::MainWindowShortcutSettings loadMainWindowShortcutSettings()
                                             (std::wstring(names[i]) + L"Mods").c_str(),
                                             chordMods(fallbacks[i]));
         const ui::ShortcutChord chord = chordFromStorage(virtualKey, mods);
-        if (ui::isValidShortcutChord(chord))
+        if (virtualKey == 0)
+            *targets[i] = ui::ShortcutChord();  // explicitly disabled
+        else if (ui::isValidShortcutChord(chord))
             *targets[i] = chord;
     }
     return settings;
@@ -103,9 +105,21 @@ ShortcutsDialog::ShortcutsDialog(const ui::MainWindowShortcutSettings &settings,
 BOOL ShortcutsDialog::PreTranslateMessage(MSG *msg)
 {
     if (msg && (msg->message == WM_KEYDOWN || msg->message == WM_SYSKEYDOWN)) {
+        const UINT virtualKey = static_cast<UINT>(msg->wParam);
         CaptureEdit *capture = captureEditForFocus();
-        if (capture && !isModifierKey(static_cast<UINT>(msg->wParam))) {
-            captureKey(static_cast<UINT>(msg->wParam));
+        if (capture && !isModifierKey(virtualKey)) {
+            const bool modifierHeld = (::GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0
+                || (::GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0
+                || (::GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+            if (!modifierHeld && (virtualKey == VK_BACK || virtualKey == VK_DELETE)) {
+                // Bare Backspace/Delete clears the shortcut (disables the action).
+                *capture->chord = ui::ShortcutChord();
+                refreshEditTexts();
+                return TRUE;
+            }
+            if (virtualKey == VK_ESCAPE)
+                return CDialogEx::PreTranslateMessage(msg);  // Esc cancels the dialog
+            captureKey(virtualKey);
             return TRUE;
         }
     }
@@ -177,7 +191,7 @@ bool ShortcutsDialog::validateAndReport()
     const wchar_t *const rowNames[] = {L"New connection", L"Open connections", L"Toggle full screen"};
 
     for (int i = 0; i < 3; ++i) {
-        if (!ui::isValidShortcutChord(chords[i])) {
+        if (chords[i].virtualKey != 0 && !ui::isValidShortcutChord(chords[i])) {
             CString message;
             message.Format(L"\"%s\" cannot use the shortcut \"%s\".\n"
                            L"Use a key with Ctrl, Shift or Alt, or a function key.",
@@ -189,8 +203,10 @@ bool ShortcutsDialog::validateAndReport()
     }
 
     for (int i = 0; i < 3; ++i) {
+        if (chords[i].virtualKey == 0)
+            continue;  // disabled shortcuts never collide
         for (int j = i + 1; j < 3; ++j) {
-            if (chords[i] == chords[j]) {
+            if (chords[j].virtualKey != 0 && chords[i] == chords[j]) {
                 MessageBox(L"Two actions use the same shortcut.",
                            L"Shortcuts", MB_OK | MB_ICONWARNING);
                 return false;
