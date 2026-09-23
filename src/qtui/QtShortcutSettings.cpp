@@ -34,7 +34,12 @@ namespace
 {
 QKeySequence sequenceFromStore(QSettings &store, const char *key, const QKeySequence &fallback)
 {
-    const QKeySequence sequence(store.value(QLatin1String(key)).toString());
+    // An explicitly empty stored value means "shortcut disabled"; a missing
+    // key means "never configured" and keeps the default.
+    const QString stored = store.value(QLatin1String(key)).toString();
+    if (store.contains(QLatin1String(key)) && stored.isEmpty())
+        return QKeySequence();
+    const QKeySequence sequence(stored);
     // Single-key shortcuts only; unparseable text parses to an unknown-key
     // sequence whose toString() is empty.
     return sequence.count() == 1 && !sequence.toString().isEmpty() ? sequence : fallback;
