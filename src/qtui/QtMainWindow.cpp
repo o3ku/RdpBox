@@ -473,6 +473,7 @@ bool activeMonitorInfo(RECT &monitorRect, RECT &workArea)
     monitorRect = info.rcMonitor;
     workArea = info.rcWork;
     return true;
+}
 
 #else
 RECT rectFromQRect(const QRect &rect)
@@ -501,7 +502,6 @@ bool monitorInfoForScreen(const QScreen *screen, RECT &monitorRect, RECT &workAr
     return monitorInfoForScreen(screen, monitorRect, workArea, ignored);
 }
 #endif
-}
 
 class ProfileListWidget final : public QListWidget
 {
