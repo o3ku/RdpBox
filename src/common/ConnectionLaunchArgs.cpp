@@ -110,7 +110,11 @@ std::wstring buildUpdateApplyScript(const std::wstring &downloadedPath,
 {
     std::wstring script;
     script += L"$ErrorActionPreference = 'Stop'\n";
+#ifdef _WIN32
     script += L"$pidToWait = " + std::to_wstring(::GetCurrentProcessId()) + L"\n";
+#else
+    script += L"$pidToWait = 0\n";
+#endif
     script += L"$src = " + powerShellSingleQuotedLiteral(downloadedPath) + L"\n";
     script += L"$dst = " + powerShellSingleQuotedLiteral(currentExePath) + L"\n";
     script += L"$bak = " + powerShellSingleQuotedLiteral(backupExePath) + L"\n";
