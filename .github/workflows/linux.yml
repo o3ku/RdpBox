@@ -36,7 +36,7 @@ jobs:
 
       - name: Verify pkg-config modules
         run: |
-          pkg-config --modversion freerdp3 freerdp-client3 winpr3 cjson
+          pkg-config --modversion freerdp3 freerdp-client3 winpr3 libcjson
 
       - name: Configure
         run: cmake --preset linux-release

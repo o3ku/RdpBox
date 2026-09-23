@@ -36,7 +36,7 @@ else()
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(FREERDP3 REQUIRED IMPORTED_TARGET freerdp3 freerdp-client3 winpr3)
     # Debian's libcjson-dev ships pkg-config only, no CMake config.
-    pkg_check_modules(CJSON REQUIRED IMPORTED_TARGET cjson)
+    pkg_check_modules(CJSON REQUIRED IMPORTED_TARGET libcjson)
 endif()
 
 find_package(nlohmann_json CONFIG REQUIRED)
