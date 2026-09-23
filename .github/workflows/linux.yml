@@ -32,7 +32,7 @@ jobs:
             cmake ninja-build pkg-config \
             qtbase5-dev libqt5svg5-dev \
             nlohmann-json3-dev libcjson-dev \
-            libfreerdp3-dev libfreerdp-client3-dev libwinpr3-dev
+            freerdp3-dev libwinpr3-dev
 
       - name: Verify pkg-config modules
         run: |
