@@ -8,7 +8,12 @@
 #else
 #define VK_SHIFT 0x10
 #define VK_CONTROL 0x11
+#define VK_TAB 0x09
 #define VK_MENU 0x12
+#define VK_CAPITAL 0x14
+#define VK_KANA 0x15
+#define VK_NUMLOCK 0x90
+#define VK_SCROLL 0x91
 #define VK_ESCAPE 0x1B
 #define VK_LWIN 0x5B
 #define VK_RWIN 0x5C
@@ -85,6 +90,7 @@
 #define MK_MBUTTON 0x0010
 #define MK_XBUTTON1 0x0020
 #define MK_XBUTTON2 0x0040
+#define LLKHF_ALTDOWN 0x00000020
 #define WM_IME_CHAR 0x0286
 #define WM_MOUSEACTIVATE 0x0021
 #define MA_ACTIVATE 1

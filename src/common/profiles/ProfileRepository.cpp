@@ -111,12 +111,14 @@ bool containsInsensitive(const std::wstring &haystack, const std::wstring &needl
     const std::wstring_view haystackView(haystack);
     const std::wstring_view needleView(needle);
     for (size_t offset = 0; offset + needleView.size() <= haystackView.size(); ++offset) {
-        const int result = CompareStringOrdinal(haystackView.data() + offset,
-                                                static_cast<int>(needleView.size()),
-                                                needleView.data(),
-                                                static_cast<int>(needleView.size()),
-                                                TRUE);
-        if (result == CSTR_EQUAL)
+        bool equal = true;
+        for (size_t i = 0; i < needleView.size(); ++i) {
+            if (std::towlower(haystackView[offset + i]) != std::towlower(needleView[i])) {
+                equal = false;
+                break;
+            }
+        }
+        if (equal)
             return true;
     }
     return false;
@@ -127,11 +129,11 @@ bool equalsInsensitive(const std::wstring &left, const std::wstring &right)
     if (left.size() != right.size())
         return false;
 
-    return CompareStringOrdinal(left.data(),
-                                static_cast<int>(left.size()),
-                                right.data(),
-                                static_cast<int>(right.size()),
-                                TRUE) == CSTR_EQUAL;
+    for (size_t i = 0; i < left.size(); ++i) {
+        if (std::towlower(left[i]) != std::towlower(right[i]))
+            return false;
+    }
+    return true;
 }
 
 std::wstring trimWhitespace(std::wstring value)

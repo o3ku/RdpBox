@@ -34,6 +34,8 @@
 // winpr provides the Win32 synchronization surface (CreateEventW, Sleep,
 // WaitForMultipleObjects, DWORD...) on POSIX.
 #include <winpr/winpr.h>
+#include <netdb.h>
+#include <cstdio>
 #endif
 
 namespace
@@ -226,8 +228,8 @@ void FreeRdpProcess::start(const std::wstring &host,
         const int resolveError = host ? resolveWithRetry(host, port) : 0;
         if (resolveError != 0) {
             char message[160] = {};
-            sprintf_s(message, "Could not resolve %.64s after retries (Winsock error %d).",
-                      host, resolveError);
+            std::snprintf(message, sizeof(message), "Could not resolve %.64s after retries (resolver error %d).",
+                          host, resolveError);
             {
                 std::scoped_lock lock(m_d->mutex);
                 m_d->lastDisconnectError = message;

@@ -76,11 +76,16 @@ unsigned int virtualKeyForModifierMask(unsigned int modifier)
 
 unsigned int virtualKeyForKeyIdentifier(const KeyIdentifier &key)
 {
+#ifdef _WIN32
     UINT scanCode = key.scanCode & 0xFFu;
     if (key.extended)
         scanCode |= 0xE000u;
 
     return MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK_EX);
+#else
+    static_cast<void>(key);
+    return 0;  // VK paths are not used off Windows
+#endif
 }
 
 unsigned int modifierMaskForKeyIdentifier(const KeyIdentifier &key)
