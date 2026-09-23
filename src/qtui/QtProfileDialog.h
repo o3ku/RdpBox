@@ -29,7 +29,5 @@ private:
     QLineEdit *m_domainEdit = nullptr;
     QLineEdit *m_usernameEdit = nullptr;
     QLineEdit *m_passwordEdit = nullptr;
-    QCheckBox *m_clipboardCheck = nullptr;
-    QCheckBox *m_ignoreCertificateCheck = nullptr;
     QCheckBox *m_fullScreenCheck = nullptr;
 };

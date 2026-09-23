@@ -62,8 +62,10 @@ void from_json(const nlohmann::json &j, Profile &p)
     p.port = j.value("port", 3389);
     p.username = wideFromUtf8(j.value("username", ""));
     p.domain = wideFromUtf8(j.value("domain", ""));
-    p.clipboardEnabled = j.value("clipboardEnabled", true);
-    p.ignoreCertificate = j.value("ignoreCertificate", true);
+    // Clipboard redirection and cert-ignore are no longer user options
+    // (removed from both UIs); always on, stored values overridden.
+    p.clipboardEnabled = true;
+    p.ignoreCertificate = true;
     p.fullScreenOnConnect = j.value("fullScreenOnConnect", false);
     p.lastConnectedAt = j.value("lastConnectedAt", "");
 

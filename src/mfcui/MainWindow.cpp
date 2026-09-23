@@ -99,6 +99,19 @@ void MainWindow::OnSize(UINT type, int cx, int cy)
 
 void MainWindow::OnClose()
 {
+    // Warn before closing the window while connections are live; their RDP
+    // sessions end with the process.
+    if (m_sessionManager) {
+        const std::vector<std::wstring> connected = m_sessionManager->connectedProfileNames();
+        if (!connected.empty()) {
+            CString message;
+            message.Format(L"%u connection(s) are still active. Close RdpBox anyway?",
+                           static_cast<unsigned>(connected.size()));
+            if (MessageBox(message, L"Active Connections", MB_OKCANCEL | MB_ICONWARNING) != IDOK)
+                return;
+        }
+    }
+
     KillTimer(kTabStatusTimerId);
     saveWindowState();
     DestroyWindow();

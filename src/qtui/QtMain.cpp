@@ -324,6 +324,7 @@ QString themeStyleSheet(const ThemeColors &colors)
 } // namespace
 
 static QTranslator g_translator;
+static QTranslator g_qtBaseTranslator;   // OK/Cancel etc. (QPlatformTheme texts)
 static QString g_installedLanguage;
 
 void applyApplicationTheme(QApplication &application)
@@ -332,14 +333,24 @@ void applyApplicationTheme(QApplication &application)
     // every apply; reloads the translator only when the setting changed so
     // the settings dialog can switch languages live.
     QTranslator &translator = g_translator;
+    QTranslator &qtBaseTranslator = g_qtBaseTranslator;
     QString &installedLanguage = g_installedLanguage;
     const QString languageSetting = QSettings().value(QStringLiteral("language")).toString();
     if (languageSetting != installedLanguage) {
         QCoreApplication::removeTranslator(&translator);
-        if (!languageSetting.isEmpty()
-            && translator.load(QStringLiteral("rdpbox_") + languageSetting,
-                               QCoreApplication::applicationDirPath() + QStringLiteral("/translations"))) {
-            application.installTranslator(&translator);
+        QCoreApplication::removeTranslator(&qtBaseTranslator);
+        if (!languageSetting.isEmpty()) {
+            // Qt's own locale suffix (zh -> zh_CN); app strings come from
+            // rdpbox_<lang>.qm, Qt standard texts (QDialogButtonBox/QMessageBox)
+            // from qtbase_<locale>.qm.
+            const QString locale = languageSetting == QLatin1String("zh")
+                                       ? QStringLiteral("zh_CN") : languageSetting;
+            if (translator.load(QStringLiteral("rdpbox_") + languageSetting,
+                                QCoreApplication::applicationDirPath() + QStringLiteral("/translations")))
+                application.installTranslator(&translator);
+            if (qtBaseTranslator.load(QStringLiteral("qtbase_") + locale,
+                                      QCoreApplication::applicationDirPath() + QStringLiteral("/translations")))
+                application.installTranslator(&qtBaseTranslator);
         }
         installedLanguage = languageSetting;
     }

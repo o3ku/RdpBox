@@ -271,6 +271,10 @@ void MainWindow::OnLButtonDown(UINT flags, CPoint point)
     }
 
     const int hit = captionButtonHitTest(point);
+    if (hit == kAddConnectionButtonHit) {
+        OnOpenConnections();
+        return;
+    }
     if (hit == kUpdateCaptionButtonHit) {
         if (m_updateButtonState == UpdateButtonState::Available)
             startBackgroundUpdateDownload();
@@ -457,6 +461,7 @@ LRESULT MainWindow::OnDpiChanged(WPARAM, LPARAM lParam)
 CRect MainWindow::captionButtonRectFor(int hitCode) const
 {
     static_assert(kUpdateCaptionButtonHit == ui::kMainWindowUpdateCaptionButtonHit);
+    static_assert(kAddConnectionButtonHit == ui::kMainWindowAddConnectionButtonHit);
 
     CRect clientRect;
     const_cast<MainWindow *>(this)->GetClientRect(&clientRect);
@@ -474,9 +479,9 @@ int MainWindow::captionButtonHitTest(CPoint clientPoint) const
 
 void MainWindow::invalidateCaptionButtons()
 {
-    CRect rect = shouldShowUpdateButton()
-        ? captionButtonRectFor(kUpdateCaptionButtonHit)
-        : captionButtonRectFor(HTMINBUTTON);
+    // The add button is always the leftmost one; the update button sits
+    // between it and minimize when shown.
+    CRect rect = captionButtonRectFor(kAddConnectionButtonHit);
     rect.right = captionButtonRectFor(HTCLOSE).right;
     if (!rect.IsRectEmpty())
         InvalidateRect(rect, FALSE);
@@ -505,7 +510,12 @@ void MainWindow::drawCaptionButton(CDC &dc, const CRect &rect, int hitCode) cons
     const int cy = rect.top + rect.Height() / 2;
     constexpr int kGlyph = 5;
 
-    if (hitCode == HTMINBUTTON) {
+    if (hitCode == kAddConnectionButtonHit) {
+        dc.MoveTo(cx - kGlyph, cy);
+        dc.LineTo(cx + kGlyph + 1, cy);
+        dc.MoveTo(cx, cy - kGlyph);
+        dc.LineTo(cx, cy + kGlyph + 1);
+    } else if (hitCode == HTMINBUTTON) {
         dc.MoveTo(cx - kGlyph, cy);
         dc.LineTo(cx + kGlyph + 1, cy);
     } else if (hitCode == kUpdateCaptionButtonHit) {
@@ -629,6 +639,8 @@ void MainWindow::OnPaint()
 
         if (shouldShowUpdateButton())
             drawCaptionButton(dc, captionButtonRectFor(kUpdateCaptionButtonHit), kUpdateCaptionButtonHit);
+        drawCaptionButton(dc, captionButtonRectFor(kAddConnectionButtonHit),
+                          kAddConnectionButtonHit);
         drawCaptionButton(dc, captionButtonRectFor(HTMINBUTTON), HTMINBUTTON);
         drawCaptionButton(dc, captionButtonRectFor(HTMAXBUTTON), HTMAXBUTTON);
         drawCaptionButton(dc, captionButtonRectFor(HTCLOSE), HTCLOSE);

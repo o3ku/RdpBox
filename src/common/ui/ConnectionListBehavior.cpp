@@ -3,11 +3,31 @@
 #include <algorithm>
 #include <cwctype>
 
-bool isProfileConnected(const std::wstring &profileName,
-                        const std::vector<std::wstring> &connectedProfileNames)
+std::vector<std::wstring> connectedProfileNamesForStates(
+    const std::vector<ConnectionSessionState> &sessionStates)
 {
-    return std::find(connectedProfileNames.begin(), connectedProfileNames.end(), profileName)
-        != connectedProfileNames.end();
+    std::vector<std::wstring> names;
+    for (const ConnectionSessionState &state : sessionStates) {
+        if (state.phase == ConnectionSessionPhase::Connected)
+            names.push_back(state.profileName);
+    }
+    return names;
+}
+
+std::wstring connectionListStatusText(
+    const std::wstring &profileName,
+    const std::vector<ConnectionSessionState> &sessionStates)
+{
+    for (const ConnectionSessionState &state : sessionStates) {
+        if (state.profileName != profileName)
+            continue;
+        switch (state.phase) {
+        case ConnectionSessionPhase::Connected: return L"Connected";
+        case ConnectionSessionPhase::Connecting: return L"Connecting...";
+        case ConnectionSessionPhase::Disconnected: return L"Disconnected";
+        }
+    }
+    return L"";
 }
 
 std::wstring connectionListStatusText(
@@ -15,6 +35,13 @@ std::wstring connectionListStatusText(
     const std::vector<std::wstring> &connectedProfileNames)
 {
     return isProfileConnected(profileName, connectedProfileNames) ? L"Connected" : L"";
+}
+
+bool isProfileConnected(const std::wstring &profileName,
+                        const std::vector<std::wstring> &connectedProfileNames)
+{
+    return std::find(connectedProfileNames.begin(), connectedProfileNames.end(), profileName)
+        != connectedProfileNames.end();
 }
 
 ConnectionListButtonState connectionListButtonState(

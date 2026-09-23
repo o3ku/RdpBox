@@ -51,7 +51,8 @@ bool mainWindowLogoHitTest(LayoutPoint clientPoint, bool isFullScreen)
 
 LayoutRect mainWindowUpdateButtonRect(int clientWidth)
 {
-    const int right = clientWidth - kMainWindowCaptionButtonWidth * kCaptionButtonCount;
+    // Between minimize and the add button: ..., minimize, update, add.
+    const int right = clientWidth - kMainWindowCaptionButtonWidth * 3;
     return { right - kMainWindowUpdateButtonWidth,
              0,
              right,
@@ -60,7 +61,7 @@ LayoutRect mainWindowUpdateButtonRect(int clientWidth)
 
 int mainWindowCaptionButtonReserveWidth(bool showUpdateButton)
 {
-    return kMainWindowCaptionButtonWidth * kCaptionButtonCount
+    return kMainWindowCaptionButtonWidth * (kCaptionButtonCount + 1)   // + add button
         + (showUpdateButton ? kMainWindowUpdateButtonWidth : 0);
 }
 
@@ -68,6 +69,16 @@ LayoutRect mainWindowCaptionButtonRectFor(int clientWidth, int hitCode, bool sho
 {
     if (hitCode == kMainWindowUpdateCaptionButtonHit && showUpdateButton)
         return mainWindowUpdateButtonRect(clientWidth);
+
+    if (hitCode == kMainWindowAddConnectionButtonHit) {
+        // Leftmost; slides left by the update button width when it is shown.
+        const int right = clientWidth - kMainWindowCaptionButtonWidth * 3
+            - (showUpdateButton ? kMainWindowUpdateButtonWidth : 0);
+        return { right - kMainWindowCaptionButtonWidth,
+                 0,
+                 right,
+                 kMainWindowCaptionHeight };
+    }
 
     const int order = standardCaptionButtonOrder(hitCode);
     if (order < 0)
@@ -87,6 +98,8 @@ int mainWindowCaptionButtonHitTest(LayoutPoint clientPoint, int clientWidth, boo
 
     if (showUpdateButton && layoutRectContains(mainWindowUpdateButtonRect(clientWidth), clientPoint))
         return kMainWindowUpdateCaptionButtonHit;
+    if (layoutRectContains(mainWindowCaptionButtonRectFor(clientWidth, kMainWindowAddConnectionButtonHit, showUpdateButton), clientPoint))
+        return kMainWindowAddConnectionButtonHit;
     if (layoutRectContains(mainWindowCaptionButtonRectFor(clientWidth, HTCLOSE, showUpdateButton), clientPoint))
         return HTCLOSE;
     if (layoutRectContains(mainWindowCaptionButtonRectFor(clientWidth, HTMAXBUTTON, showUpdateButton), clientPoint))

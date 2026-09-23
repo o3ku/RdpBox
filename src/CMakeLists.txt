@@ -344,7 +344,8 @@ if(RDPBOX_BUILD_QT)
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:RdpBox>/translations"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/qtui/translations/rdpbox_zh.qm"
-            "$<TARGET_FILE_DIR:RdpBox>/translations/rdpbox_zh.qm"
+            "${CMAKE_CURRENT_SOURCE_DIR}/qtui/translations/qtbase_zh_CN.qm"
+            "$<TARGET_FILE_DIR:RdpBox>/translations/"
     )
 
     foreach(_freerdp_include_dir IN LISTS FREERDP_INCLUDE_DIRS)

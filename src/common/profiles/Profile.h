@@ -11,7 +11,7 @@ struct Profile
     std::wstring password;
     std::wstring domain;
     bool clipboardEnabled = true;
-    bool ignoreCertificate = false;
+    bool ignoreCertificate = true;
     bool fullScreenOnConnect = false;
     std::string lastConnectedAt;
 

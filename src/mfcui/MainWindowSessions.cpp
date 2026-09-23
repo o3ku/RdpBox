@@ -264,10 +264,10 @@ void MainWindow::openConnectionDialog()
         return;
 
     ConnectionListDialog dialog(m_profileRepository.get(),
-                                [this]() -> std::vector<std::wstring> {
+                                [this]() -> std::vector<ConnectionSessionState> {
                                     return m_sessionManager
-                                        ? m_sessionManager->connectedProfileNames()
-                                        : std::vector<std::wstring>{};
+                                        ? m_sessionManager->profileSessionStates()
+                                        : std::vector<ConnectionSessionState>{};
                                 },
                                 this);
     if (dialog.DoModal() != IDOK)

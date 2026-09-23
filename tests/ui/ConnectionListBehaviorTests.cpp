@@ -27,8 +27,21 @@ int main()
     assert(isProfileConnected(L"beta", connectedNames));
     assert(!isProfileConnected(L"Beta", connectedNames));
     assert(!isProfileConnected(L"gamma", connectedNames));
-    assert(connectionListStatusText(L"beta", connectedNames) == L"Connected");
-    assert(connectionListStatusText(L"gamma", connectedNames).empty());
+
+    {
+        const std::vector<ConnectionSessionState> states = {
+            {L"alpha", ConnectionSessionPhase::Connecting},
+            {L"beta", ConnectionSessionPhase::Connected},
+            {L"gamma", ConnectionSessionPhase::Disconnected},
+        };
+        assert(connectionListStatusText(L"alpha", states) == L"Connecting...");
+        assert(connectionListStatusText(L"beta", states) == L"Connected");
+        assert(connectionListStatusText(L"gamma", states) == L"Disconnected");
+        assert(connectionListStatusText(L"delta", states).empty());
+        const std::vector<std::wstring> derived = connectedProfileNamesForStates(states);
+        assert(derived.size() == 1);
+        assert(derived[0] == L"beta");
+    }
 
     {
         const ConnectionListButtonState state =

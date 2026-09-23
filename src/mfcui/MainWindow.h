@@ -116,6 +116,7 @@ private:
     };
 
     static constexpr int kUpdateCaptionButtonHit = 0x4001;
+    static constexpr int kAddConnectionButtonHit = 0x4002;
 
     BrowserTabBar m_tabBar;
     HICON m_logoIcon = nullptr;

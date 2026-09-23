@@ -203,6 +203,11 @@ bool CRdpSessionView::isConnected() const
     return m_connected;
 }
 
+bool CRdpSessionView::isSessionEnded() const
+{
+    return !m_process || m_process->state() == FreeRdpProcess::State::Finished;
+}
+
 void CRdpSessionView::setResizeSuppressed(bool suppressed)
 {
     m_resizeSuppressed = suppressed;
