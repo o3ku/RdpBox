@@ -26,6 +26,16 @@ bool downloadReleaseAsset(const ReleaseAsset &asset,
                           std::wstring &errorMessage,
                           DownloadProgressCallback progressCallback = {});
 
+// Verifies the downloaded copy of the release asset named `assetName` against
+// the same release's SHA256SUMS.txt asset. Returns false when the sums asset
+// is missing, does not list the asset, or the digest does not match. Callers
+// must refuse to execute a download that fails this check.
+bool verifyDownloadedAssetSha256(const std::wstring &owner,
+                                 const std::wstring &repository,
+                                 const std::wstring &assetName,
+                                 const std::wstring &downloadedPath,
+                                 std::wstring &errorMessage);
+
 // Writes the apply-update PowerShell script and spawns it. Returns true once the
 // helper process is running; it waits for this process to exit, replaces the exe
 // and relaunches it with the given connection names restored.

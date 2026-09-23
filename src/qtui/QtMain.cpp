@@ -6,6 +6,7 @@
 #include <QApplication>
 #include <QSettings>
 #include <QTranslator>
+#include <QTimer>
 #include <QDir>
 #include <QFile>
 #include <QPainter>
@@ -108,7 +109,7 @@ bool windowsAppsUseLightTheme()
     DWORD value = 1;
     DWORD size = sizeof(value);
     if (RegGetValueW(HKEY_CURRENT_USER,
-                     L"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+                     L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
                      L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &value, &size) != ERROR_SUCCESS)
         return true;
     return value != 0;
@@ -134,6 +135,12 @@ void applyThemePalette(QApplication &application, const ThemeColors &colors)
     palette.setColor(QPalette::ToolTipBase, colors.panel);
     palette.setColor(QPalette::ToolTipText, colors.text);
     palette.setColor(QPalette::PlaceholderText, colors.muted);
+    // Rich-text links (About page repo URL) render with QPalette::Link;
+    // unset, dark themes keep the default saturated blue - unreadable.
+    const bool darkTheme = colors.text.lightness() > colors.window.lightness();
+    const QColor link = darkTheme ? QColor(0x8a, 0xbf, 0xff) : QColor(0x25, 0x63, 0xeb);
+    palette.setColor(QPalette::Link, link);
+    palette.setColor(QPalette::LinkVisited, link);
     palette.setColor(QPalette::Disabled, QPalette::Text, colors.muted);
     palette.setColor(QPalette::Disabled, QPalette::ButtonText, colors.muted);
     palette.setColor(QPalette::Disabled, QPalette::WindowText, colors.muted);
@@ -316,14 +323,37 @@ QString themeStyleSheet(const ThemeColors &colors)
 
 } // namespace
 
+static QTranslator g_translator;
+static QString g_installedLanguage;
+
 void applyApplicationTheme(QApplication &application)
 {
+    // UI language: translations/rdpbox_<lang>.qm next to the exe. Runs on
+    // every apply; reloads the translator only when the setting changed so
+    // the settings dialog can switch languages live.
+    QTranslator &translator = g_translator;
+    QString &installedLanguage = g_installedLanguage;
+    const QString languageSetting = QSettings().value(QStringLiteral("language")).toString();
+    if (languageSetting != installedLanguage) {
+        QCoreApplication::removeTranslator(&translator);
+        if (!languageSetting.isEmpty()
+            && translator.load(QStringLiteral("rdpbox_") + languageSetting,
+                               QCoreApplication::applicationDirPath() + QStringLiteral("/translations"))) {
+            application.installTranslator(&translator);
+        }
+        installedLanguage = languageSetting;
+    }
+
     // Fusion base: honors the palette (themed arrows/checkboxes) and stays
     // fully consistent with the theme QSS; the native Windows style draws its
     // own arrows/buttons that clash with (or vanish under) the dark theme.
     application.setStyle(QStringLiteral("Fusion"));
 
+#ifdef _WIN32
+    QFont font(QStringLiteral("Microsoft YaHei"));
+#else
     QFont font(QStringLiteral("Segoe UI"));
+#endif
     font.setPointSize(9);
     application.setFont(font);
 
@@ -366,19 +396,13 @@ int main(int argc, char *argv[])
     QApplication::setApplicationVersion(QString::fromWCharArray(RDPBOX_VERSION));
     QApplication::setOrganizationName(QStringLiteral("RdpBox"));
 
-    // Optional translations: translations/rdpbox_<lang>.qm next to the exe.
-    static QTranslator translator;
-    const QString language = QSettings().value(QStringLiteral("language")).toString();
-    if (!language.isEmpty() && translator.load(QStringLiteral("rdpbox_") + language,
-                                               QCoreApplication::applicationDirPath() + QStringLiteral("/translations")))
-        application.installTranslator(&translator);
-
     applyApplicationTheme(application);
     const QIcon appIcon(QStringLiteral(":/rdpbox/logo.png"));
     if (!appIcon.isNull())
         QApplication::setWindowIcon(appIcon);
     QtMainWindow window(parseStartupConnections(application.arguments()));
     window.show();
+
 
     const int exitCode = application.exec();
 #ifdef _WIN32

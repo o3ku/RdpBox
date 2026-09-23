@@ -216,7 +216,10 @@ bool readPortableModeFromProfiles()
     if (!root.is_object())
         return false;
 
-    return root.value("portableMode", false);
+    const auto it = root.find("portableMode");
+    if (it == root.end() || !it->is_boolean())
+        return false; // absent or wrong-typed must not throw at startup
+    return it->get<bool>();
 }
 
 bool writePortableModeToProfiles(bool portableMode)

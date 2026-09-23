@@ -42,7 +42,8 @@ std::optional<int> keyboardMoveDeltaForConnectionList(bool controlDown,
 
 std::vector<int> retainedSelectionRowsForProfiles(
     const std::vector<Profile> &visibleProfiles,
-    const std::vector<std::wstring> &preferredProfileNames);
+    const std::vector<std::wstring> &preferredProfileNames,
+    bool allowFallbackSelection = true);
 
 std::wstring duplicateProfileName(const std::wstring &profileName,
                                  const std::vector<std::wstring> &existingNames = {});

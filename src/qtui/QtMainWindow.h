@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <string>
+#include <thread>
 #include <vector>
 
 class QLabel;
@@ -32,9 +33,12 @@ class QtRdpSessionWidget;
 
 class QtMainWindow : public QMainWindow
 {
+    Q_OBJECT
+
 public:
     explicit QtMainWindow(std::vector<std::wstring> startupConnectionNames,
                           QWidget *parent = nullptr);
+    ~QtMainWindow() override;
 
 protected:
     bool eventFilter(QObject *object, QEvent *event) override;
@@ -47,7 +51,7 @@ private:
     void buildTitleBar(QVBoxLayout *rootLayout);
     void installShortcuts();
     void applyShortcutSettings();
-    void refreshProfileList();
+    void refreshProfileList(bool allowSelectionFallback = true);
     void refreshActions();
     void refreshUpdateButton();
     void refreshWindowControls();
@@ -66,6 +70,7 @@ private:
     void setFullScreen(bool enabled);
     void updateTabBarOffset();
     void showSettingsDialog();
+    void retranslateUi();
     void rethemeCaptionIcons();
     void handleUpdateButtonClicked();
     ui::UpdateUiState updateUiState() const;
@@ -86,14 +91,12 @@ private:
     std::vector<std::wstring> connectedProfileNames() const;
     bool confirmLaunchDownloadedUpdate();
     bool launchDownloadedUpdate() const;
-    void handleTabMoved(int fromIndex, int toIndex);
     void showTabContextMenu(const QPoint &tabBarPoint);
     void reconnectSessionTab(int index);
     void refreshSessionTabStatuses();
     void handleHostResume();
     void connectSelectedProfiles();
     void openConnectionsByName(const std::vector<std::wstring> &connectionNames);
-    Profile selectedProfile() const;
     std::wstring selectedProfileName() const;
     std::vector<int> selectedProfileRows() const;
     std::vector<std::wstring> selectedProfileNames() const;
@@ -101,9 +104,12 @@ private:
     void selectProfileByName(const std::wstring &profileName);
     void addSessionTab(const Profile &profile);
     void updateSessionTabState(const std::wstring &profileName, FreeRdpProcess::State state);
+    void migrateSessionIdentity(const std::wstring &oldName, const std::wstring &newName);
     FreeRdpProcess::State sessionStateForProfile(const QString &profileName) const;
     int sessionTabIndexForProfileName(const std::wstring &profileName) const;
     QtRdpSessionWidget *sessionWidgetForTab(int index) const;
+    std::wstring sessionProfileNameForWidget(const QtRdpSessionWidget *widget) const;
+    void warnProfilePersistFailed();
     QWidget *createSessionPage(const Profile &profile);
     std::vector<QRect> captionExclusionRects() const;
 
@@ -111,6 +117,7 @@ private:
     std::vector<std::wstring> m_startupConnectionNames;
     QWidget *m_titleBar = nullptr;
     QWidget *m_connectionsHeader = nullptr;
+    QLabel *m_connectionsTitle = nullptr;
     int m_collapsedSidebarWidth = 220;
     QSplitter *m_splitter = nullptr;
     QToolButton *m_addButton = nullptr;
@@ -139,7 +146,9 @@ private:
     int m_updateDownloadProgress = -1;
     std::uint64_t m_updateCheckGeneration = 0;
     std::uint64_t m_updateDownloadGeneration = 0;
-    bool m_restoringWindowState = false;
+    std::thread m_updateCheckThread;
+    std::thread m_updateDownloadThread;
+    bool m_persistWarningShown = false;
     bool m_isFullScreen = false;
     bool m_wasMaximizedBeforeFullScreen = false;
 };

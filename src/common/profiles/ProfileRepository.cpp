@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cwctype>
+#include <filesystem>
 #include <string_view>
 #include <vector>
 
@@ -96,9 +97,21 @@ nlohmann::json loadRepositoryRoot(const std::wstring &filePath)
     return root;
 }
 
-void saveRepositoryRoot(const std::wstring &filePath, const nlohmann::json &root)
+bool saveRepositoryRoot(const std::wstring &filePath, const nlohmann::json &root)
 {
-    AppPaths::writeFileContent(filePath, root.dump(4));
+    // A corrupt/truncated file the user could recover by hand must not be
+    // silently overwritten by the next save: park it as .bad first.
+    const std::string existing = AppPaths::readFileContent(filePath);
+    if (!existing.empty()) {
+        const nlohmann::json parsed = nlohmann::json::parse(existing, nullptr, false);
+        if (!parsed.is_object()) {
+            const std::wstring badPath = filePath + L".bad";
+            std::error_code ec;
+            std::filesystem::remove(badPath, ec);
+            std::filesystem::rename(filePath, badPath, ec);
+        }
+    }
+    return AppPaths::writeFileContent(filePath, root.dump(4));
 }
 
 bool containsInsensitive(const std::wstring &haystack, const std::wstring &needle)
@@ -287,7 +300,12 @@ void ProfileRepository::load()
         if (!item.is_object())
             continue;
 
-        Profile profile = item.get<Profile>();
+        Profile profile;
+        try {
+            profile = item.get<Profile>();
+        } catch (const nlohmann::json::exception &) {
+            continue; // malformed entry must not crash startup; keep the rest
+        }
         profile.name = trimWhitespace(profile.name);
         if (profile.name.empty()) {
             const std::wstring legacyId = trimWhitespace(wideFromUtf8(item.value("id", "")));
@@ -304,13 +322,19 @@ void ProfileRepository::load()
     }
 }
 
-void ProfileRepository::save() const
+bool ProfileRepository::save() const
 {
     nlohmann::json root = loadRepositoryRoot(m_filePath);
     root["portableMode"] = PasswordProtection::mode() == PasswordProtection::Mode::Portable;
     root["profiles"] = m_profiles;
 
-    saveRepositoryRoot(m_filePath, root);
+    m_lastSaveFailed = !saveRepositoryRoot(m_filePath, root);
+    return !m_lastSaveFailed;
+}
+
+bool ProfileRepository::saveFailed() const
+{
+    return m_lastSaveFailed;
 }
 
 WindowState ProfileRepository::loadWindowState() const
