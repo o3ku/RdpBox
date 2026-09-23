@@ -266,8 +266,6 @@ std::string base64Encode(const BYTE *data, std::size_t size)
     if (!data || size == 0)
         return {};
 
-    const int encodedSize = EVP_EncodedLength(nullptr, static_cast<int>(size)) ? 0 : 0;
-    static_cast<void>(encodedSize);
     const int outSize = 4 * ((static_cast<int>(size) + 2) / 3);
     std::string encoded(static_cast<std::size_t>(outSize), '\0');
     EVP_EncodeBlock(reinterpret_cast<unsigned char *>(encoded.data()), data, static_cast<int>(size));
@@ -388,6 +386,7 @@ bool decryptPortableBytes(const std::vector<BYTE> &key,
     plainText.resize(static_cast<std::size_t>(outLen ? outLen : cipherSize));
     return true;
 }
+}  // anonymous namespace
 #endif
 
 namespace PasswordProtection

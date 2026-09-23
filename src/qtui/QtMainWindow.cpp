@@ -46,6 +46,7 @@ void applyApplicationTheme(QApplication &application); // QtMain.cpp (global)
 #include <QPixmap>
 #include <QShortcut>
 #include <QScreen>
+#include <QWindow>
 #include <QSettings>
 #include <QSplitter>
 #include <QStatusBar>
