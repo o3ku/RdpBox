@@ -262,8 +262,10 @@ CursorInfo defaultCursorInfo()
 
 void destroyCursorInfo(CursorInfo &cursor)
 {
+#ifdef _WIN32
     if (cursor.ownsHandle && cursor.handle)
         DestroyCursor(cursor.handle);
+#endif
 
     cursor.handle = nullptr;
     cursor.ownsHandle = false;
@@ -276,11 +278,16 @@ CursorInfo duplicateCursorInfo(const CursorInfo &cursor)
     if (!cursor.handle)
         return CursorInfo{cursor.kind, nullptr, false};
 
+#ifdef _WIN32
     HCURSOR copyHandle = CopyCursor(cursor.handle);
     if (!copyHandle)
         return CursorInfo{cursor.kind, nullptr, false};
 
     return CursorInfo{cursor.kind, copyHandle, true};
+#else
+    // No native cursor duplication off Windows; share the (unowned) handle.
+    return CursorInfo{cursor.kind, cursor.handle, false};
+#endif
 }
 
 PointI clampToDesktop(PointI point, SizeI desktop)
@@ -296,6 +303,7 @@ PointI clampToDesktop(PointI point, SizeI desktop)
 
 UINT16 currentToggleState()
 {
+#ifdef _WIN32
     UINT16 syncFlags = 0;
 
     if (GetKeyState(VK_NUMLOCK) & 0x1)
@@ -308,6 +316,11 @@ UINT16 currentToggleState()
         syncFlags |= KBD_SYNC_KANA_LOCK;
 
     return syncFlags;
+#else
+    // ponytail: no GetKeyState equivalent here; send no toggle state and let
+    // the remote own it. Query X11 if toggle sync ever matters.
+    return 0;
+#endif
 }
 
 BOOL nativefreerdp_pre_connect(freerdp *instance)
@@ -330,6 +343,7 @@ BOOL nativefreerdp_pre_connect(freerdp *instance)
     }
 
     DWORD keyboardLayoutId = freerdp_settings_get_uint32(settings, FreeRDP_KeyboardLayout);
+#ifdef _WIN32
     CHAR name[KL_NAMELENGTH + 1] = {};
     if (GetKeyboardLayoutNameA(name)) {
         errno = 0;
@@ -342,6 +356,7 @@ BOOL nativefreerdp_pre_connect(freerdp *instance)
         const HKL layout = GetKeyboardLayout(0);
         keyboardLayoutId = static_cast<DWORD>((reinterpret_cast<std::uintptr_t>(layout) >> 16) & 0xFFFF);
     }
+#endif
 
     if (keyboardLayoutId == 0)
         freerdp_detect_keyboard_layout_from_system_locale(&keyboardLayoutId);
