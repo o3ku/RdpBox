@@ -126,10 +126,67 @@ std::wstring shortcutChordText(const ShortcutChord &chord)
         text += static_cast<wchar_t>(chord.virtualKey);
     else if (chord.virtualKey >= '0' && chord.virtualKey <= '9')
         text += static_cast<wchar_t>(chord.virtualKey);
-    else if (chord.virtualKey == VK_SPACE)
-        text += L"Space";
-    else
-        text += L"Key " + std::to_wstring(chord.virtualKey);
+    else {
+        static const struct
+        {
+            unsigned int virtualKey;
+            const wchar_t *name;
+        } kKeyNames[] = {
+            {VK_BACK, L"Backspace"},
+            {VK_TAB, L"Tab"},
+            {VK_RETURN, L"Enter"},
+            {VK_PAUSE, L"Pause"},
+            {VK_CAPITAL, L"CapsLock"},
+            {VK_SPACE, L"Space"},
+            {VK_PRIOR, L"PgUp"},
+            {VK_NEXT, L"PgDn"},
+            {VK_END, L"End"},
+            {VK_HOME, L"Home"},
+            {VK_LEFT, L"Left"},
+            {VK_UP, L"Up"},
+            {VK_RIGHT, L"Right"},
+            {VK_DOWN, L"Down"},
+            {VK_SNAPSHOT, L"PrtSc"},
+            {VK_INSERT, L"Ins"},
+            {VK_DELETE, L"Del"},
+            {VK_NUMPAD0, L"Num 0"},
+            {VK_NUMPAD1, L"Num 1"},
+            {VK_NUMPAD2, L"Num 2"},
+            {VK_NUMPAD3, L"Num 3"},
+            {VK_NUMPAD4, L"Num 4"},
+            {VK_NUMPAD5, L"Num 5"},
+            {VK_NUMPAD6, L"Num 6"},
+            {VK_NUMPAD7, L"Num 7"},
+            {VK_NUMPAD8, L"Num 8"},
+            {VK_NUMPAD9, L"Num 9"},
+            {VK_MULTIPLY, L"Num *"},
+            {VK_ADD, L"Num +"},
+            {VK_SUBTRACT, L"Num -"},
+            {VK_DECIMAL, L"Num ."},
+            {VK_DIVIDE, L"Num /"},
+            {VK_OEM_1, L";"},
+            {VK_OEM_PLUS, L"="},
+            {VK_OEM_COMMA, L","},
+            {VK_OEM_MINUS, L"-"},
+            {VK_OEM_PERIOD, L"."},
+            {VK_OEM_2, L"/"},
+            {VK_OEM_3, L"`"},
+            {VK_OEM_4, L"["},
+            {VK_OEM_5, L"\\"},
+            {VK_OEM_6, L"]"},
+            {VK_OEM_7, L"'"},
+        };
+        bool named = false;
+        for (const auto &entry : kKeyNames) {
+            if (chord.virtualKey == entry.virtualKey) {
+                text += entry.name;
+                named = true;
+                break;
+            }
+        }
+        if (!named)
+            text += L"Key " + std::to_wstring(chord.virtualKey);
+    }
     return text;
 }
 
