@@ -61,6 +61,7 @@ void applyApplicationTheme(QApplication &application); // QtMain.cpp (global)
 #include <QKeySequenceEdit>
 #include <QTabWidget>
 #include <QTimer>
+#include <QToolTip>
 #include <QToolButton>
 
 #ifdef _WIN32
@@ -686,6 +687,42 @@ bool QtMainWindow::eventFilter(QObject *object, QEvent *event)
         }
     }
 
+#ifdef _WIN32
+    // Fallback title-bar drag. Normally WM_NCHITTEST returns HTCAPTION and
+    // the OS runs the native move loop. But a lingering top-level popup over
+    // the caption (e.g. a QToolTip that outlived a modal dialog opened from a
+    // hovered caption button) answers hit-testing with HTTRANSPARENT, and the
+    // press is then delivered to us as a plain client click - dead dragging.
+    // Re-launch the native move loop ourselves in that case (the same trick
+    // the MFC chrome uses).
+    if (object == m_titleBar && event
+        && (event->type() == QEvent::MouseButtonPress
+            || event->type() == QEvent::MouseButtonDblClick)) {
+        auto *mouse = static_cast<QMouseEvent *>(event);
+        if (mouse->button() == Qt::LeftButton) {
+            const QPoint windowPos = m_titleBar->mapTo(this, mouse->pos());
+            const std::vector<QRect> excluded = captionExclusionRects();
+            const bool insideExclusion = std::any_of(
+                excluded.begin(), excluded.end(),
+                [&windowPos](const QRect &rect) { return rect.contains(windowPos); });
+            if (!insideExclusion) {
+                if (event->type() == QEvent::MouseButtonDblClick) {
+                    if (isMaximized())
+                        showNormal();
+                    else
+                        showMaximized();
+                } else {
+                    ::ReleaseCapture();
+                    const QPoint global = QCursor::pos();
+                    ::PostMessage(reinterpret_cast<HWND>(winId()), WM_NCLBUTTONDOWN, HTCAPTION,
+                                  MAKELPARAM(global.x(), global.y()));
+                }
+                return true;
+            }
+        }
+    }
+#endif
+
     return QMainWindow::eventFilter(object, event);
 }
 
@@ -918,6 +955,7 @@ void QtMainWindow::buildTitleBar(QVBoxLayout *rootLayout)
     m_titleBar = new QWidget(this);
     m_titleBar->setObjectName(QStringLiteral("titleBar"));
     m_titleBar->setFixedHeight(kTitleBarHeight);
+    m_titleBar->installEventFilter(this);
 
     auto *layout = new QHBoxLayout(m_titleBar);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -1602,6 +1640,12 @@ void QtMainWindow::rethemeCaptionIcons()
 
 void QtMainWindow::showSettingsDialog()
 {
+    // The gear tooltip is usually up when the user clicks it; a modal dialog
+    // swallows the Leave event that would hide it, leaving a transparent
+    // tooltip window parked over the title bar that turns caption presses
+    // into client clicks (dead dragging) after the dialog closes.
+    QToolTip::hideText();
+
     FramelessDialogShell dialog(this, tr("Settings"));
     dialog.setWindowIcon(windowIcon());
     dialog.setModal(true);
@@ -1762,8 +1806,6 @@ void QtMainWindow::showSettingsDialog()
 
     if (dialog.exec() != QDialog::Accepted)
         return;
-
-    // Theme/language already persisted and applied live on combo change.
 
     rdpbox::ShortcutSettings settings = current;
     settings.newConnection = newConnectionEdit->keySequence();

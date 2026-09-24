@@ -408,12 +408,12 @@ int main(int argc, char *argv[])
     QApplication::setOrganizationName(QStringLiteral("RdpBox"));
 
     applyApplicationTheme(application);
+
     const QIcon appIcon(QStringLiteral(":/rdpbox/logo.png"));
     if (!appIcon.isNull())
         QApplication::setWindowIcon(appIcon);
     QtMainWindow window(parseStartupConnections(application.arguments()));
     window.show();
-
 
     const int exitCode = application.exec();
 #ifdef _WIN32
