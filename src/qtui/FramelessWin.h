@@ -256,7 +256,6 @@ inline bool nativeEvent(QWidget* window, const QByteArray& eventType,
 namespace frameless
 {
 enum class Zone { Client, Caption };
-inline bool needsWin7FrameWorkaround() { return false; }
 inline void apply(QWidget*) {}
 template <typename Result>
 inline bool nativeEvent(QWidget*, const QByteArray&, void*, Result*,
