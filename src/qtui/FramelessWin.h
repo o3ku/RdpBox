@@ -56,8 +56,16 @@
 
 #include <functional>
 
+#include <QDialog>
+#include <QGuiApplication>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QOperatingSystemVersion>
+#include <QPainter>
 #include <QPoint>
+#include <QStyle>
+#include <QToolButton>
+#include <QVBoxLayout>
 #include <QWidget>
 
 namespace frameless
@@ -249,3 +257,107 @@ inline bool nativeEvent(QWidget*, const QByteArray&, void*, Result*,
 }
 }  // namespace frameless
 #endif  // _WIN32
+
+// Convenience dialog (both platforms, single implementation on top of the
+// platform functions above): draggable title bar with a close button; add
+// content through contentLayout(). Restyle via the accessors - object names
+// "framelessTitleBar"/"framelessCloseButton" are QSS hooks (rename to your
+// app's names to reuse its stylesheet). Non-Windows hides the bar (native
+// decorations provide title + close). Win7 paints the outline ring set via
+// setOutlineColor into the reserved 1px band.
+namespace frameless
+{
+class Dialog : public QDialog
+{
+public:
+    explicit Dialog(QWidget* parent, const QString& title)
+        : QDialog(parent)
+    {
+        apply(this);
+        setWindowTitle(title);
+        // Pin the application icon for taskbar/Alt-Tab - dialog windows
+        // don't reliably inherit it on every platform.
+        if (!QGuiApplication::windowIcon().isNull())
+            setWindowIcon(QGuiApplication::windowIcon());
+
+        auto* root = new QVBoxLayout(this);
+        root->setContentsMargins(0, 0, 0, 0);
+        root->setSpacing(0);
+        if (needsWin7FrameWorkaround())
+            root->setContentsMargins(1, 1, 1, 1);  // outline band
+
+        m_titleBar = new QWidget(this);
+        m_titleBar->setObjectName(QStringLiteral("framelessTitleBar"));
+        m_titleBar->setFixedHeight(40);
+        auto* row = new QHBoxLayout(m_titleBar);
+        row->setContentsMargins(16, 0, 0, 0);
+        row->setSpacing(0);
+        row->addWidget(new QLabel(title, m_titleBar));
+        row->addStretch(1);
+        m_closeButton = new QToolButton(m_titleBar);
+        m_closeButton->setObjectName(QStringLiteral("framelessCloseButton"));
+        m_closeButton->setIcon(style()->standardIcon(QStyle::SP_TitleBarCloseButton));
+        m_closeButton->setAutoRaise(true);
+        m_closeButton->setFocusPolicy(Qt::NoFocus);
+        connect(m_closeButton, &QToolButton::clicked, this, &QDialog::reject);
+        row->addWidget(m_closeButton);
+        root->addWidget(m_titleBar);
+
+        m_contentLayout = new QVBoxLayout;
+        m_contentLayout->setContentsMargins(0, 0, 0, 0);
+        root->addLayout(m_contentLayout);
+#ifndef _WIN32
+        m_titleBar->hide();  // native decorations provide title + close
+#endif
+    }
+
+    QVBoxLayout* contentLayout() const { return m_contentLayout; }
+    QWidget* titleBar() const { return m_titleBar; }
+    QToolButton* closeButton() const { return m_closeButton; }
+    void setOutlineColor(const QColor& color) { m_outlineColor = color; }
+
+protected:
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    bool nativeEvent(const QByteArray& eventType, void* message, qintptr* result) override
+#else
+    bool nativeEvent(const QByteArray& eventType, void* message, long* result) override
+#endif
+    {
+        return nativeEventImpl(eventType, message, result);
+    }
+
+    void paintEvent(QPaintEvent* event) override
+    {
+        QDialog::paintEvent(event);
+#ifdef _WIN32
+        if (needsWin7FrameWorkaround() && m_outlineColor.isValid()) {
+            QPainter painter(this);
+            painter.setPen(m_outlineColor);
+            painter.drawRect(QRect(0, 0, width() - 1, height() - 1));
+        }
+#endif
+    }
+
+private:
+    template <typename Result>
+    bool nativeEventImpl(const QByteArray& eventType, void* message, Result* result)
+    {
+        return frameless::nativeEvent(this, eventType, message, result,
+                                      [this](const QPoint& pos) { return zoneFor(pos); });
+    }
+
+    Zone zoneFor(const QPoint& pos) const
+    {
+        if (!m_titleBar->geometry().contains(pos))
+            return Zone::Client;
+        if (m_closeButton->geometry().translated(m_titleBar->pos()).contains(pos))
+            return Zone::Client;
+        return Zone::Caption;
+    }
+
+    QWidget* m_titleBar = nullptr;
+    QToolButton* m_closeButton = nullptr;
+    QVBoxLayout* m_contentLayout = nullptr;
+    QColor m_outlineColor;
+};
+}  // namespace frameless

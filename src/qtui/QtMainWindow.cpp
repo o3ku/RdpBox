@@ -207,85 +207,39 @@ QColor captionInk()
     return QApplication::palette().color(QPalette::WindowText);
 }
 
-// Frameless settings-style dialog: themed caption row (reuses the global
-// #titleBar QSS tokens + Lucide close glyph) on the FramelessWin plumbing.
-class FramelessDialogShell : public QDialog
+// Settings dialog: app chrome on the reusable frameless::Dialog - theme QSS
+// names (titleBar / closeCaptionButton), caption glyphs and the hover-white
+// close icon. All frameless plumbing lives in FramelessWin.h.
+class SettingsDialog : public frameless::Dialog
 {
 public:
-    FramelessDialogShell(QWidget* parent, const QString& title)
-        : QDialog(parent)
+    SettingsDialog(QWidget* parent, const QString& title)
+        : frameless::Dialog(parent, title)
     {
-        frameless::apply(this);
-        setWindowTitle(title);
-        m_titleBar = new QWidget(this);
-        m_titleBar->setObjectName(QStringLiteral("titleBar"));
-        m_titleBar->setFixedHeight(42);
-        auto* row = new QHBoxLayout(m_titleBar);
-        row->setContentsMargins(16, 0, 0, 0);
-        row->setSpacing(0);
-        auto* label = new QLabel(title, m_titleBar);
-        m_closeButton = new QToolButton(m_titleBar);
-        m_closeButton->setObjectName(QStringLiteral("closeCaptionButton"));
-        m_closeButton->setIcon(captionIcon(CaptionGlyph::Close, captionInk()));
-        m_closeButton->setIconSize(QSize(16, 16));
-        m_closeButton->setFixedSize(46, 41);
-        m_closeButton->setAutoRaise(true);
-        m_closeButton->setFocusPolicy(Qt::NoFocus);
-        m_closeButton->installEventFilter(this);
-        connect(m_closeButton, &QToolButton::clicked, this, &QDialog::reject);
-        row->addWidget(label);
-        row->addStretch(1);
-        row->addWidget(m_closeButton);
+        setOutlineColor(activeThemeOutlineColor());
+        titleBar()->setObjectName(QStringLiteral("titleBar"));
+        titleBar()->setFixedHeight(42);
+        closeButton()->setObjectName(QStringLiteral("closeCaptionButton"));
+        closeButton()->setIcon(captionIcon(CaptionGlyph::Close, captionInk()));
+        closeButton()->setIconSize(QSize(16, 16));
+        closeButton()->setFixedSize(46, 41);
+        closeButton()->installEventFilter(this);
     }
-
-    QWidget* titleBar() const { return m_titleBar; }
 
 protected:
     // White X while the red hover wash is up (mirrors the main window).
     bool eventFilter(QObject* object, QEvent* event) override
     {
-        if (object == m_closeButton && event) {
+        if (object == closeButton() && event) {
             if (event->type() == QEvent::Enter)
-                m_closeButton->setIcon(captionIcon(CaptionGlyph::Close, Qt::white));
+                closeButton()->setIcon(captionIcon(CaptionGlyph::Close, Qt::white));
             else if (event->type() == QEvent::Leave)
-                m_closeButton->setIcon(captionIcon(CaptionGlyph::Close, captionInk()));
+                closeButton()->setIcon(captionIcon(CaptionGlyph::Close, captionInk()));
         }
-        return QDialog::eventFilter(object, event);
+        return frameless::Dialog::eventFilter(object, event);
     }
-
-    bool nativeEvent(const QByteArray& type, void* message, long* result) override
-    {
-        return frameless::nativeEvent(this, type, message, result, [this](const QPoint& pos) {
-            if (!m_titleBar->geometry().contains(pos))
-                return frameless::Zone::Client;
-            if (m_closeButton->geometry().contains(pos - m_titleBar->pos()))
-                return frameless::Zone::Client;
-            return frameless::Zone::Caption;
-        });
-    }
-
-    // Frameless windows rely on the DWM shadow for their silhouette; where
-    // that is unavailable (Win7 workaround) paint a 1px outline ring in the
-    // layout-reserved band instead. QSS borders on plain QWidgets proved
-    // unreliable here, so this is drawn explicitly.
-    void paintEvent(QPaintEvent* event) override
-    {
-        QDialog::paintEvent(event);
-#ifdef _WIN32
-        // Win7-only outline ring (no DWM shadow there); see
-        // QtMainWindow::paintEvent.
-        if (frameless::needsWin7FrameWorkaround()) {
-            QPainter painter(this);
-            painter.setPen(activeThemeOutlineColor());
-            painter.drawRect(QRect(0, 0, width() - 1, height() - 1));
-        }
-#endif
-    }
-
-private:
-    QWidget* m_titleBar = nullptr;
-    QToolButton* m_closeButton = nullptr;
 };
+
 const QColor kLogoOrange = QColor(0xcb, 0x83, 0x06);
 
 
@@ -1692,8 +1646,7 @@ void QtMainWindow::showSettingsDialog()
     // into client clicks (dead dragging) after the dialog closes.
     QToolTip::hideText();
 
-    FramelessDialogShell dialog(this, tr("Settings"));
-    dialog.setWindowIcon(windowIcon());
+    SettingsDialog dialog(this, tr("Settings"));
     dialog.setModal(true);
 
     // --- General tab: theme + language -------------------------------------
@@ -1843,17 +1796,7 @@ void QtMainWindow::showSettingsDialog()
     bodyLayout->setContentsMargins(12, 12, 12, 12);
     bodyLayout->addWidget(tabs);
     bodyLayout->addWidget(buttons);
-
-    auto *layout = new QVBoxLayout(&dialog);
-    // Reserve the 1px band for the Win7-only outline ring (see
-    // QtMainWindow::buildUi); no band where the DWM shadow suffices.
-    if (frameless::needsWin7FrameWorkaround())
-        layout->setContentsMargins(1, 1, 1, 1);
-    else
-        layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(0);
-    layout->addWidget(dialog.titleBar());
-    layout->addWidget(body);
+    dialog.contentLayout()->addWidget(body);
 
     // Fixed-size dialog: freeze at the layout's natural size (translation-
     // and DPI-safe; frameless edges stay clean instead of resize zones).
