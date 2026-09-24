@@ -23,6 +23,9 @@
 // caller-decided caption band returns HTCAPTION (native drag/snap), the
 // rest is client.
 //
+//   // optional: a fixed-size frameless window - just use plain Qt:
+//   setFixedSize(480, 320);   // nativeEvent skips resize zones for it
+//
 // ponytail ceilings: frame metrics come from the primary monitor
 // (per-monitor DPI not special-cased); Win11 corner rounding left at the
 // system default; single top-level window per call site.
@@ -113,7 +116,10 @@ inline bool nativeEvent(QWidget* window, const QByteArray& eventType,
         const bool x2 = pos.x() >= window->width() - kResizeBorder;
         const bool y1 = pos.y() < kResizeBorder;
         const bool y2 = pos.y() >= window->height() - kResizeBorder;
-        if (!window->isMaximized())
+        // Fixed-size windows (QWidget::setFixedSize) get no resize zones:
+        // min == max means every drag would be clamped right back anyway.
+        const bool fixedSize = window->minimumSize() == window->maximumSize();
+        if (!window->isMaximized() && !fixedSize)
         {
             if (x1 && y1) { *result = HTTOPLEFT; return true; }
             if (x2 && y1) { *result = HTTOPRIGHT; return true; }
