@@ -53,16 +53,17 @@ enum class Zone
     Caption,  // HTCAPTION: native drag, double-click maximize, snap
 };
 
-// Plain Qt::Window (native frame styles stay), then buy back the shadow.
-// Call once in the ctor; forces native window creation via winId().
+// Flags only; call once in the ctor. The 1px glass frame is applied
+// lazily in nativeEvent (first WM_NCCALCSIZE) - forcing winId() here would
+// create the native window too early: for a parented QDialog that happens
+// before the transient-parent linkage exists, and Windows then creates a
+// full-size WS_CHILD of the parent instead of a popup. That stray child
+// swallows all mouse input over the parent (dead drag/resize) until the
+// process exits.
 inline void apply(QWidget* window)
 {
-    window->setWindowFlags(Qt::Window);
-    if (HWND hwnd = reinterpret_cast<HWND>(window->winId()))
-    {
-        MARGINS glass = {0, 0, 0, 1};
-        DwmExtendFrameIntoClientArea(hwnd, &glass);
-    }
+    if (window->windowType() != Qt::Dialog)
+        window->setWindowFlags(Qt::Window);
 }
 
 // Returns true when the message was consumed. zoneAt decides which local
@@ -77,6 +78,11 @@ inline bool nativeEvent(QWidget* window, const QByteArray& eventType,
     const MSG* msg = static_cast<const MSG*>(message);
     if (msg->message == WM_NCCALCSIZE && msg->wParam)
     {
+        // First message means the real native window exists: buy back the
+        // DWM drop shadow that returning 0 below would otherwise swallow.
+        // (Idempotent and cheap - called on every recalc.)
+        MARGINS glass = {0, 0, 0, 1};
+        DwmExtendFrameIntoClientArea(msg->hwnd, &glass);
         // Client area = whole window (no native frame reserved). When
         // maximized the system inflates the rect by the frame thickness;
         // clip it back or content bleeds off screen on every side.
