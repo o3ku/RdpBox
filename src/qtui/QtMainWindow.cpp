@@ -217,12 +217,12 @@ public:
         : frameless::Dialog(parent, title)
     {
         setOutlineColor(activeThemeOutlineColor());
+        setTitleIcon(windowIcon());
         titleBar()->setObjectName(QStringLiteral("titleBar"));
-        titleBar()->setFixedHeight(42);
         closeButton()->setObjectName(QStringLiteral("closeCaptionButton"));
         closeButton()->setIcon(captionIcon(CaptionGlyph::Close, captionInk()));
         closeButton()->setIconSize(QSize(16, 16));
-        closeButton()->setFixedSize(46, 41);
+        closeButton()->setFixedSize(46, 31);
         closeButton()->installEventFilter(this);
     }
 

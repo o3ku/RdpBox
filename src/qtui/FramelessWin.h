@@ -18,6 +18,14 @@
 //   // optional: a fixed-size frameless window - just use plain Qt:
 //   setFixedSize(480, 320);   // resize hit zones are skipped automatically
 //
+// Ready-made chrome (same plumbing, single implementation, both platforms):
+//   frameless::Dialog        - Win10-metric title bar + close button;
+//                              contentLayout(); height via ctor (default 32)
+//   frameless::MainWindow    - Win10-metric bar with app icon, title and
+//                              min/max/close; contentLayout(); height via
+//                              ctor (default 32). setTitleIcon(QIcon())
+//                              hides the stock logo for custom chrome.
+//
 // Platform behavior:
 //   Win8/10/11 - frameless via WM_NCCALCSIZE=0 with native snap (drag-to-
 //                edge, Win+arrows), double-click maximize and the DWM drop
@@ -60,6 +68,7 @@
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMainWindow>
 #include <QOperatingSystemVersion>
 #include <QPainter>
 #include <QPoint>
@@ -270,7 +279,7 @@ namespace frameless
 class Dialog : public QDialog
 {
 public:
-    explicit Dialog(QWidget* parent, const QString& title)
+    explicit Dialog(QWidget* parent, const QString& title, int titleBarHeight = 32)
         : QDialog(parent)
     {
         apply(this);
@@ -288,9 +297,10 @@ public:
 
         m_titleBar = new QWidget(this);
         m_titleBar->setObjectName(QStringLiteral("framelessTitleBar"));
-        m_titleBar->setFixedHeight(40);
+        m_titleBar->setFixedHeight(titleBarHeight);
         auto* row = new QHBoxLayout(m_titleBar);
-        row->setContentsMargins(16, 0, 0, 0);
+        // Win10 caption metrics: 8px icon inset, 16px icon, 8px to the text.
+        row->setContentsMargins(8, 0, 0, 0);
         row->setSpacing(0);
         row->addWidget(new QLabel(title, m_titleBar));
         row->addStretch(1);
@@ -315,6 +325,22 @@ public:
     QWidget* titleBar() const { return m_titleBar; }
     QToolButton* closeButton() const { return m_closeButton; }
     void setOutlineColor(const QColor& color) { m_outlineColor = color; }
+
+    // Small leading icon in the title bar (brand logo).
+    void setTitleIcon(const QIcon& icon)
+    {
+        if (icon.isNull())
+            return;
+        if (!m_titleIcon) {
+            m_titleIcon = new QLabel(m_titleBar);
+            m_titleIcon->setPixmap(icon.pixmap(16, 16));
+            auto* row = static_cast<QHBoxLayout*>(m_titleBar->layout());
+            row->insertWidget(0, m_titleIcon);
+            row->insertSpacing(1, 8);
+        } else {
+            m_titleIcon->setPixmap(icon.pixmap(16, 16));
+        }
+    }
 
 protected:
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
@@ -356,6 +382,162 @@ private:
     }
 
     QWidget* m_titleBar = nullptr;
+    QLabel* m_titleIcon = nullptr;
+    QToolButton* m_closeButton = nullptr;
+    QVBoxLayout* m_contentLayout = nullptr;
+    QColor m_outlineColor;
+};
+
+// Convenience frameless main window: Win10-metric title bar (32px default,
+// settable) with app icon, title, and min/max/close buttons; add the UI
+// through contentLayout() (a QVBoxLayout). Restyle via accessors/object
+// names as with Dialog; on non-Windows the bar hides and native
+// decorations stay. RdpBox keeps its own tab-bearing bar instead - this
+// class is for consumers wanting a ready standard chrome.
+class MainWindow : public QMainWindow
+{
+public:
+    explicit MainWindow(int titleBarHeight = 32)
+    {
+        apply(this);
+
+        auto* root = new QWidget(this);
+        auto* rootLayout = new QVBoxLayout(root);
+        rootLayout->setContentsMargins(0, 0, 0, 0);
+        rootLayout->setSpacing(0);
+        if (needsWin7FrameWorkaround())
+            rootLayout->setContentsMargins(1, 1, 1, 1);  // outline band
+        setCentralWidget(root);
+
+        m_titleBar = new QWidget(root);
+        m_titleBar->setObjectName(QStringLiteral("framelessTitleBar"));
+        m_titleBar->setFixedHeight(titleBarHeight);
+        auto* row = new QHBoxLayout(m_titleBar);
+        row->setContentsMargins(8, 0, 0, 0);
+        row->setSpacing(0);
+
+        m_titleIcon = new QLabel(m_titleBar);
+        m_titleIcon->setPixmap(QGuiApplication::windowIcon().pixmap(16, 16));
+        m_titleLabel = new QLabel(m_titleBar);
+        row->addWidget(m_titleIcon);
+        row->addSpacing(8);
+        row->addWidget(m_titleLabel);
+        row->addStretch(1);
+
+        const auto makeButton = [this](QStyle::StandardPixmap icon, const char* name) {
+            auto* button = new QToolButton(m_titleBar);
+            button->setObjectName(QLatin1String(name));
+            button->setIcon(style()->standardIcon(icon));
+            button->setIconSize(QSize(16, 16));
+            button->setAutoRaise(true);
+            button->setFocusPolicy(Qt::NoFocus);
+            return button;
+        };
+        m_minimizeButton = makeButton(QStyle::SP_TitleBarMinButton, "framelessMinButton");
+        m_maximizeButton = makeButton(QStyle::SP_TitleBarMaxButton, "framelessMaxButton");
+        m_closeButton = makeButton(QStyle::SP_TitleBarCloseButton, "framelessCloseButton");
+        connect(m_minimizeButton, &QToolButton::clicked, this, &QWidget::showMinimized);
+        connect(m_maximizeButton, &QToolButton::clicked, this, &MainWindow::toggleMaximize);
+        connect(m_closeButton, &QToolButton::clicked, this, &QWidget::close);
+        for (QToolButton* button : {m_minimizeButton, m_maximizeButton, m_closeButton})
+            button->setFixedSize(46, titleBarHeight);
+        row->addWidget(m_minimizeButton);
+        row->addWidget(m_maximizeButton);
+        row->addWidget(m_closeButton);
+        rootLayout->addWidget(m_titleBar);
+
+        m_contentLayout = new QVBoxLayout;
+        m_contentLayout->setContentsMargins(0, 0, 0, 0);
+        rootLayout->addLayout(m_contentLayout);
+#ifndef _WIN32
+        m_titleBar->hide();  // native decorations provide the chrome
+#endif
+    }
+
+    QVBoxLayout* contentLayout() const { return m_contentLayout; }
+    QWidget* titleBar() const { return m_titleBar; }
+    QToolButton* minimizeButton() const { return m_minimizeButton; }
+    QToolButton* maximizeButton() const { return m_maximizeButton; }
+    QToolButton* closeButton() const { return m_closeButton; }
+    void setOutlineColor(const QColor& color) { m_outlineColor = color; }
+
+    // 16px leading icon; a null icon hides it (custom logos welcome).
+    void setTitleIcon(const QIcon& icon)
+    {
+        if (icon.isNull()) {
+            m_titleIcon->hide();
+            return;
+        }
+        m_titleIcon->show();
+        m_titleIcon->setPixmap(icon.pixmap(16, 16));
+    }
+
+    // Toggle maximize/restore on the caption button (drag/double-click go
+    // through the native HTCAPTION path already).
+    void toggleMaximize()
+    {
+        if (isMaximized())
+            showNormal();
+        else
+            showMaximized();
+    }
+
+protected:
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    bool nativeEvent(const QByteArray& eventType, void* message, qintptr* result) override
+#else
+    bool nativeEvent(const QByteArray& eventType, void* message, long* result) override
+#endif
+    {
+        return nativeEventImpl(eventType, message, result);
+    }
+
+    void changeEvent(QEvent* event) override
+    {
+        QMainWindow::changeEvent(event);
+        if (event->type() == QEvent::WindowTitleChange)
+            m_titleLabel->setText(windowTitle());
+        if (event->type() == QEvent::WindowStateChange)
+            m_maximizeButton->setIcon(style()->standardIcon(
+                isMaximized() ? QStyle::SP_TitleBarNormalButton
+                              : QStyle::SP_TitleBarMaxButton));
+    }
+
+    void paintEvent(QPaintEvent* event) override
+    {
+        QMainWindow::paintEvent(event);
+#ifdef _WIN32
+        if (needsWin7FrameWorkaround() && m_outlineColor.isValid()) {
+            QPainter painter(this);
+            painter.setPen(m_outlineColor);
+            painter.drawRect(QRect(0, 0, width() - 1, height() - 1));
+        }
+#endif
+    }
+
+private:
+    template <typename Result>
+    bool nativeEventImpl(const QByteArray& eventType, void* message, Result* result)
+    {
+        return frameless::nativeEvent(this, eventType, message, result,
+                                      [this](const QPoint& pos) { return zoneFor(pos); });
+    }
+
+    Zone zoneFor(const QPoint& pos) const
+    {
+        if (!m_titleBar->geometry().contains(pos))
+            return Zone::Client;
+        for (const QToolButton* button : {m_minimizeButton, m_maximizeButton, m_closeButton})
+            if (button->geometry().translated(m_titleBar->pos()).contains(pos))
+                return Zone::Client;
+        return Zone::Caption;
+    }
+
+    QWidget* m_titleBar = nullptr;
+    QLabel* m_titleIcon = nullptr;
+    QLabel* m_titleLabel = nullptr;
+    QToolButton* m_minimizeButton = nullptr;
+    QToolButton* m_maximizeButton = nullptr;
     QToolButton* m_closeButton = nullptr;
     QVBoxLayout* m_contentLayout = nullptr;
     QColor m_outlineColor;
