@@ -935,9 +935,11 @@ void QtMainWindow::buildUi()
 
     shellLayout->addWidget(splitter, 1);
     setCentralWidget(shell);
-    // Inset the central widget by the 1px band paintEvent draws the outline
-    // ring into (kept out of the layout so children never cover it).
-    setContentsMargins(1, 1, 1, 1);
+    // Reserve the 1px band the Win7-only outline ring paints into; on
+    // Win8+ the DWM shadow suffices and content must reach the very edge
+    // (a bare band would read as a faint fake border).
+    if (frameless::needsWin7FrameWorkaround())
+        setContentsMargins(1, 1, 1, 1);
 
     m_profileList->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_profileList, &QWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
@@ -1131,6 +1133,13 @@ void QtMainWindow::buildTitleBar(QVBoxLayout *rootLayout)
         button->setIconSize(QSize(16, 16));
         button->setFocusPolicy(Qt::NoFocus);
     }
+#ifndef _WIN32
+    // Non-Windows keeps the native WM title bar (frameless is Windows-only),
+    // so the duplicated caption controls stay hidden; the tab strip and
+    // tool buttons above remain.
+    for (QToolButton *button : captionButtons)
+        button->hide();
+#endif
 
     layout->addWidget(m_logoButton);
     layout->addWidget(m_connectionsHeader);
@@ -1836,8 +1845,12 @@ void QtMainWindow::showSettingsDialog()
     bodyLayout->addWidget(buttons);
 
     auto *layout = new QVBoxLayout(&dialog);
-    // Reserve the 1px band the dialog paints its outline ring into.
-    layout->setContentsMargins(1, 1, 1, 1);
+    // Reserve the 1px band for the Win7-only outline ring (see
+    // QtMainWindow::buildUi); no band where the DWM shadow suffices.
+    if (frameless::needsWin7FrameWorkaround())
+        layout->setContentsMargins(1, 1, 1, 1);
+    else
+        layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     layout->addWidget(dialog.titleBar());
     layout->addWidget(body);
