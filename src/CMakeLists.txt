@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.24)
 
 if(WIN32)
-    project(RdpBox VERSION 2.0.1 LANGUAGES CXX RC)
+    project(RdpBox VERSION 2.0.2 LANGUAGES CXX RC)
 else()
-    project(RdpBox VERSION 2.0.1 LANGUAGES CXX)
+    project(RdpBox VERSION 2.0.2 LANGUAGES CXX)
 endif()
 
 set(CMAKE_CXX_STANDARD 20)
