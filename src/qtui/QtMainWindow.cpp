@@ -1,6 +1,7 @@
 #include "qtui/QtMainWindow.h"
 
 void applyApplicationTheme(QApplication &application); // QtMain.cpp (global)
+QColor activeThemeOutlineColor();                    // QtMain.cpp (global)
 
 #include "common/AppPaths.h"
 #include "common/ConnectionLaunchArgs.h"
@@ -261,6 +262,24 @@ protected:
                 return frameless::Zone::Client;
             return frameless::Zone::Caption;
         });
+    }
+
+    // Frameless windows rely on the DWM shadow for their silhouette; where
+    // that is unavailable (Win7 workaround) paint a 1px outline ring in the
+    // layout-reserved band instead. QSS borders on plain QWidgets proved
+    // unreliable here, so this is drawn explicitly.
+    void paintEvent(QPaintEvent* event) override
+    {
+        QDialog::paintEvent(event);
+#ifdef _WIN32
+        // Win7-only outline ring (no DWM shadow there); see
+        // QtMainWindow::paintEvent.
+        if (frameless::needsWin7FrameWorkaround()) {
+            QPainter painter(this);
+            painter.setPen(activeThemeOutlineColor());
+            painter.drawRect(QRect(0, 0, width() - 1, height() - 1));
+        }
+#endif
     }
 
 private:
@@ -787,6 +806,21 @@ QtMainWindow::~QtMainWindow()
         m_updateDownloadThread.join();
 }
 
+void QtMainWindow::paintEvent(QPaintEvent *event)
+{
+    QMainWindow::paintEvent(event);
+#ifdef _WIN32
+    // Outline ring in the contentsMargins-reserved 1px band, Win7 only:
+    // there the DWM shadow is disabled (ghost-frame workaround) and the
+    // ring is the only silhouette. Everywhere else the shadow suffices.
+    if (!m_isFullScreen && frameless::needsWin7FrameWorkaround()) {
+        QPainter painter(this);
+        painter.setPen(activeThemeOutlineColor());
+        painter.drawRect(QRect(0, 0, width() - 1, height() - 1));
+    }
+#endif
+}
+
 void QtMainWindow::changeEvent(QEvent *event)
 {
     QMainWindow::changeEvent(event);
@@ -901,6 +935,9 @@ void QtMainWindow::buildUi()
 
     shellLayout->addWidget(splitter, 1);
     setCentralWidget(shell);
+    // Inset the central widget by the 1px band paintEvent draws the outline
+    // ring into (kept out of the layout so children never cover it).
+    setContentsMargins(1, 1, 1, 1);
 
     m_profileList->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_profileList, &QWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
@@ -1799,10 +1836,15 @@ void QtMainWindow::showSettingsDialog()
     bodyLayout->addWidget(buttons);
 
     auto *layout = new QVBoxLayout(&dialog);
-    layout->setContentsMargins(0, 0, 0, 0);
+    // Reserve the 1px band the dialog paints its outline ring into.
+    layout->setContentsMargins(1, 1, 1, 1);
     layout->setSpacing(0);
     layout->addWidget(dialog.titleBar());
     layout->addWidget(body);
+
+    // Fixed-size dialog: freeze at the layout's natural size (translation-
+    // and DPI-safe; frameless edges stay clean instead of resize zones).
+    dialog.setFixedSize(dialog.sizeHint());
 
     if (dialog.exec() != QDialog::Accepted)
         return;
