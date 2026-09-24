@@ -43,6 +43,7 @@ public:
 protected:
     bool eventFilter(QObject *object, QEvent *event) override;
     bool nativeEvent(const QByteArray &eventType, void *message, long *result) override;
+    void paintEvent(QPaintEvent *event) override;
     void changeEvent(QEvent *event) override;
     void closeEvent(QCloseEvent *event) override;
 

@@ -2,6 +2,7 @@
 
 #include "common/AppPaths.h"
 #include "common/ConnectionLaunchArgs.h"
+#include "qtui/FramelessWin.h"
 
 #include <QApplication>
 #include <QSettings>
@@ -9,6 +10,7 @@
 #include <QTimer>
 #include <QDir>
 #include <QFile>
+#include <QMessageBox>
 #include <QPainter>
 #include <QPalette>
 #include <QPair>
@@ -52,6 +54,9 @@ struct ThemeColors
     QColor window, text, title, border, panel, field, hover, select, selectText;
     QColor button, buttonHover, buttonPressed, buttonBorder, muted, rowSep;
     QColor sessionBg, sessionText;
+    // Window outline where the frameless path has no DWM shadow (Win7):
+    // brighter than `border` so the silhouette stays readable.
+    QColor winOutline;
     QColor accent = QColor(0xcb, 0x83, 0x06);
 };
 
@@ -75,6 +80,7 @@ const ThemeColors &lightThemeColors()
         QColor(0xed, 0xf0, 0xf3),   // rowSep
         QColor(0x11, 0x18, 0x27),   // sessionBg
         QColor(0xcb, 0xd5, 0xe1),   // sessionText
+        QColor(0xcb, 0x83, 0x06),   // winOutline (light theme): brand orange
     };
     return colors;
 }
@@ -99,6 +105,7 @@ const ThemeColors &darkThemeColors()
         QColor(0x2e, 0x37, 0x42),   // rowSep
         QColor(0x0f, 0x14, 0x1b),   // sessionBg
         QColor(0xcb, 0xd5, 0xe1),   // sessionText
+        QColor(0xcb, 0x83, 0x06),   // winOutline (dark theme): brand orange
     };
     return colors;
 }
@@ -269,6 +276,8 @@ QString themeStyleSheet(const ThemeColors &colors)
         "QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }"
         "QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }");
     const QPair<QString, QColor> tokens[] = {
+        // Window outline: brighter on Win7 (no DWM shadow there), subtle
+        // everywhere else where the shadow already outlines the window.
         {QStringLiteral("%WINDOW%"), colors.window},
         {QStringLiteral("%TEXT%"), colors.text},
         {QStringLiteral("%TITLE%"), colors.title},
@@ -326,6 +335,16 @@ QString themeStyleSheet(const ThemeColors &colors)
 static QTranslator g_translator;
 static QTranslator g_qtBaseTranslator;   // OK/Cancel etc. (QPlatformTheme texts)
 static QString g_installedLanguage;
+static const ThemeColors *g_activeThemeColors = nullptr;  // set by applyApplicationTheme
+
+QColor activeThemeOutlineColor()
+{
+    // Painted on Win7 only (see paintEvent gates): the frameless path has
+    // no DWM shadow there, so a brand-colored ring outlines the window.
+    static const ThemeColors fallback = lightThemeColors();
+    const ThemeColors &colors = g_activeThemeColors ? *g_activeThemeColors : fallback;
+    return colors.winOutline;
+}
 
 void applyApplicationTheme(QApplication &application)
 {
@@ -373,6 +392,7 @@ void applyApplicationTheme(QApplication &application)
         themeSetting == QLatin1String("light") ? lightThemeColors()
         : themeSetting == QLatin1String("dark") ? darkThemeColors()
         : (windowsAppsUseLightTheme() ? lightThemeColors() : darkThemeColors());
+    g_activeThemeColors = &colors;
     applyThemePalette(application, colors);
     application.setStyleSheet(themeStyleSheet(colors));
 }

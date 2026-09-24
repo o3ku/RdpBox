@@ -19,7 +19,10 @@
 // double-click maximize and aero shake all survive - while WM_NCCALCSIZE
 // returns 0 so no frame is ever reserved. A 1px glass frame re-enables
 // the DWM drop shadow that NCCALCSIZE=0 otherwise swallows (verified on
-// Win10 19045). WM_NCHITTEST stays ours: an 8px border resizes, the
+// Win10 19045). Win7's DWM would keep painting its native glass frame
+// and caption buttons over the client (fully visible on focus loss), so
+// there DWM non-client rendering is disabled instead (no shadow, but no
+// ghost frame). WM_NCHITTEST stays ours: an 8px border resizes, the
 // caller-decided caption band returns HTCAPTION (native drag/snap), the
 // rest is client.
 //
@@ -34,8 +37,27 @@
 #include <functional>
 
 #include <QCursor>
+#include <QOperatingSystemVersion>
 #include <QPoint>
 #include <QWidget>
+
+namespace frameless
+{
+// Win7's DWM keeps compositing the native glass frame + caption buttons for
+// any window that keeps WS_CAPTION (fully visible on focus loss), which
+// NCCALCSIZE=0 cannot suppress. Win8+ DWM doesn't, and needs the 1px glass
+// trick for the drop shadow instead.
+inline bool needsWin7FrameWorkaround()
+{
+#ifdef _WIN32
+    static const bool win7 = QOperatingSystemVersion::current()
+        <= QOperatingSystemVersion::Windows7;
+    return win7;
+#else
+    return false;
+#endif
+}
+}
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -82,13 +104,58 @@ inline bool nativeEvent(QWidget* window, const QByteArray& eventType,
     if (eventType != "windows_generic_MSG")
         return false;
     const MSG* msg = static_cast<const MSG*>(message);
+    // Win7: no DWM frame compositing and no classic NC painting at all -
+    // both would draw the native frame (glass border + caption buttons)
+    // over the client that NCCALCSIZE=0 handed us. Cost: no DWM shadow.
+    if (needsWin7FrameWorkaround())
+    {
+        if (msg->message == WM_NCPAINT)
+        {
+            *result = 0;
+            return true;
+        }
+        if (msg->message == WM_NCACTIVATE)
+        {
+            *result = TRUE;
+            return true;
+        }
+        // No-composition path (Basic theme / RDP): the classic "UAH" frame
+        // messages paint the native caption + buttons over the client.
+        // Blocking them is what Chromium does; styles (and thus snap) stay.
+        if (msg->message == 0x00AE /* WM_NCUAHDRAWCAPTION */
+            || msg->message == 0x00AF /* WM_NCUAHDRAWFRAME */)
+        {
+            *result = 0;
+            return true;
+        }
+        // DWM keeps rounding the window silhouette even with NC rendering
+        // disabled; pin an explicit rectangular region (no shadow on this
+        // path anyway, so nothing is lost).
+        if (msg->message == WM_SIZE)
+        {
+            RECT rc;
+            GetClientRect(msg->hwnd, &rc);
+            HRGN rgn = CreateRectRgn(0, 0, rc.right, rc.bottom);
+            if (!SetWindowRgn(msg->hwnd, rgn, FALSE))
+                DeleteObject(rgn);  // on success the system owns the region
+        }
+    }
     if (msg->message == WM_NCCALCSIZE && msg->wParam)
     {
-        // First message means the real native window exists: buy back the
-        // DWM drop shadow that returning 0 below would otherwise swallow.
-        // (Idempotent and cheap - called on every recalc.)
-        MARGINS glass = {0, 0, 0, 1};
-        DwmExtendFrameIntoClientArea(msg->hwnd, &glass);
+        if (needsWin7FrameWorkaround())
+        {
+            DWMNCRENDERINGPOLICY policy = DWMNCRP_DISABLED;
+            DwmSetWindowAttribute(msg->hwnd, DWMWA_NCRENDERING_POLICY,
+                                  &policy, sizeof(policy));
+        }
+        else
+        {
+            // First message means the real native window exists: buy back the
+            // DWM drop shadow that returning 0 below would otherwise swallow.
+            // (Idempotent and cheap - called on every recalc.)
+            MARGINS glass = {0, 0, 0, 1};
+            DwmExtendFrameIntoClientArea(msg->hwnd, &glass);
+        }
         // Client area = whole window (no native frame reserved). When
         // maximized the system inflates the rect by the frame thickness;
         // clip it back or content bleeds off screen on every side.
@@ -135,6 +202,12 @@ inline bool nativeEvent(QWidget* window, const QByteArray& eventType,
             *result = HTCAPTION;
             return true;
         }
+        // Never fall through to DefWindowProc: the window keeps WS_CAPTION
+        // for snap, and DefWindowProc would answer HTCLOSE/HTMINBUTTON/...
+        // over the top-right corner - on Win7 DWM then paints the native
+        // caption buttons (ghost buttons over the custom ones) on hover.
+        *result = HTCLIENT;
+        return true;
     }
     return false;
 }
