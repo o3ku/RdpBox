@@ -1,18 +1,38 @@
-// FramelessWin.h - reusable frameless top-level window plumbing for Qt5.
-// Windows implementation; other platforms compile to no-ops and keep their
-// native decorations (call sites stay unmodified).
-//
-// Single self-contained header: copy it into any program, two calls.
+// FramelessWin.h - reusable frameless top-level window plumbing for Qt.
+// Drop this single header into any project; two calls per window:
 //
 //   // ctor of your top-level widget:
 //   frameless::apply(this);
 //
-//   // forwarder for the one virtual you must override:
+//   // forward the one Qt virtual (Qt5: long*, Qt6: qintptr* - both work):
 //   bool W::nativeEvent(const QByteArray& t, void* m, long* r) override
 //   {
 //       return frameless::nativeEvent(this, t, m, r,
 //           [this](const QPoint& pos) { return myCaptionZone(pos); });
 //   }
+//
+// myCaptionZone decides which local points are the caption band (return
+// Zone::Caption there, Zone::Client over interactive children so their
+// clicks still land; edges always resize).
+//
+//   // optional: a fixed-size frameless window - just use plain Qt:
+//   setFixedSize(480, 320);   // resize hit zones are skipped automatically
+//
+// Platform behavior:
+//   Win8/10/11 - frameless via WM_NCCALCSIZE=0 with native snap (drag-to-
+//                edge, Win+arrows), double-click maximize and the DWM drop
+//                shadow (1px glass frame) kept. Caller window hints
+//                (always-on-top, ...) are preserved; Qt::Dialog windows
+//                keep their flags (top-level with owner).
+//   Win7       - same, plus: DWM NC rendering disabled, classic "UAH" frame
+//                messages blocked and a square window region pinned - the
+//                native glass frame/caption buttons never leak through
+//                (Basic theme/RDP included). No DWM shadow on Win7; draw
+//                your own outline if the silhouette needs one.
+//   other OS   - no-ops; windows keep their native decorations.
+//
+// Requirements: Qt >= 5.10 (QOperatingSystemVersion); MSVC auto-links
+// dwmapi (MinGW: add -ldwmapi). Single top-level window per apply() call.
 //
 // Technique (Chatterino/Chromium): the window KEEPS the native caption/
 // thickframe/maximizebox styles - so snap (drag-to-edge + Win+arrows),
@@ -36,7 +56,6 @@
 
 #include <functional>
 
-#include <QCursor>
 #include <QOperatingSystemVersion>
 #include <QPoint>
 #include <QWidget>
@@ -96,9 +115,11 @@ inline void apply(QWidget* window)
 
 // Returns true when the message was consumed. zoneAt decides which local
 // points belong to the caption band (return Zone::Caption for interactive
-// children so their clicks still land).
+// children so their clicks still land). Result is deduced: Qt5 passes
+// long*, Qt6 qintptr* - no caller difference.
+template <typename Result>
 inline bool nativeEvent(QWidget* window, const QByteArray& eventType,
-                        void* message, long* result,
+                        void* message, Result* result,
                         const std::function<Zone(const QPoint&)>& zoneAt)
 {
     if (eventType != "windows_generic_MSG")
@@ -214,12 +235,14 @@ inline bool nativeEvent(QWidget* window, const QByteArray& eventType,
 
 }  // namespace frameless
 #else
-// Non-Windows: no-op - native decorations stay, call sites compile as-is.
+// other OS: no-op - native decorations stay, call sites compile as-is.
 namespace frameless
 {
 enum class Zone { Client, Caption };
+inline bool needsWin7FrameWorkaround() { return false; }
 inline void apply(QWidget*) {}
-inline bool nativeEvent(QWidget*, const QByteArray&, void*, long*,
+template <typename Result>
+inline bool nativeEvent(QWidget*, const QByteArray&, void*, Result*,
                         const std::function<Zone(const QPoint&)>&)
 {
     return false;
