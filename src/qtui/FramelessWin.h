@@ -63,7 +63,10 @@ enum class Zone
 inline void apply(QWidget* window)
 {
     if (window->windowType() != Qt::Dialog)
-        window->setWindowFlags(Qt::Window);
+        // Replace only the window-type bits, keep caller hints (always-on-top,
+        // fixed-size, ...); a plain reset would silently strip them.
+        window->setWindowFlags((window->windowFlags() & ~Qt::WindowType_Mask)
+                               | Qt::Window);
 }
 
 // Returns true when the message was consumed. zoneAt decides which local
