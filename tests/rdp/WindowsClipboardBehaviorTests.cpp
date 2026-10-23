@@ -65,7 +65,7 @@ int main()
     assert(rdp::clipboard::fileGroupDescriptorByteSize(7, 1) == 11);
     assert(rdp::clipboard::fileGroupDescriptorByteSize(3, 0) == 0);
 
-    // 上界以内可以整除，仍应正常返回；超出则钳制为 0，避免 4 + count * size 溢出回绕。
+    // Inside the bound the math still fits; above it, clamp to 0 so 4 + count * size cannot wrap.
     const std::size_t largestFitting = (maxSize - 4u) / 16u;
     const std::size_t largestResult = rdp::clipboard::fileGroupDescriptorByteSize(largestFitting, 16);
     assert(largestResult > largestFitting);
