@@ -65,6 +65,8 @@ protected:
     void releaseKeyboardInputForTargetTransfer() override;
 
 private:
+    // Hover only reaches the remote session while this pane owns the input.
+    bool shouldForwardMouseMove() const;
     void bindProcessCallbacks();
     void clearProcessCallbacks();
     void stopProcess(bool showDisconnectedOverlay = false);

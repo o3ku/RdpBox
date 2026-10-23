@@ -323,8 +323,20 @@ void QtRdpSessionWidget::setStateChangedCallback(std::function<void(FreeRdpProce
 
 bool QtRdpSessionWidget::event(QEvent *event)
 {
-    if (event && event->type() == QEvent::UngrabMouse)
-        releasePressedMouseButtons();
+    // Every path that can drop the grab on the platform side ends here too:
+    // UngrabMouse for a normal release, but a deactivated or hidden window is
+    // never told, and the remote button would stay down.
+    if (event) {
+        switch (event->type()) {
+        case QEvent::UngrabMouse:
+        case QEvent::WindowDeactivate:
+        case QEvent::Hide:
+            releasePressedMouseButtons();
+            break;
+        default:
+            break;
+        }
+    }
 
     if (event && event->type() == QEvent::ShortcutOverride && isConnected()) {
         auto *keyEvent = static_cast<QKeyEvent *>(event);
@@ -405,7 +417,7 @@ void QtRdpSessionWidget::mouseMoveEvent(QMouseEvent *event)
     const unsigned int mouseFlags = mouseFlagsFromEvent(event);
     if (rdp::shouldSynchronizeModifiersForMouseMove(mouseFlags))
         syncMouseModifiers(mouseFlags);
-    if (!m_process)
+    if (!m_process || !shouldForwardMouseMove())
         return;
 
     const auto immediate = m_mouseMoveCoalescer.onMouseMove(m_lastPointerPoint);
@@ -870,6 +882,16 @@ void QtRdpSessionWidget::sendMouseButton(QMouseEvent *event, bool down)
         grabMouse();
     else
         releaseMouse();
+}
+
+bool QtRdpSessionWidget::shouldForwardMouseMove() const
+{
+    // Hover only drives the remote cursor for the session that owns the input.
+    // It is also the way back in after the pointer is released (another app
+    // takes the grab, the window is deactivated), which does not always arrive
+    // as QEvent::UngrabMouse: an unfocused pane would otherwise keep looking
+    // interested and swallow the moves that follow the user's return.
+    return hasFocus();
 }
 
 bool QtRdpSessionWidget::canCaptureSystemKeys() const
