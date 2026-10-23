@@ -2330,14 +2330,15 @@ std::wstring QtMainWindow::sessionProfileNameForWidget(const QtRdpSessionWidget 
 
 void QtMainWindow::warnProfilePersistFailed()
 {
-    if (!m_repository.saveFailed() || m_persistWarningShown)
+    if (!m_repository.persistWarningNeeded() || m_persistWarningShown)
         return;
     m_persistWarningShown = true;
     auto *messageBox = new QMessageBox(this);
     messageBox->setIcon(QMessageBox::Warning);
     messageBox->setWindowTitle(tr("Connection"));
-    messageBox->setText(tr("Saving profiles failed. Recent changes may be lost on exit "
-                           "(check disk space or locks on profiles.json)."));
+    messageBox->setText(tr("Saving profiles failed. Recent changes may be lost on exit, "
+                           "or a password could not be stored (check disk space, locks on "
+                           "profiles.json, or portable mode support)."));
     messageBox->setStandardButtons(QMessageBox::Ok);
     messageBox->setAttribute(Qt::WA_DeleteOnClose);
     messageBox->show();

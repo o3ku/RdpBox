@@ -37,6 +37,11 @@ public:
     // mutators' logical false returns (name collision, not found).
     bool saveFailed() const;
 
+    // True when a mutator already reported success but its save() could not be
+    // persisted, or when password protection was not prepared so stored and
+    // in-memory profiles disagree. UIs use this for a one-shot visible warning.
+    bool persistWarningNeeded() const;
+
 private:
     void load();
     bool save() const;
@@ -45,4 +50,5 @@ private:
     std::wstring m_filePath;
     std::vector<Profile> m_profiles;
     mutable bool m_lastSaveFailed = false;
+    mutable bool m_unpersistedChange = false;
 };

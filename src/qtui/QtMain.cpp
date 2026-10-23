@@ -2,6 +2,7 @@
 
 #include "common/AppPaths.h"
 #include "common/ConnectionLaunchArgs.h"
+#include "common/PasswordProtectionStartup.h"
 #include "qtui/FramelessWin.h"
 
 #include <QApplication>
@@ -10,6 +11,7 @@
 #include <QTimer>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPalette>
@@ -34,6 +36,8 @@ std::vector<std::wstring> parseStartupConnections(const QStringList &arguments)
     for (int i = 1; i < arguments.size(); ++i) {
         const std::wstring argument = arguments.at(i).toStdWString();
         if (argument == L"--portable") {
+            // Failure is surfaced by warnStartupProblems() once the UI exists;
+            // enablePortableMode() only reports it, it does not throw.
             AppPaths::enablePortableMode();
             continue;
         }
@@ -432,8 +436,26 @@ int main(int argc, char *argv[])
     const QIcon appIcon(QStringLiteral(":/rdpbox/logo.png"));
     if (!appIcon.isNull())
         QApplication::setWindowIcon(appIcon);
+
+    // Must run before QtMainWindow builds its ProfileRepository: the repository
+    // encrypts each password with the mode that is current at save time.
+    const bool portableRequested = application.arguments().contains(QStringLiteral("--portable"));
+    const bool portableFailed = portableRequested && !AppPaths::isPortableMode();
+    if (!PasswordProtectionStartup::initialize(portableRequested))
+        return 1;
+
     QtMainWindow window(parseStartupConnections(application.arguments()));
     window.show();
+
+    if (portableFailed) {
+        QMessageBox::warning(
+            &window, QCoreApplication::translate("RdpBox", "Portable mode"),
+            QCoreApplication::translate("RdpBox",
+                                        "Portable mode is unavailable: %1 is not writable. "
+                                        "Settings and profiles fall back to your user profile directory.")
+                .arg(QDir::toNativeSeparators(QFileInfo(QString::fromStdWString(AppPaths::executablePath()))
+                                                 .absolutePath())));
+    }
 
     const int exitCode = application.exec();
 #ifdef _WIN32

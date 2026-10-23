@@ -116,6 +116,23 @@ bool saveRepositoryRoot(const std::wstring &filePath, const nlohmann::json &root
     return AppPaths::writeFileContent(filePath, root.dump(4));
 }
 
+// The password is sealed before it reaches the json, and a mode that was never
+// prepared (no portable key) seals to an empty string: the write "succeeds" and
+// the secret is silently gone. Count those so the caller can warn instead of
+// letting the next connect quietly prompt for the password again.
+size_t droppedPasswordCount(const nlohmann::json &profiles)
+{
+    size_t dropped = 0;
+    for (const auto &item : profiles) {
+        const bool hasPlaintext = item.contains("password") && item["password"].is_string()
+            && !item["password"].get_ref<const std::string &>().empty();
+        const bool hasStoredPassword = item.contains("passwordPortable") || item.contains("passwordProtected");
+        if (hasPlaintext && !hasStoredPassword)
+            ++dropped;
+    }
+    return dropped;
+}
+
 bool containsInsensitive(const std::wstring &haystack, const std::wstring &needle)
 {
     if (needle.empty())
@@ -331,12 +348,19 @@ bool ProfileRepository::save() const
     root["profiles"] = m_profiles;
 
     m_lastSaveFailed = !saveRepositoryRoot(m_filePath, root);
+    const bool passwordDropped = !m_lastSaveFailed && droppedPasswordCount(root["profiles"]) > 0;
+    m_unpersistedChange = m_lastSaveFailed || passwordDropped;
     return !m_lastSaveFailed;
 }
 
 bool ProfileRepository::saveFailed() const
 {
     return m_lastSaveFailed;
+}
+
+bool ProfileRepository::persistWarningNeeded() const
+{
+    return m_unpersistedChange;
 }
 
 WindowState ProfileRepository::loadWindowState() const

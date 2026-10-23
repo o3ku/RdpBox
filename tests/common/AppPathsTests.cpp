@@ -63,6 +63,7 @@ int main()
     ScopedPathBackup profilesBackup(profilesPath);
 
     assert(AppPaths::enablePortableMode());
+    assert(!AppPaths::portableModeEnableFailed());
     assert(AppPaths::isPortableMode());
     assert(std::filesystem::path(AppPaths::dataRootPath()) == exeDir);
     assert(std::filesystem::path(AppPaths::profilesFilePath()) == profilesPath);
