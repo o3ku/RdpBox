@@ -116,6 +116,20 @@ bool saveRepositoryRoot(const std::wstring &filePath, const nlohmann::json &root
     return AppPaths::writeFileContent(filePath, root.dump(4));
 }
 
+// A mode that was never prepared has no key, so a non-empty password seals to an
+// empty string: the write "succeeds" and the secret is silently gone. Detect it
+// from the in-memory profiles (the json never holds a plaintext key, so it
+// cannot answer this) and report it instead of quietly prompting next time.
+bool anyPasswordDropped(const std::vector<Profile> &profiles)
+{
+    if (PasswordProtection::isReady())
+        return false;
+
+    return std::any_of(profiles.begin(), profiles.end(), [](const Profile &profile) {
+        return !profile.password.empty();
+    });
+}
+
 bool containsInsensitive(const std::wstring &haystack, const std::wstring &needle)
 {
     if (needle.empty())
@@ -331,12 +345,18 @@ bool ProfileRepository::save() const
     root["profiles"] = m_profiles;
 
     m_lastSaveFailed = !saveRepositoryRoot(m_filePath, root);
+    m_unpersistedChange = m_lastSaveFailed || anyPasswordDropped(m_profiles);
     return !m_lastSaveFailed;
 }
 
 bool ProfileRepository::saveFailed() const
 {
     return m_lastSaveFailed;
+}
+
+bool ProfileRepository::persistWarningNeeded() const
+{
+    return m_unpersistedChange;
 }
 
 WindowState ProfileRepository::loadWindowState() const

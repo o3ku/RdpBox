@@ -1,7 +1,6 @@
 #include "RdpBoxApp.h"
 
-#include "common/AppPaths.h"
-#include "common/PasswordProtection.h"
+#include "common/PasswordProtectionStartup.h"
 #include "MainWindow.h"
 
 #include <objbase.h>
@@ -27,11 +26,9 @@ const std::vector<std::wstring> &CRdpBoxApp::startupConnectionNames() const
 
 bool CRdpBoxApp::ensurePasswordProtectionReady()
 {
-    PasswordProtection::setMode(
-        AppPaths::isPortableMode()
-            ? PasswordProtection::Mode::Portable
-            : PasswordProtection::Mode::Dpapi);
-    return PasswordProtection::isReady();
+    // WinMain applied --portable before InitInstance, so the flag is already
+    // persisted (or already failed) and initialize() follows it.
+    return PasswordProtectionStartup::initialize();
 }
 
 BOOL CRdpBoxApp::InitInstance()
@@ -59,10 +56,9 @@ BOOL CRdpBoxApp::InitInstance()
         return FALSE;
     }
 
-    if (!ensurePasswordProtectionReady()) {
-        cleanupSubsystems();
-        return FALSE;
-    }
+    // A false return is not fatal: ProfileRepository warns about dropped
+    // passwords on save, which beats exiting without a message.
+    ensurePasswordProtectionReady();
 
     auto *frame = new MainWindow();
     if (!frame->createShell()) {

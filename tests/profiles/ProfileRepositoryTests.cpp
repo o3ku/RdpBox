@@ -226,6 +226,33 @@ int main()
         PasswordProtection::setMode(PasswordProtection::Mode::Dpapi);
     }
 
+    // A prepared mode stores the secret and stays quiet.
+    {
+        PasswordProtection::setMode(PasswordProtection::Mode::Dpapi);
+        assert(PasswordProtection::isReady());
+        std::filesystem::remove(filePath);
+
+        ProfileRepository repository(filePath.wstring());
+        Profile profile = Profile::create();
+        profile.name = L"with-password-mode";
+        profile.host = L"10.0.0.10";
+        profile.password = L"stored-secret";
+        assert(repository.addProfile(profile));
+        assert(!repository.saveFailed());
+        assert(!repository.persistWarningNeeded());
+
+        cJSON *root = parseJsonFile(filePath);
+        assert(root && cJSON_IsObject(root));
+        const cJSON *profiles = cJSON_GetObjectItemCaseSensitive(root, "profiles");
+        const cJSON *stored = profiles ? cJSON_GetArrayItem(profiles, 0) : nullptr;
+        assert(stored && cJSON_IsObject(stored));
+        assert(cJSON_GetObjectItemCaseSensitive(stored, "passwordProtected"));
+        cJSON_Delete(root);
+
+        assert(ProfileRepository(filePath.wstring()).profileByName(L"with-password-mode").password
+               == L"stored-secret");
+    }
+
     std::filesystem::remove(filePath);
     return 0;
 }

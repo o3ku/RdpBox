@@ -93,6 +93,8 @@ set(RDPBOX_QT_SOURCES
     common/ConnectionLaunchArgs.cpp
     common/PasswordProtection.h
     common/PasswordProtection.cpp
+    common/PasswordProtectionStartup.h
+    common/PasswordProtectionStartup.cpp
     common/UpdateClient.h
     common/UpdateClient.cpp
     common/profiles/Profile.h
@@ -172,6 +174,8 @@ set(RDPBOX_SOURCES
     common/ConnectionLaunchArgs.cpp
     common/PasswordProtection.h
     common/PasswordProtection.cpp
+    common/PasswordProtectionStartup.h
+    common/PasswordProtectionStartup.cpp
     common/UpdateClient.h
     common/UpdateClient.cpp
     common/NativeTypes.h

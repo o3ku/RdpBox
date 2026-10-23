@@ -53,13 +53,17 @@
   - 修法：local-only 快捷键的 keydown/keyup 直接返回 `NotHandled`，让消息回到 MFC 泵。
     Qt 侧的 `ShortcutOverride`（`QtRdpSessionWidget.cpp:329`）行为是对的，可对照。
 
-- [ ] **P1-2 Qt 版未初始化密码保护模式，密码被静默丢弃**
+- [x] **P1-2 Qt 版未初始化密码保护模式，密码被静默丢弃**（已修，PR #3 待合）
   - 位置：`src/qtui/QtMain.cpp`（缺 `PasswordProtection::setMode`）、`src/common/profiles/ProfileRepository.cpp:53-90`
-  - 现象：Qt 入口从不决定 portable/DPAPI 模式，默认模式在非 Windows 下走到
-    `protectPortable`，而 portable key 未初始化 → 返回空串，密码存不住、`unprotect` 恒失败。
-    MFC 侧有 `ensurePasswordProtectionReady()`（`src/mfcui/RdpBoxApp.cpp:30`）。
-  - 修法：Qt 启动时按 `--portable` 与平台调用同一个初始化函数（抽到 `common/`），
-    并补 `ProfileRepository` 的「空密码不得静默写盘」断言。
+  - 现象：Qt 入口从不决定 portable/DPAPI 模式 → 非 Windows 下 `g_portableKey` 为空，
+    密码静默丢弃；Windows 下 `--portable` 被解析却仍用 DPAPI 加密（换机失效）。
+  - 修法：初始化抽到 `common/PasswordProtectionStartup`，MFC/Qt 共用，且两个入口都**先应用
+    `--portable`（flag 落地）再选模式**；`initialize()` 按 `AppPaths::isPortableMode()` 选模式，
+    `#ifndef _WIN32` 直接 Portable（无 DPAPI）。
+    `ProfileRepository::persistWarningNeeded()` 把「保存成功但密码被丢」也报出来。
+  - 顺序为何关键：先选模式后应用 flag 时，首启 `--portable` 仍取 DPAPI → 密码加密进 exe 目录的
+    profiles.json（换机失效），且每次 `save()` 把 `portableMode` 写回 false 与 flag 拉锯；
+    `dataRootPath()` 同样依赖 flag 已落地。挪顺序后「模式 == 路径 == flag」，拉锯自然消失。
 
 - [ ] **P1-3 Qt 连接结束后焦点丢失**
   - 位置：`src/qtui/QtRdpSessionWidget.cpp:611-627`（`Finished` 分支不恢复焦点）、`:875-878`（`canCaptureSystemKeys`）
@@ -125,6 +129,16 @@
     `request->listIndex` 在 `:928` 先无条件写进 format，只有失败回退分支才判越界。
   - 修法：构建阶段维护真实的非空计数；`listIndex` 在使用前统一校验一次。
 
+- [x] **P3-7 便携模式写 flag 失败静默回落**（Qt 侧已修，PR #3 待合；MFC 侧仍静默回落）
+  - 位置：`src/common/AppPaths.cpp:250`、`src/qtui/QtMain.cpp:36`
+  - 现象：`enablePortableMode()` 返回 false 时 `isPortableMode()` 读不到 flag，
+    静默回落 APPDATA，两个入口都丢弃了返回值。
+  - 修法：`AppPaths::portableModeEnableFailed()` 记录失败，Qt 启动弹一次可见告警。
+  - 未修的一半：MFC 入口（`src/mfcui/WinMain.cpp:33`）调 `enablePortableMode()` 后仍丢弃返回值，
+    失败时无任何提示，用户只会看到配置「消失」。
+  - 已顺带修好的一半：`dataRootPath()` 不再需要「flag 另找时机落地」——两个入口都在选模式前
+    应用 flag，所以路径与密码模式始终来自同一个 flag。
+
 - [ ] **P3-3 `wcscpy_s` 截断走 invalid parameter handler**
   - 位置：`src/common/rdp/WindowsClipboardBackend.cpp:450`
   - 现象：路径超长时 `wcscpy_s` 触发 invalid parameter handler，Release 下直接终止进程。
@@ -145,10 +159,37 @@
   - 修法：先给 `WindowsClipboardBehavior::fileGroupDescriptorByteSize`（已存在但边界没测）
     和 `RdpProcessEventQueueBehavior` 的 generation 过滤补用例；P0 修复再各配一条回归测试。
 
+## P1-2 修复的复查（PR #3，修复后二次走查）
+
+- `QtMainWindow::warnProfilePersistFailed()`（`src/qtui/QtMainWindow.cpp:2333`）条件被写成
+  `persistWarningNeeded() || shown` 即提前返回，告警永不触发，逻辑与 `saveFailed()` 相反 —— 已改回 `!`。
+- `ProfileRepository::persistWarningNeeded()` 新增的 `droppedPasswordCount()` 实际查不到「密码被丢」：
+  `to_json` 从不写 `password` 明文键，写盘后每个条目必有 `passwordPortable`/`passwordProtected`，
+  该函数恒为 0（同时读的是 `root["profiles"]` 这棵序列化后的树，不是内存状态）。
+  已改为按内存配置判：`PasswordProtection::isReady()` 为假且某条配置密码非空 → 才算丢弃。
+- 原测试里「断言 `persistWarningNeeded()` 为真」那条恒失败（且被 `setMode` 之外的时机掩盖），已换成
+  「已就绪模式写入后 `passwordProtected` 存在、重载能读回明文、不报警」。
+- 说明：保护模式未就绪（`setMode` 从没调过）在 Linux 侧无法用现有 API 构造，这条分支目前只有
+  `isReady()` 判断做兜底，没有直接单测。
+
+## 核实结论（基于 `main@72f275e`，FreeRDP 3.19.0 源码比对）
+
+- **P0-1 ~ P0-4 全部不成立**：`Pointer_Alloc` 用 `calloc` 清零派生尾部；libfreerdp 3.19
+  全库无 `gdi_free` 调用（纯客户端职责）；`gdi_init`/`gdi_free` 都在 worker 线程；
+  MFC 默认 `PostNcDestroy` 即 `delete this`。P0-3 残余的「`stop()` 无超时 join」单列为 P3-6。
+- **P1-1 / P1-3 / P1-4 / P1-5 不成立**：`PreTranslateMessage` 先于视图 `WindowProc`；
+  `handleBecameVisible()` 已有 `setFocus`；`focusOutEvent` 已做三段释放；平台 stub 恒 false。
+- **P1-2 成立（唯一必修，已修）**。
+- **P2 全部属实**，属结构性重构，择机做。
+- **P3-2 加重**：`clipboard->fileDescriptors[i]` 的 null 分支是结构性死代码
+  （`addToFileArrays` 失败即整体 `return -1`），建议换成 `WINPR_ASSERT`。
+- **P3-5 收窄**：真正零覆盖的是 `fileGroupDescriptorByteSize` 的溢出钳制分支。
+- **P3-8 新增**：49 个测试目标各自链接一遍 MFC/FreeRDP，CI 墙钟被白白拉长。
+
 ## 建议顺序
 
-1. P0-1 → P0-2（改动小、风险最高，各配一条回归测试）
-2. P0-4 → P0-3（所有权与线程归属，改动中等）
-3. P1-1、P1-2（用户能直接感知的功能断崖）
-4. P2-4 → P2-1 → P2-2（先搬目录再抽公共逻辑，否则抽完还得搬）
-5. P3-4 尽早做，让 Qt Windows 分支有编译兜底
+1. ~~P1-2 + P3-7~~（密码保护初始化与便携模式失败可见性，PR #3 已完成）
+2. P3-3（`StringCchCopyW` 一行改）、P3-6（`stop()` 超时 join）
+3. P3-4 尽早做，让 Qt Windows 分支有编译兜底
+4. P2-2 的接口层可以先做（`SessionManagerInterfaces.h` 不依赖 MFC），
+   目录搬家并到 P2-4，其余 P2-1/P2-4 下次大改时顺势做

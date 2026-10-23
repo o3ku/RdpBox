@@ -7,6 +7,7 @@
 
 #include "common/AppPaths.h"
 #include "common/PasswordProtection.h"
+#include "common/PasswordProtectionStartup.h"
 #include "common/Win32String.h"
 #include "common/profiles/ProfileRepository.h"
 
@@ -64,8 +65,10 @@ int main()
 
     ScopedPathBackup profilesBackup(profilesPath);
 
+    // Same order as the app entry points: apply --portable, then initialize().
     assert(AppPaths::enablePortableMode());
-    PasswordProtection::setMode(PasswordProtection::Mode::Portable);
+    assert(PasswordProtectionStartup::initialize());
+    assert(PasswordProtection::mode() == PasswordProtection::Mode::Portable);
     assert(PasswordProtection::isReady());
 
     ProfileRepository repository(AppPaths::profilesFilePath());

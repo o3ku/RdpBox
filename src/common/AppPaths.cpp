@@ -250,11 +250,18 @@ bool writePortableModeToProfiles(bool portableMode)
 namespace AppPaths
 {
 std::atomic<bool> g_forcePortable{false};
+std::atomic<bool> g_portableEnableFailed{false};
 
 bool enablePortableMode()
 {
     g_forcePortable = writePortableModeToProfiles(true);
+    g_portableEnableFailed = !g_forcePortable.load();
     return g_forcePortable.load();
+}
+
+bool portableModeEnableFailed()
+{
+    return g_portableEnableFailed.load();
 }
 
 bool isPortableMode()

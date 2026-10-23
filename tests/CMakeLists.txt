@@ -373,6 +373,26 @@ target_link_libraries(PasswordProtectionTests PRIVATE
 
 add_test(NAME PasswordProtectionTests COMMAND PasswordProtectionTests)
 
+add_executable(PasswordProtectionStartupTests
+    common/PasswordProtectionStartupTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/PasswordProtectionStartup.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/PasswordProtection.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/AppPaths.cpp
+)
+
+target_include_directories(PasswordProtectionStartupTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(PasswordProtectionStartupTests PRIVATE
+    nlohmann_json::nlohmann_json
+    Bcrypt
+    Crypt32
+    Shell32
+)
+
+add_test(NAME PasswordProtectionStartupTests COMMAND PasswordProtectionStartupTests)
+
 add_executable(ProfileNativeTypesTests
     common/ProfileNativeTypesTests.cpp
 )
@@ -436,6 +456,7 @@ add_executable(AppPersistenceSmokeTests
     smoke/AppPersistenceSmokeTests.cpp
     ${CMAKE_SOURCE_DIR}/src/common/AppPaths.cpp
     ${CMAKE_SOURCE_DIR}/src/common/PasswordProtection.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/PasswordProtectionStartup.cpp
     ${CMAKE_SOURCE_DIR}/src/common/profiles/ProfileRepository.cpp
 )
 
