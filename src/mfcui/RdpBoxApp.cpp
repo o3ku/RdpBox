@@ -1,5 +1,6 @@
 #include "RdpBoxApp.h"
 
+#include "common/AppPaths.h"
 #include "common/PasswordProtectionStartup.h"
 #include "MainWindow.h"
 
@@ -71,6 +72,18 @@ BOOL CRdpBoxApp::InitInstance()
     m_pMainWnd = frame;
     frame->ShowWindow(SW_SHOW);
     frame->UpdateWindow();
+
+    // After the window exists, so the message box has an owner. Only accurate
+    // now: the flag really could not be persisted, so settings and profiles
+    // fall back to APPDATA with the DPAPI password mode.
+    if (AppPaths::portableModeEnableFailed()) {
+        const std::wstring executableDirectory = AppPaths::executableDirectory();
+        CString message;
+        message.Format(L"Portable mode is unavailable: %s is not writable. "
+                       L"Settings and profiles fall back to your user profile directory.",
+                       executableDirectory.c_str());
+        frame->MessageBox(message, L"Portable mode", MB_OK | MB_ICONWARNING);
+    }
     frame->PostMessage(m_startupConnectionNames.empty()
                            ? MainWindow::WM_APP_OPEN_CONNECTIONS
                            : MainWindow::WM_APP_OPEN_STARTUP_CONNECTIONS,

@@ -11,7 +11,6 @@
 #include <QTimer>
 #include <QDir>
 #include <QFile>
-#include <QFileInfo>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPalette>
@@ -460,8 +459,8 @@ int main(int argc, char *argv[])
             QCoreApplication::translate("RdpBox",
                                         "Portable mode is unavailable: %1 is not writable. "
                                         "Settings and profiles fall back to your user profile directory.")
-                .arg(QDir::toNativeSeparators(QFileInfo(QString::fromStdWString(AppPaths::executablePath()))
-                                                 .absolutePath())));
+                .arg(QDir::toNativeSeparators(
+                    QString::fromStdWString(AppPaths::executableDirectory()))));
     }
 
     const int exitCode = application.exec();

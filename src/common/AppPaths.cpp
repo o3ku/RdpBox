@@ -179,15 +179,6 @@ void ensureDirectoryExists(const std::wstring &path)
 
 namespace
 {
-std::wstring executableDirectory()
-{
-    std::wstring path = executableModulePath();
-    const std::wstring::size_type slash = path.find_last_of(L"\\/");
-    if (slash == std::wstring::npos)
-        return {};
-    return path.substr(0, slash);
-}
-
 bool writeFile(const std::wstring &filePath, const std::string &contents)
 {
     return writeFileAtomically(filePath, contents);
@@ -272,6 +263,15 @@ bool isPortableMode()
 std::wstring executablePath()
 {
     return executableModulePath();
+}
+
+std::wstring executableDirectory()
+{
+    const std::wstring path = executableModulePath();
+    const std::wstring::size_type slash = path.find_last_of(L"\\/");
+    if (slash == std::wstring::npos)
+        return {};
+    return path.substr(0, slash);
 }
 
 std::string readFileContent(const std::wstring &filePath)
