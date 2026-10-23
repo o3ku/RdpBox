@@ -1,5 +1,6 @@
 #include <cassert>
 #include <cstdint>
+#include <limits>
 
 #include <windows.h>
 
@@ -57,8 +58,21 @@ int main()
     assert(rdp::clipboard::clipboardPathPrefixLength(L"file.txt") == 1);
     assert(rdp::clipboard::clipboardPathPrefixLength(L"") == 1);
 
+    constexpr std::size_t maxSize = std::numeric_limits<std::size_t>::max();
+
     assert(rdp::clipboard::fileGroupDescriptorByteSize(0, 16) == 4);
     assert(rdp::clipboard::fileGroupDescriptorByteSize(3, 16) == 52);
+    assert(rdp::clipboard::fileGroupDescriptorByteSize(7, 1) == 11);
+    assert(rdp::clipboard::fileGroupDescriptorByteSize(3, 0) == 0);
+
+    // 上界以内可以整除，仍应正常返回；超出则钳制为 0，避免 4 + count * size 溢出回绕。
+    const std::size_t largestFitting = (maxSize - 4u) / 16u;
+    const std::size_t largestResult = rdp::clipboard::fileGroupDescriptorByteSize(largestFitting, 16);
+    assert(largestResult > largestFitting);
+    assert(largestResult - 4ull == largestFitting * 16ull);
+    assert(rdp::clipboard::fileGroupDescriptorByteSize(largestFitting + 1, 16) == 0);
+    assert(rdp::clipboard::fileGroupDescriptorByteSize(maxSize, 16) == 0);
+    assert(rdp::clipboard::fileGroupDescriptorByteSize(maxSize, maxSize) == 0);
 
     return 0;
 }

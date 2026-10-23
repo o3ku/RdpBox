@@ -447,7 +447,14 @@ static FILEDESCRIPTORW *createFileDescriptor(WCHAR *fileName, size_t pathLength)
     if (!GetFileTime(file, nullptr, nullptr, &descriptor->ftLastWriteTime))
         descriptor->dwFlags &= ~FD_WRITESTIME;
     descriptor->nFileSizeLow = GetFileSize(file, &descriptor->nFileSizeHigh);
-    wcscpy_s(descriptor->cFileName, ARRAYSIZE(descriptor->cFileName), fileName + pathLength);
+    // pathLength 指向最后一段文件名，理论上小于全路径长度；防御越界后按空名字处理。
+    const size_t fullLength = wcslen(fileName);
+    const WCHAR *leafName = pathLength < fullLength ? fileName + pathLength : L"";
+    if (FAILED(StringCchCopyW(descriptor->cFileName, ARRAYSIZE(descriptor->cFileName), leafName))) {
+        free(descriptor);
+        CloseHandle(file);
+        return nullptr;
+    }
     CloseHandle(file);
     return descriptor;
 }
@@ -687,6 +694,8 @@ static SSIZE_T buildFileDescriptorList(ClipboardContext *clipboard, BYTE **data)
 
     group->cItems = static_cast<UINT>(clipboard->fileCount);
     for (size_t i = 0; i < clipboard->fileCount; ++i) {
+        // addToFileArrays 只在 descriptor 构建成功后自增 fileCount，成功路径下不会为空。
+        WINPR_ASSERT(clipboard->fileDescriptors[i]);
         if (clipboard->fileDescriptors[i])
             group->fgd[i] = *clipboard->fileDescriptors[i];
     }
