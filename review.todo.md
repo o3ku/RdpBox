@@ -53,7 +53,7 @@
   - 修法：local-only 快捷键的 keydown/keyup 直接返回 `NotHandled`，让消息回到 MFC 泵。
     Qt 侧的 `ShortcutOverride`（`QtRdpSessionWidget.cpp:329`）行为是对的，可对照。
 
-- [x] **P1-2 Qt 版未初始化密码保护模式，密码被静默丢弃**（已修，PR #3）
+- [x] **P1-2 Qt 版未初始化密码保护模式，密码被静默丢弃**（已修，PR #3 待合）
   - 位置：`src/qtui/QtMain.cpp`（缺 `PasswordProtection::setMode`）、`src/common/profiles/ProfileRepository.cpp:53-90`
   - 现象：Qt 入口从不决定 portable/DPAPI 模式 → 非 Windows 下 `g_portableKey` 为空，
     密码静默丢弃；Windows 下 `--portable` 被解析却仍用 DPAPI 加密（换机失效）。
@@ -124,7 +124,7 @@
     `request->listIndex` 在 `:928` 先无条件写进 format，只有失败回退分支才判越界。
   - 修法：构建阶段维护真实的非空计数；`listIndex` 在使用前统一校验一次。
 
-- [x] **P3-7 便携模式写 flag 失败静默回落**（已修，PR #3）
+- [x] **P3-7 便携模式写 flag 失败静默回落**（已修，PR #3 待合）
   - 位置：`src/common/AppPaths.cpp:250`、`src/qtui/QtMain.cpp:36`
   - 现象：`enablePortableMode()` 返回 false 时 `isPortableMode()` 读不到 flag，
     静默回落 APPDATA，两个入口都丢弃了返回值。
@@ -149,6 +149,19 @@
   - 现象：P0-1/P0-2/P3-2 这些点正好都在无测试区。
   - 修法：先给 `WindowsClipboardBehavior::fileGroupDescriptorByteSize`（已存在但边界没测）
     和 `RdpProcessEventQueueBehavior` 的 generation 过滤补用例；P0 修复再各配一条回归测试。
+
+## P1-2 修复的复查（PR #3，修复后二次走查）
+
+- `QtMainWindow::warnProfilePersistFailed()`（`src/qtui/QtMainWindow.cpp:2333`）条件被写成
+  `persistWarningNeeded() || shown` 即提前返回，告警永不触发，逻辑与 `saveFailed()` 相反 —— 已改回 `!`。
+- `ProfileRepository::persistWarningNeeded()` 新增的 `droppedPasswordCount()` 实际查不到「密码被丢」：
+  `to_json` 从不写 `password` 明文键，写盘后每个条目必有 `passwordPortable`/`passwordProtected`，
+  该函数恒为 0（同时读的是 `root["profiles"]` 这棵序列化后的树，不是内存状态）。
+  已改为按内存配置判：`PasswordProtection::isReady()` 为假且某条配置密码非空 → 才算丢弃。
+- 原测试里「断言 `persistWarningNeeded()` 为真」那条恒失败（且被 `setMode` 之外的时机掩盖），已换成
+  「已就绪模式写入后 `passwordProtected` 存在、重载能读回明文、不报警」。
+- 说明：保护模式未就绪（`setMode` 从没调过）在 Linux 侧无法用现有 API 构造，这条分支目前只有
+  `isReady()` 判断做兜底，没有直接单测。
 
 ## 核实结论（基于 `main@72f275e`，FreeRDP 3.19.0 源码比对）
 

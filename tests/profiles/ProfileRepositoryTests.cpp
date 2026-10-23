@@ -226,44 +226,31 @@ int main()
         PasswordProtection::setMode(PasswordProtection::Mode::Dpapi);
     }
 
-    // A mode that was never prepared seals every password to an empty string;
-    // the write used to "succeed" and the secret vanished silently. The
-    // repository must report that instead of letting the UI stay quiet.
+    // A prepared mode stores the secret and stays quiet.
     {
+        PasswordProtection::setMode(PasswordProtection::Mode::Dpapi);
+        assert(PasswordProtection::isReady());
+        std::filesystem::remove(filePath);
+
         ProfileRepository repository(filePath.wstring());
         Profile profile = Profile::create();
-        profile.name = L"no-password-mode";
-        profile.host = L"10.0.0.9";
-        profile.password = L"silently-dropped";
+        profile.name = L"with-password-mode";
+        profile.host = L"10.0.0.10";
+        profile.password = L"stored-secret";
         assert(repository.addProfile(profile));
         assert(!repository.saveFailed());
+        assert(!repository.persistWarningNeeded());
 
         cJSON *root = parseJsonFile(filePath);
         assert(root && cJSON_IsObject(root));
         const cJSON *profiles = cJSON_GetObjectItemCaseSensitive(root, "profiles");
         const cJSON *stored = profiles ? cJSON_GetArrayItem(profiles, 0) : nullptr;
         assert(stored && cJSON_IsObject(stored));
-        assert(!cJSON_GetObjectItemCaseSensitive(stored, "passwordProtected"));
-        assert(!cJSON_GetObjectItemCaseSensitive(stored, "passwordPortable"));
+        assert(cJSON_GetObjectItemCaseSensitive(stored, "passwordProtected"));
         cJSON_Delete(root);
 
-        assert(repository.persistWarningNeeded());
-        std::filesystem::remove(filePath);
-    }
-
-    {
-        // With a prepared mode the same flow stores the secret and stays quiet.
-        const auto previousMode = PasswordProtection::mode();
-        PasswordProtection::setMode(PasswordProtection::Mode::Dpapi);
-        ProfileRepository repository(filePath.wstring());
-        Profile profile = Profile::create();
-        profile.name = L"with-password-mode";
-        profile.host = L"10.0.0.10";
-        profile.password = L"stored-secret";
-        const bool added = repository.addProfile(profile);
-        PasswordProtection::setMode(previousMode);
-        assert(added);
-        assert(!repository.persistWarningNeeded());
+        assert(ProfileRepository(filePath.wstring()).profileByName(L"with-password-mode").password
+               == L"stored-secret");
     }
 
     std::filesystem::remove(filePath);

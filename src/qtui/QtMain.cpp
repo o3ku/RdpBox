@@ -427,7 +427,7 @@ int main(int argc, char *argv[])
     QCoreApplication::setAttribute(Qt::AA_DisableWindowContextHelpButton);
 
     QApplication application(argc, argv);
-        QApplication::setApplicationName(QStringLiteral("RdpBox"));
+    QApplication::setApplicationName(QStringLiteral("RdpBox"));
     QApplication::setApplicationVersion(QString::fromWCharArray(RDPBOX_VERSION));
     QApplication::setOrganizationName(QStringLiteral("RdpBox"));
 
