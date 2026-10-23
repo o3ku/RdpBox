@@ -447,7 +447,14 @@ static FILEDESCRIPTORW *createFileDescriptor(WCHAR *fileName, size_t pathLength)
     if (!GetFileTime(file, nullptr, nullptr, &descriptor->ftLastWriteTime))
         descriptor->dwFlags &= ~FD_WRITESTIME;
     descriptor->nFileSizeLow = GetFileSize(file, &descriptor->nFileSizeHigh);
-    wcscpy_s(descriptor->cFileName, ARRAYSIZE(descriptor->cFileName), fileName + pathLength);
+    // pathLength points at the leaf name and should stay inside the full path; guard it and fall back to an empty name.
+    const size_t fullLength = wcslen(fileName);
+    const WCHAR *leafName = pathLength < fullLength ? fileName + pathLength : L"";
+    if (FAILED(StringCchCopyW(descriptor->cFileName, ARRAYSIZE(descriptor->cFileName), leafName))) {
+        free(descriptor);
+        CloseHandle(file);
+        return nullptr;
+    }
     CloseHandle(file);
     return descriptor;
 }
@@ -687,6 +694,8 @@ static SSIZE_T buildFileDescriptorList(ClipboardContext *clipboard, BYTE **data)
 
     group->cItems = static_cast<UINT>(clipboard->fileCount);
     for (size_t i = 0; i < clipboard->fileCount; ++i) {
+        // addToFileArrays increments fileCount only after a descriptor is built, so entries cannot be null here.
+        WINPR_ASSERT(clipboard->fileDescriptors[i]);
         if (clipboard->fileDescriptors[i])
             group->fgd[i] = *clipboard->fileDescriptors[i];
     }
