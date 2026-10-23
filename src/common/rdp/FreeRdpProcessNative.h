@@ -19,18 +19,18 @@
 
 struct NativeRdpContext
 {
-    // The worker outlives the process when stop() abandons it, and every
-    // freerdp callback reaches back through `owner`. `alive` is the contract:
-    // whoever clears it has released the context, so the owner pointer may be
-    // read but not followed.
-    struct AliveFlag
+    rdpClientContext common;
+    // Every freerdp callback reaches back to the owning process through
+    // `owner`, and an abandoned worker outlives it. `locked` is the contract:
+    // callbacks hold it across the call, whoever clears it has released the
+    // context, so no new call can start while the owner is being taken apart.
+    struct InvokeLock
     {
-        std::atomic_bool alive{true};
+        std::atomic_bool locked{false};
     };
 
-    rdpClientContext common;
     FreeRdpProcess *owner = nullptr;
-    std::shared_ptr<AliveFlag> alive;
+    std::shared_ptr<InvokeLock> locked;
     DispClientContext *disp = nullptr;
     bool ignoreCertificate = true;
     std::atomic<UINT32> rtt{0};
@@ -39,6 +39,9 @@ struct NativeRdpContext
 struct NativePointer : rdpPointer
 {
     CursorInfo cursor;
+    // Non-zero once nativefreerdp_pointer_new finished; the Free callback only
+    // touches `cursor` when it was really set.
+    unsigned long long cursorSerial = 0;
 };
 
 NativeRdpContext *toNativeContext(rdpContext *context);

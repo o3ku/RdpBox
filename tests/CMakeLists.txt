@@ -27,6 +27,38 @@ target_include_directories(RdpResizeBurstTrackerTests PRIVATE
 
 add_test(NAME RdpResizeBurstTrackerTests COMMAND RdpResizeBurstTrackerTests)
 
+add_executable(FreeRdpProcessHandoverTests
+    rdp/FreeRdpProcessHandoverTests.cpp
+)
+
+target_include_directories(FreeRdpProcessHandoverTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME FreeRdpProcessHandoverTests COMMAND FreeRdpProcessHandoverTests)
+
+add_executable(RdpNativeGdiGateTests
+    rdp/RdpNativeGdiGateTests.cpp
+)
+
+target_include_directories(RdpNativeGdiGateTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME RdpNativeGdiGateTests COMMAND RdpNativeGdiGateTests)
+
+# Both new tests include FreeRdpProcess.h, which pulls winpr headers: resolve
+# them from the freerdp target like WindowsClipboardDataObjectTests does.
+get_target_property(HANDOVER_FREERDP_INCLUDE_DIRS freerdp INTERFACE_INCLUDE_DIRECTORIES)
+foreach(_freerdp_include_dir IN LISTS HANDOVER_FREERDP_INCLUDE_DIRS)
+    if(EXISTS "${_freerdp_include_dir}/freerdp3")
+        target_include_directories(FreeRdpProcessHandoverTests PRIVATE "${_freerdp_include_dir}/freerdp3")
+        target_include_directories(RdpNativeGdiGateTests PRIVATE "${_freerdp_include_dir}/freerdp3")
+    endif()
+endforeach()
+target_link_libraries(FreeRdpProcessHandoverTests PRIVATE winpr)
+target_link_libraries(RdpNativeGdiGateTests PRIVATE freerdp freerdp-client winpr)
+
 add_executable(RdpMouseMoveCoalescerTests
     rdp/RdpMouseMoveCoalescerTests.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpMouseMoveCoalescer.cpp
@@ -124,6 +156,50 @@ target_link_libraries(WindowsClipboardDataObjectTests PRIVATE
 )
 
 add_test(NAME WindowsClipboardDataObjectTests COMMAND WindowsClipboardDataObjectTests)
+
+# Acceptance test for the worker/tab hand-over in FreeRdpProcess: it links the
+# real FreeRDP client, connects to a refused port and lets stop() race the
+# worker. Keep it registered even while it is slow; it is the only test that
+# exercises the context ownership rules.
+add_executable(FreeRdpStopSmoke
+    rdp/FreeRdpStopSmoke.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/FreeRdpProcess.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/FreeRdpProcessNative.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpClipboardBridge.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBackend.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBackendDataObject.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBackendWindow.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBehavior.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpCursorClassifier.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpInputEventUtil.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpInputModifiers.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpSessionViewBehavior.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpProcessEventBehavior.cpp
+)
+
+target_include_directories(FreeRdpStopSmoke PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+get_target_property(FREERDP_STOP_SMOKE_FREERDP_INCLUDE_DIRS freerdp INTERFACE_INCLUDE_DIRECTORIES)
+foreach(_freerdp_include_dir IN LISTS FREERDP_STOP_SMOKE_FREERDP_INCLUDE_DIRS)
+    if(EXISTS "${_freerdp_include_dir}/freerdp3")
+        target_include_directories(FreeRdpStopSmoke PRIVATE "${_freerdp_include_dir}/freerdp3")
+    endif()
+endforeach()
+
+target_link_libraries(FreeRdpStopSmoke PRIVATE
+    freerdp
+    freerdp-client
+    winpr
+    nlohmann_json::nlohmann_json
+    Ole32
+    Shell32
+    User32
+    Gdi32
+)
+
+add_test(NAME FreeRdpStopSmoke COMMAND FreeRdpStopSmoke)
 
 add_executable(RdpCertificatePromptBehaviorTests
     rdp/RdpCertificatePromptBehaviorTests.cpp

@@ -189,7 +189,7 @@ using AppPaths::writeFileContent;
 
 std::wstring portableProfilesPath()
 {
-    const std::wstring root = executableDirectory();
+    const std::wstring root = AppPaths::executableDirectory();
     return root.empty() ? std::wstring() : (root + L"/profiles.json");
 }
 

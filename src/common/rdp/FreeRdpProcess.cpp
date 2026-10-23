@@ -87,11 +87,11 @@ public:
                    rdpContext *context,
                    HANDLE certDecidedEvent,
                    HANDLE certAbortEvent)
-        : m_owner(owner)
-        , context(context)
-        , certDecidedEvent(certDecidedEvent)
+        : certDecidedEvent(certDecidedEvent)
         , certAbortEvent(certAbortEvent)
         , alive(std::make_shared<FreeRdpProcess::Abandoned>())
+        , m_owner(owner)
+        , m_context(context)
     {
     }
 
@@ -104,13 +104,61 @@ public:
         m_owner.store(nullptr);
     }
 
-    rdpContext *context;
+    // The worker takes the session from here: it is the one who ends up
+    // releasing the context.
+    void claim(FreeRdpProcess *owner) { m_owner.store(owner); }
+
+    // The worker is done with the process. The context is released before
+    // this, so no path from the worker can still reach `owner`.
+    void release() { m_owner.store(nullptr); }
+
+    rdpContext *context() const
+    {
+        std::scoped_lock lock(mutex);
+        return m_context;
+    }
+
+    // Called by the process before it aborts, so the abort is ordered against
+    // whatever the worker is doing with the same context.
+    rdpContext *lockedContext(std::unique_lock<std::mutex> &lock) const
+    {
+        lock = std::unique_lock<std::mutex>(mutex);
+        return m_context;
+    }
+
+    // Releases the freerdp context exactly once, whichever side gets here
+    // first: the worker in its own unwinding, or stop() when the worker
+    // reported that it let go. A null context means someone already did.
+    void freeContext()
+    {
+        rdpContext *owned = nullptr;
+        {
+            std::scoped_lock lock(mutex);
+            owned = std::exchange(m_context, nullptr);
+            stopRequested = true;
+            appliers.clear();
+        }
+
+        if (!owned)
+            return;
+
+        // Detach the callbacks before the context unwinds; the worker keeps
+        // its own state from here on.
+        if (NativeRdpContext *nativeContext = toNativeContext(owned)) {
+            nativeContext->owner = nullptr;
+        }
+        freerdp_client_stop(owned);
+        freerdp_client_context_free(owned);
+    }
+
     // The certificate handshake is answered on the worker thread, so a worker
     // that outlives the process still has events to wait on.
     HANDLE certDecidedEvent;
     HANDLE certAbortEvent;
     std::atomic_bool certDecisionAccepted{false};
-    std::atomic_bool stopRequested{false};
+    // Guarded by `mutex`: read and set together with the context while the
+    // worker is still applying queued requests through it.
+    bool stopRequested = false;
     // Cleared by the worker once it has released everything it holds.
     std::shared_ptr<FreeRdpProcess::Abandoned> alive;
 
@@ -126,17 +174,25 @@ public:
         rdpContext *context;
         std::function<void(void *, FreeRdpBackend &)> apply;
     };
-    std::mutex mutex;
+    mutable std::mutex mutex;
     std::vector<Applier> appliers;
 
 private:
     std::atomic<FreeRdpProcess *> m_owner;
+    // Written under `mutex` and dropped by freeContext(), so a process that
+    // stops before its worker starts still frees the context exactly once.
+    rdpContext *m_context;
 };
 
 struct FreeRdpProcess::Private
 {
-    rdpContext *context = nullptr;
+    // The freerdp context is not held here: it belongs to the worker's
+    // FreeRdpBackend from start() on, so stop() can never free a context the
+    // worker is still using.
     std::shared_ptr<FreeRdpBackend> backend;
+    // Joined (or detached) by stop(); stop() is also called from start(), so
+    // a start/stop cycle never leaves a thread behind.
+    std::thread worker;
     mutable std::mutex mutex;
     FrameBuffer frame;
     uint64_t frameGeneration = 0;
@@ -144,6 +200,9 @@ struct FreeRdpProcess::Private
     CursorInfo cursor;
     bool hasFirstFrame = false;
     std::unique_ptr<RdpClipboardBridge> clipboard;
+    // The clipboard channel is attached on the worker thread and detached by
+    // stop(), possibly after the session was abandoned.
+    std::mutex clipboardMutex;
     State state = State::Idle;
     std::string lastDisconnectError;
 
@@ -206,18 +265,17 @@ void FreeRdpProcess::start(const std::wstring &host,
     entryPoints.ClientStart = nativefreerdp_client_start;
     entryPoints.ClientStop = nativefreerdp_client_stop;
 
-    m_d->context = freerdp_client_context_new(&entryPoints);
-    if (!m_d->context) {
+    rdpContext *context = freerdp_client_context_new(&entryPoints);
+    if (!context) {
         updateStateFromBackend(State::Finished);
         return;
     }
 
-    NativeRdpContext *nativeContext = toNativeContext(m_d->context);
+    NativeRdpContext *nativeContext = toNativeContext(context);
     nativeContext->owner = this;
     nativeContext->ignoreCertificate = ignoreCertificate;
-    nativeContext->alive = std::make_shared<NativeRdpContext::AliveFlag>();
 
-    rdpSettings *settings = m_d->context->settings;
+    rdpSettings *settings = context->settings;
     const SizeI desktopSize = rdp::session_view::clampedDesktopSize(SizeI{width, height});
     const UINT32 desktopWidth = static_cast<UINT32>(desktopSize.width);
     const UINT32 desktopHeight = static_cast<UINT32>(desktopSize.height);
@@ -254,9 +312,8 @@ void FreeRdpProcess::start(const std::wstring &host,
         freerdp_settings_set_bool(settings, FreeRDP_NetworkAutoDetect, TRUE);
     }
 
-    if (!configured || freerdp_client_start(m_d->context) != 0) {
-        rdpContext *unused = std::exchange(m_d->context, nullptr);
-        freerdp_client_context_free(unused);
+    if (!configured || freerdp_client_start(context) != 0) {
+        freerdp_client_context_free(context);
         updateStateFromBackend(State::Finished);
         return;
     }
@@ -271,122 +328,134 @@ void FreeRdpProcess::start(const std::wstring &host,
     }
     destroyCursorInfo(oldCursor);
 
-    std::shared_ptr<FreeRdpBackend> backend = startWorker(m_d->context);
+    // The worker may publish a state change before this call returns (a
+    // refused connection reports Finished immediately). It only reaches this
+    // object while `owner` is set, and that cannot happen before the last
+    // statement below, so the caller's reference is enough: nothing here
+    // ref-counts the process itself.
+    //
+    // Last chance to give up: from here on the context belongs to the worker,
+    // which releases it exactly once whether or not a stop() races this call.
+    std::shared_ptr<FreeRdpBackend> backend = std::make_shared<FreeRdpBackend>(
+        this, context, m_d->certDecidedEvent, m_d->certAbortEvent);
     {
         std::scoped_lock lock(m_d->mutex);
+        backend->desktopSize = m_d->desktopSize;
         m_d->backend = backend;
+    }
+
+    std::thread worker(&FreeRdpProcess::runWorker, this, backend);
+    {
+        std::scoped_lock lock(m_d->mutex);
+        m_d->worker = std::move(worker);
     }
     updateStateFromBackend(State::Starting);
 }
 
-std::shared_ptr<FreeRdpBackend> FreeRdpProcess::startWorker(void *rawContext)
+void FreeRdpProcess::runWorker(std::shared_ptr<FreeRdpBackend> backend)
 {
-    rdpContext *context = static_cast<rdpContext *>(rawContext);
+    std::shared_ptr<FreeRdpProcess::Abandoned> aliveFlag = backend->alive;
 
-    std::shared_ptr<FreeRdpBackend> backend;
+    // The freerdp context is released here, exactly once, on the thread that
+    // was using it: stop() hands the session over instead of freeing it
+    // behind our back, and by the time this runs stop() may already be gone.
+    struct Guard
     {
-        std::scoped_lock lock(m_d->mutex);
-        backend = std::make_shared<FreeRdpBackend>(this, context,
-                                                  m_d->certDecidedEvent, m_d->certAbortEvent);
-        backend->desktopSize = m_d->desktopSize;
+        std::shared_ptr<FreeRdpBackend> backend;
+        std::shared_ptr<FreeRdpProcess::Abandoned> alive;
+
+        ~Guard()
+        {
+            // Stop the channels before the context goes: they are torn down
+            // here, on the worker thread, not from a stop() that gave up.
+            if (rdpContext *owned = backend->context()) {
+                if (owned->instance)
+                    freerdp_disconnect(owned->instance);
+                backend->freeContext();
+            }
+            // Cleared last: only now may the owner destroy itself, with
+            // every path back to the process already closed.
+            backend->release();
+            alive->released.store(true);
+        }
+    } guard{backend, aliveFlag};
+
+    rdpContext *context = backend->context();
+    if (!context || !context->instance) {
+        FreeRdpProcess::publishFromWorkerBackend(*backend, FreeRdpProcess::State::Finished);
+        return;
     }
 
-    // The worker holds the only reference once this returns: an abandoned
-    // session keeps running into its own object and never looks back here.
-    std::shared_ptr<FreeRdpProcess::Abandoned> aliveFlag = backend->alive;
-    std::shared_ptr<NativeRdpContext::AliveFlag> contextAlive = toNativeContext(context)->alive;
-    std::thread([this, backend, aliveFlag, contextAlive]() {
-        struct Guard
-        {
-            std::shared_ptr<FreeRdpBackend> backend;
-            std::shared_ptr<FreeRdpProcess::Abandoned> alive;
-
-            ~Guard()
-            {
-                // The freerdp context is released here, exactly once: stop()
-                // either joined us (and handled it itself) or handed it over.
-                if (rdpContext *owned = backend->context) {
-                    backend->context = nullptr;
-                    // Detach the callbacks before the context unwinds; the
-                    // worker keeps its own state from here on.
-                    if (NativeRdpContext *nativeContext = toNativeContext(owned)) {
-                        nativeContext->owner = nullptr;
-                        nativeContext->alive.reset();
-                    }
-                    freerdp_disconnect(owned->instance);
-                    freerdp_client_context_free(owned);
-                }
-                // Cleared last: only now may the owner destroy itself, with
-                // every path back to the process already closed.
-                alive->released.store(true);
-                backend->abandon();
-            }
-        } guard{backend, aliveFlag};
-
-        rdpContext *context = backend->context;
-        if (!context || !context->instance) {
-            FreeRdpProcess::publishFromWorkerBackend(backend, FreeRdpProcess::State::Finished);
+    // Take the session over. It was handed out before this thread existed, so
+    // the process may have stopped it already: then the guard releases
+    // everything and nothing is published.
+    {
+        std::scoped_lock lock(backend->mutex);
+        if (backend->stopRequested)
             return;
-        }
-
-        // Re-arm the callback route for this connection: stop() clears it on
-        // the abandon path, and start() hands the context over before anyone
-        // else can see it.
+        // Re-arm the callback route for this connection; stop() clears it on
+        // the abandon path, which only covers the window before this point.
         if (NativeRdpContext *nativeContext = toNativeContext(context)) {
             nativeContext->owner = this;
-            nativeContext->alive = contextAlive;
         }
+        backend->claim(this);
+    }
 
-        freerdp *instance = context->instance;
+    freerdp *instance = context->instance;
 
-        const char *host = freerdp_settings_get_string(context->settings, FreeRDP_ServerHostname);
-        const UINT32 port = freerdp_settings_get_uint32(context->settings, FreeRDP_ServerPort);
-        const int resolveError = host ? resolveWithRetry(host, port) : 0;
-        if (resolveError != 0) {
-            char message[160] = {};
-            std::snprintf(message, sizeof(message), "Could not resolve %.64s after retries (resolver error %d).",
-                          host, resolveError);
-            FreeRdpProcess::publishFromWorkerBackend(backend, FreeRdpProcess::State::Finished, message);
-            return;
-        }
+    const char *host = freerdp_settings_get_string(context->settings, FreeRDP_ServerHostname);
+    const UINT32 port = freerdp_settings_get_uint32(context->settings, FreeRDP_ServerPort);
+    const int resolveError = host ? resolveWithRetry(host, port) : 0;
+    if (resolveError != 0) {
+        char message[160] = {};
+        std::snprintf(message, sizeof(message), "Could not resolve %.64s after retries (resolver error %d).",
+                      host, resolveError);
+        FreeRdpProcess::publishFromWorkerBackend(*backend, FreeRdpProcess::State::Finished, message);
+        return;
+    }
 
-        const BOOL connected = freerdp_connect(instance);
+    const BOOL connected = freerdp_connect(instance);
 
-        if (connected) {
-            while (!backend->stopRequested && !freerdp_shall_disconnect_context(context)) {
-                HANDLE handles[MAXIMUM_WAIT_OBJECTS] = {};
-                const DWORD handleCount = freerdp_get_event_handles(context, handles, MAXIMUM_WAIT_OBJECTS);
-                if (handleCount == 0)
-                    break;
-
-                const DWORD waitResult = WaitForMultipleObjects(handleCount, handles, FALSE, kEventWaitTimeoutMs);
-                if (waitResult == WAIT_TIMEOUT) {
-                    applyPendingRequests(backend);
-                    continue;
-                }
-                if (waitResult == WAIT_FAILED)
-                    break;
-                if (!freerdp_check_event_handles(context))
-                    break;
-
-                applyPendingRequests(backend);
+    if (connected) {
+        for (;;) {
+            bool stopRequested = false;
+            {
+                std::scoped_lock lock(backend->mutex);
+                stopRequested = backend->stopRequested;
             }
+            if (stopRequested || freerdp_shall_disconnect_context(context))
+                break;
+
+            HANDLE handles[MAXIMUM_WAIT_OBJECTS] = {};
+            const DWORD handleCount = freerdp_get_event_handles(context, handles, MAXIMUM_WAIT_OBJECTS);
+            if (handleCount == 0)
+                break;
+
+            const DWORD waitResult = WaitForMultipleObjects(handleCount, handles, FALSE, kEventWaitTimeoutMs);
+            if (waitResult == WAIT_TIMEOUT) {
+                applyPendingRequests(backend);
+                continue;
+            }
+            if (waitResult == WAIT_FAILED)
+                break;
+            if (!freerdp_check_event_handles(context))
+                break;
+
+            applyPendingRequests(backend);
         }
+    }
 
-        freerdp_abort_connect_context(context);
-        freerdp_disconnect(instance);
+    freerdp_abort_connect_context(context);
+    freerdp_disconnect(instance);
 
-        std::string lastErrorText;
-        const UINT32 lastError = freerdp_get_last_error(context);
-        if (lastError != FREERDP_ERROR_SUCCESS) {
-            const char *errorStr = freerdp_get_last_error_string(lastError);
-            if (errorStr && *errorStr)
-                lastErrorText = errorStr;
-        }
-        FreeRdpProcess::publishFromWorkerBackend(backend, FreeRdpProcess::State::Finished, lastErrorText);
-    }).detach();
-
-    return backend;
+    std::string lastErrorText;
+    const UINT32 lastError = freerdp_get_last_error(context);
+    if (lastError != FREERDP_ERROR_SUCCESS) {
+        const char *errorStr = freerdp_get_last_error_string(lastError);
+        if (errorStr && *errorStr)
+            lastErrorText = errorStr;
+    }
+    FreeRdpProcess::publishFromWorkerBackend(*backend, FreeRdpProcess::State::Finished, lastErrorText);
 }
 
 void FreeRdpProcess::applyPendingRequests(const std::shared_ptr<FreeRdpBackend> &backend)
@@ -409,28 +478,35 @@ void FreeRdpProcess::applyPendingRequests(const std::shared_ptr<FreeRdpBackend> 
 void FreeRdpProcess::stop()
 {
     std::shared_ptr<FreeRdpBackend> backend;
-    rdpContext *context = nullptr;
+    std::thread worker;
     {
         std::scoped_lock lock(m_d->mutex);
-        backend = m_d->backend;
-        context = m_d->context;
+        backend = std::exchange(m_d->backend, nullptr);
+        worker = std::move(m_d->worker);
     }
 
     if (backend) {
-        backend->stopRequested = true;
+        {
+            // Order the abort against the worker's own use of the context:
+            // the same lock guards the pointer freeContext() clears.
+            std::unique_lock<std::mutex> lock;
+            if (rdpContext *context = backend->lockedContext(lock)) {
+                // Set before aborting, so the worker sees it as soon as
+                // freerdp_connect() returns.
+                backend->stopRequested = true;
+                freerdp_abort_connect_context(context);
+            } else {
+                backend->stopRequested = true;
+            }
+        }
+
         if (backend->certAbortEvent)
             ::SetEvent(backend->certAbortEvent);
-    }
 
-    if (context)
-        freerdp_abort_connect_context(context);
-
-    bool abandoned = false;
-    if (backend) {
         // The worker honours stopRequested within one event wait, unless
         // freerdp_disconnect() itself wedges (hung server, half-open TCP):
         // stop() runs on the UI thread (destructors, tab switches, resume
-        // handling) and joining there would freeze the whole window.
+        // handling) and waiting for it there would freeze the whole window.
         using namespace std::chrono_literals;
         constexpr auto kStopGrace = 5s;
         constexpr auto kPollInterval = 10ms;
@@ -438,7 +514,19 @@ void FreeRdpProcess::stop()
         while (!backend->alive->released.load() && std::chrono::steady_clock::now() < deadline)
             std::this_thread::sleep_for(kPollInterval);
 
-        if (!backend->alive->released.load()) {
+        if (backend->alive->released.load()) {
+            // It let go and released the context itself, so the thread is on
+            // its last few instructions; join it so a start/stop cycle cannot
+            // pile threads up.
+            if (worker.joinable()) {
+                worker.join();
+            } else {
+                // No thread to wait for (start() failed, or the worker was
+                // already detached): release what it never got to.
+                backend->freeContext();
+                backend->abandon();
+            }
+        } else {
             // It still owns the context. Hand the session over: the worker
             // keeps publishing into its own object and releases the freerdp
             // context when it finally unwinds. Leaking one dead session beats
@@ -447,36 +535,14 @@ void FreeRdpProcess::stop()
                                  "abandoning this session.\n",
                          static_cast<long long>(kStopGrace / 1ms));
             backend->abandon();
-            abandoned = true;
-
-            // Close the last path back: from here on the worker's callbacks
-            // must not reach this object, whose destruction it can no longer
-            // wait for. The worker revives the pointer when it takes the
-            // session over, so this only covers the hand-over window.
-            if (context) {
-                NativeRdpContext *nativeContext = toNativeContext(context);
-                nativeContext->owner = nullptr;
-                nativeContext->alive.reset();
-            }
+            if (worker.joinable())
+                worker.detach();
         }
+    } else if (worker.joinable()) {
+        worker.join();
     }
 
-    rdpContext *released = nullptr;
-    {
-        std::scoped_lock lock(m_d->mutex);
-        m_d->backend.reset();
-        // An abandoned session keeps its context: the worker still owns it and
-        // frees it on its way out. The normal path frees it here, because the
-        // worker already reported that it let go.
-        released = abandoned ? nullptr : std::exchange(m_d->context, nullptr);
-    }
-
-    if (released) {
-        freerdp_client_stop(released);
-        freerdp_client_context_free(released);
-    }
-
-    if (!abandoned && m_d->certAbortEvent)
+    if (m_d->certAbortEvent)
         ::ResetEvent(m_d->certAbortEvent);
 
     CursorInfo oldCursor;
@@ -490,8 +556,11 @@ void FreeRdpProcess::stop()
     }
     destroyCursorInfo(oldCursor);
 
-    if (m_d->clipboard)
-        m_d->clipboard->detach();
+    {
+        std::lock_guard<std::mutex> lock(m_d->clipboardMutex);
+        if (m_d->clipboard)
+            m_d->clipboard->detach();
+    }
 }
 
 void FreeRdpProcess::publishFromWorkerBackend(FreeRdpBackend &backend,
@@ -505,11 +574,16 @@ void FreeRdpProcess::publishFromWorkerBackend(FreeRdpBackend &backend,
     if (!owner)
         return;
 
+    // No lifetime dance here: `owner` is only non-null while the process still
+    // knows this session. A process destroyed mid-publish is a bug in the
+    // caller (stop() clears the owner before it lets go), not something to
+    // paper over with a self-reference.
     owner->publishFromWorker(backend, state, lastError);
 }
 
 void FreeRdpProcess::publishFromWorker(FreeRdpBackend &backend, State state, const std::string &lastError)
 {
+    static_cast<void>(backend);
     std::function<void(State)> callback;
     {
         std::scoped_lock lock(m_d->mutex);
@@ -647,9 +721,10 @@ void FreeRdpProcess::submit(std::function<void(void *, FreeRdpBackend &)> apply)
     // request never runs freerdp on this thread. Taking the process lock first
     // and the session lock second keeps that ordering one-way.
     std::scoped_lock lock(backend->mutex);
-    if (!backend->context || backend->stopRequested)
+    rdpContext *context = backend->context();
+    if (!context || backend->stopRequested)
         return;
-    backend->appliers.push_back({backend->context, std::move(apply)});
+    backend->appliers.push_back({context, std::move(apply)});
 }
 
 void FreeRdpProcess::sendFocusIn()
@@ -869,8 +944,13 @@ void FreeRdpProcess::writeFrameFromContext(void *rawContext)
     bool desktopSizeChanged = false;
     SizeI desktopSize{width, height};
 
+    std::shared_ptr<FreeRdpBackend> session;
     {
         std::scoped_lock lock(m_d->mutex);
+
+        // The session this frame belongs to: the worker's own copy of the
+        // desktop size only follows a frame from a session still in use.
+        session = m_d->backend;
 
         if (m_d->frame.pixels.size() != requiredBytes
             || m_d->frame.width != width
@@ -884,8 +964,10 @@ void FreeRdpProcess::writeFrameFromContext(void *rawContext)
         m_d->desktopSize = desktopSize;
         // Input mapping runs on this thread and must use the size the frame it
         // is clicking on came from, so the worker's own copy follows the frame.
-        if (m_d->backend)
-            m_d->backend->desktopSize = desktopSize;
+        // Only this thread writes it while it still holds the session, so no
+        // further lock is needed to publish it.
+        if (session && m_d->backend == session)
+            session->desktopSize = desktopSize;
         ++m_d->frameGeneration;
         firstFrameArrived = !m_d->hasFirstFrame;
         m_d->hasFirstFrame = true;
@@ -962,6 +1044,7 @@ void FreeRdpProcess::attachClipboardChannel(void *channelContext)
     if (!cliprdr)
         return;
 
+    std::lock_guard<std::mutex> lock(m_d->clipboardMutex);
     if (!m_d->clipboard)
         m_d->clipboard = std::make_unique<RdpClipboardBridge>();
 
@@ -970,6 +1053,7 @@ void FreeRdpProcess::attachClipboardChannel(void *channelContext)
 
 void FreeRdpProcess::detachClipboardChannel()
 {
+    std::lock_guard<std::mutex> lock(m_d->clipboardMutex);
     if (m_d->clipboard)
         m_d->clipboard->detach();
 }
@@ -979,10 +1063,15 @@ FreeRdpProcess::ConnectionInfo FreeRdpProcess::connectionInfo() const
     ConnectionInfo info;
     std::scoped_lock lock(m_d->mutex);
 
-    if (!m_d->context)
+    const std::shared_ptr<FreeRdpBackend> backend = m_d->backend;
+    if (!backend)
         return info;
 
-    rdpSettings *settings = m_d->context->settings;
+    rdpContext *context = backend->context();
+    if (!context)
+        return info;
+
+    rdpSettings *settings = context->settings;
     if (settings) {
         if (freerdp_settings_get_bool(settings, FreeRDP_SupportGraphicsPipeline)) {
             if (freerdp_settings_get_bool(settings, FreeRDP_GfxAVC444) ||
@@ -1004,7 +1093,7 @@ FreeRdpProcess::ConnectionInfo FreeRdpProcess::connectionInfo() const
         }
     }
 
-    NativeRdpContext *nativeCtx = toNativeContext(m_d->context);
+    NativeRdpContext *nativeCtx = toNativeContext(context);
     if (nativeCtx) {
         UINT32 rtt = nativeCtx->rtt.load(std::memory_order_relaxed);
         if (rtt > 0) {
@@ -1014,7 +1103,7 @@ FreeRdpProcess::ConnectionInfo FreeRdpProcess::connectionInfo() const
     }
 
     if (!info.rttAvailable) {
-        rdpAutoDetect *ad = ::autodetect_get(m_d->context);
+        rdpAutoDetect *ad = ::autodetect_get(context);
         if (ad) {
             if (ad->netCharAverageRTT > 0) {
                 info.rtt = ad->netCharAverageRTT;

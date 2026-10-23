@@ -4,9 +4,11 @@
 #include "RdpCursorClassifier.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <thread>
 #include <utility>
 
 #include <freerdp3/freerdp/autodetect.h>
@@ -19,29 +21,77 @@
 
 namespace
 {
-void notifyStateUpdate(FreeRdpProcess *owner, FreeRdpProcess::State state)
-{
-    if (!owner)
-        return;
+// How long a callback keeps spinning when the owner side is in the middle of
+// clearing the owner (it only takes that lock to break the last path back).
+constexpr int kOwnerLockSpins = 4096;
 
-    owner->updateStateFromBackend(state);
+// Bumped for every pointer trampoline NativePointer owns, so a Free that
+// arrives without a matching New (or after a failed one) cannot read an
+// uninitialised CursorInfo.
+std::atomic<unsigned long long> g_pointerSerial{0};
+
+std::atomic<bool> g_gdiReleased{false};
+bool g_gdiAcquired = false;
+
+bool tryLockOwner(const std::shared_ptr<NativeRdpContext::InvokeLock> &lock)
+{
+    if (!lock)
+        return false;
+
+    for (int spin = 0; spin < kOwnerLockSpins; ++spin) {
+        bool expected = false;
+        if (lock->locked.compare_exchange_weak(expected, true, std::memory_order_acquire))
+            return true;
+        std::this_thread::yield();
+    }
+
+    return false;
 }
 
-void notifyCursorUpdate(FreeRdpProcess *owner, const CursorInfo &cursor)
+// Callers get the owner only for the duration of the call. `locked` is held
+// across it, so clearing that pointer can never land between the check and the
+// use: once the owner side owns the lock, no callback can start.
+class OwnerCall
 {
-    if (!owner)
-        return;
+public:
+    explicit OwnerCall(NativeRdpContext *context)
+        : m_context(context)
+        , m_lock(context ? context->locked : nullptr)
+    {
+        if (tryLockOwner(m_lock))
+            m_owner = m_context->owner;
+    }
 
-    owner->updateCursorFromBackend(cursor);
-}
+    ~OwnerCall()
+    {
+        if (m_lock && m_lock->locked.load(std::memory_order_relaxed))
+            m_lock->locked.store(false, std::memory_order_release);
+    }
 
-void notifyCursorReset(FreeRdpProcess *owner)
-{
-    if (!owner)
-        return;
+    OwnerCall(const OwnerCall &) = delete;
+    OwnerCall &operator=(const OwnerCall &) = delete;
 
-    owner->resetCursorFromBackend();
-}
+    FreeRdpProcess *owner() const { return m_owner; }
+
+    // Cursor and state notifications both hand a reference the owner indexes by
+    // cursor serial, so they go through the same lock as frame delivery.
+    void notifyCursor(const CursorInfo &cursor) const
+    {
+        if (m_owner)
+            m_owner->updateCursorFromBackend(cursor);
+    }
+
+    void notifyCursorReset() const
+    {
+        if (m_owner)
+            m_owner->resetCursorFromBackend();
+    }
+
+private:
+    NativeRdpContext *m_context;
+    std::shared_ptr<NativeRdpContext::InvokeLock> m_lock;
+    FreeRdpProcess *m_owner = nullptr;
+};
 
 BOOL nativefreerdp_begin_paint(rdpContext *context)
 {
@@ -57,29 +107,16 @@ BOOL nativefreerdp_begin_paint(rdpContext *context)
     return TRUE;
 }
 
-namespace
-{
-// Callers get the owner only when it is still safe to talk to it: after a
-// session was abandoned the worker keeps running against its own backend, and
-// the process object it used to point at may already be gone.
-FreeRdpProcess *liveOwner(const NativeRdpContext *nativeContext)
-{
-    if (!nativeContext || !nativeContext->alive || !nativeContext->alive->alive.load())
-        return nullptr;
-    return nativeContext->owner;
-}
-}
-
 void nativefreerdp_copy_frame(rdpContext *context)
 {
     if (!context)
         return;
 
-    FreeRdpProcess *owner = liveOwner(toNativeContext(context));
-    if (!owner)
+    const OwnerCall call(toNativeContext(context));
+    if (!call.owner())
         return;
 
-    owner->writeFrameFromContext(context);
+    call.owner()->writeFrameFromContext(context);
 }
 
 BOOL nativefreerdp_end_paint(rdpContext *context)
@@ -119,6 +156,7 @@ BOOL nativefreerdp_pointer_new(rdpContext *context, rdpPointer *pointer)
         return FALSE;
 
     NativePointer *nativePointer = toNativePointer(pointer);
+    nativePointer->cursorSerial = g_pointerSerial.fetch_add(1, std::memory_order_relaxed) + 1;
     const int width = static_cast<int>(pointer->width);
     const int height = static_cast<int>(pointer->height);
     if (width <= 0 || height <= 0)
@@ -151,7 +189,12 @@ void nativefreerdp_pointer_free(rdpContext *context, rdpPointer *pointer)
     if (!pointer)
         return;
 
-    destroyCursorInfo(toNativePointer(pointer)->cursor);
+    NativePointer *nativePointer = toNativePointer(pointer);
+    if (nativePointer->cursorSerial == 0)
+        return; // never handed out by nativefreerdp_pointer_new
+
+    nativePointer->cursorSerial = 0;
+    destroyCursorInfo(nativePointer->cursor);
 }
 
 BOOL nativefreerdp_pointer_set(rdpContext *context, rdpPointer *pointer)
@@ -159,31 +202,33 @@ BOOL nativefreerdp_pointer_set(rdpContext *context, rdpPointer *pointer)
     if (!context || !pointer)
         return FALSE;
 
-    FreeRdpProcess *owner = liveOwner(toNativeContext(context));
-    if (!owner)
+    // The lock is held across the hand-off: otherwise an abandoned worker can
+    // deliver a cursor to an owner that is already being destroyed.
+    const OwnerCall call(toNativeContext(context));
+    if (!call.owner())
         return FALSE;
 
-    notifyCursorUpdate(owner, toNativePointer(pointer)->cursor);
+    call.notifyCursor(toNativePointer(pointer)->cursor);
     return TRUE;
 }
 
 BOOL nativefreerdp_pointer_set_null(rdpContext *context)
 {
-    FreeRdpProcess *owner = liveOwner(toNativeContext(context));
-    if (!owner)
+    const OwnerCall call(toNativeContext(context));
+    if (!call.owner())
         return FALSE;
 
-    notifyCursorUpdate(owner, CursorInfo{CursorKind::Hidden, nullptr, false});
+    call.notifyCursor(CursorInfo{CursorKind::Hidden, nullptr, false});
     return TRUE;
 }
 
 BOOL nativefreerdp_pointer_set_default(rdpContext *context)
 {
-    FreeRdpProcess *owner = liveOwner(toNativeContext(context));
-    if (!owner)
+    const OwnerCall call(toNativeContext(context));
+    if (!call.owner())
         return FALSE;
 
-    notifyCursorReset(owner);
+    call.notifyCursorReset();
     return TRUE;
 }
 
@@ -224,8 +269,9 @@ void nativefreerdp_on_channel_connected(void *context, const ChannelConnectedEve
     }
 
     if (std::strcmp(eventArgs->name, CLIPRDR_CHANNEL_NAME) == 0) {
-        if (FreeRdpProcess *owner = liveOwner(nativeContext))
-            owner->attachClipboardChannel(eventArgs->pInterface);
+        const OwnerCall call(nativeContext);
+        if (call.owner())
+            call.owner()->attachClipboardChannel(eventArgs->pInterface);
         return;
     }
 
@@ -244,8 +290,9 @@ void nativefreerdp_on_channel_disconnected(void *context, const ChannelDisconnec
     }
 
     if (std::strcmp(eventArgs->name, CLIPRDR_CHANNEL_NAME) == 0) {
-        if (FreeRdpProcess *owner = liveOwner(nativeContext))
-            owner->detachClipboardChannel();
+        const OwnerCall call(nativeContext);
+        if (call.owner())
+            call.owner()->detachClipboardChannel();
         return;
     }
 
@@ -413,16 +460,25 @@ BOOL nativefreerdp_post_connect(freerdp *instance)
     if (!instance || !instance->context || !instance->context->update)
         return FALSE;
 
-    if (!gdi_init(instance, PIXEL_FORMAT_BGRX32))
-        return FALSE;
+    // Once per session: post_connect can run again on reconnect, and gdi_init
+    // over a live primary buffer leaks the previous surface.
+    if (!g_gdiAcquired) {
+        if (!gdi_init(instance, PIXEL_FORMAT_BGRX32))
+            return FALSE;
+        g_gdiAcquired = true;
+        g_gdiReleased.store(false, std::memory_order_release);
+    }
 
     instance->context->update->BeginPaint = nativefreerdp_begin_paint;
     instance->context->update->EndPaint = nativefreerdp_end_paint;
     instance->context->update->DesktopResize = nativefreerdp_desktop_resize;
     nativefreerdp_register_pointer(instance->context->graphics);
 
-    if (FreeRdpProcess *owner = liveOwner(toNativeContext(instance->context)))
-        notifyStateUpdate(owner, FreeRdpProcess::State::Running);
+    {
+        const OwnerCall call(toNativeContext(instance->context));
+        if (call.owner())
+            call.owner()->updateStateFromBackend(FreeRdpProcess::State::Running);
+    }
 
     nativefreerdp_copy_frame(instance->context);
     return TRUE;
@@ -435,7 +491,19 @@ void nativefreerdp_post_disconnect(freerdp *instance)
 
     PubSub_UnsubscribeChannelConnected(instance->context->pubSub, nativefreerdp_on_channel_connected);
     PubSub_UnsubscribeChannelDisconnected(instance->context->pubSub, nativefreerdp_on_channel_disconnected);
+
+    // Exactly one gdi_free per session: the worker owns the connection and its
+    // Guard runs this on the way out, while freerdp_client_context_free() does
+    // not touch context->gdi. The flag keeps a second post_disconnect (abort,
+    // reconnect, an abandoned teardown) from freeing the same surface again.
+    bool expected = false;
+    if (!g_gdiAcquired || !g_gdiReleased.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+        return;
+
     gdi_free(instance);
+    // Released: the next session initialises its own surface. Freeing without
+    // this would leak every surface after the first one.
+    g_gdiAcquired = false;
 }
 
 BOOL nativefreerdp_authenticate_ex(freerdp *instance, char **username, char **password,
@@ -482,13 +550,19 @@ DWORD nativefreerdp_verify_certificate_ex(freerdp *instance, const char *host, U
 {
     static_cast<void>(flags);
 
-    const NativeRdpContext *nativeContext = instance ? toNativeContext(instance->context) : nullptr;
-    FreeRdpProcess *owner = liveOwner(nativeContext);
-    if (!owner)
+    NativeRdpContext *nativeContext = instance ? toNativeContext(instance->context) : nullptr;
+    if (!nativeContext)
         return 0;
 
     if (nativeContext->ignoreCertificate)
         return 2;
+
+    // The prompt blocks until the user answers, so the lock is held for the
+    // whole exchange: an owner that closes the session meanwhile waits for it
+    // instead of being called into after it is gone.
+    const OwnerCall call(nativeContext);
+    if (!call.owner())
+        return 0;
 
     FreeRdpProcess::CertificateChallenge challenge;
     challenge.host = wideFromUtf8(host ? host : "");
@@ -499,7 +573,7 @@ DWORD nativefreerdp_verify_certificate_ex(freerdp *instance, const char *host, U
     challenge.fingerprint = wideFromUtf8(fingerprint ? fingerprint : "");
     challenge.changed = false;
 
-    return owner->challengeCertificate(challenge) ? 2 : 0;
+    return call.owner()->challengeCertificate(challenge) ? 2 : 0;
 }
 
 DWORD nativefreerdp_verify_changed_certificate_ex(freerdp *instance, const char *host, UINT16 port,
@@ -513,13 +587,16 @@ DWORD nativefreerdp_verify_changed_certificate_ex(freerdp *instance, const char 
     static_cast<void>(oldFingerprint);
     static_cast<void>(flags);
 
-    const NativeRdpContext *nativeContext = instance ? toNativeContext(instance->context) : nullptr;
-    FreeRdpProcess *owner = liveOwner(nativeContext);
-    if (!owner)
+    NativeRdpContext *nativeContext = instance ? toNativeContext(instance->context) : nullptr;
+    if (!nativeContext)
         return 0;
 
     if (nativeContext->ignoreCertificate)
         return 2;
+
+    const OwnerCall call(nativeContext);
+    if (!call.owner())
+        return 0;
 
     FreeRdpProcess::CertificateChallenge challenge;
     challenge.host = wideFromUtf8(host ? host : "");
@@ -530,7 +607,7 @@ DWORD nativefreerdp_verify_changed_certificate_ex(freerdp *instance, const char 
     challenge.fingerprint = wideFromUtf8(newFingerprint ? newFingerprint : "");
     challenge.changed = true;
 
-    return owner->challengeCertificate(challenge) ? 2 : 0;
+    return call.owner()->challengeCertificate(challenge) ? 2 : 0;
 }
 
 BOOL nativefreerdp_global_init()

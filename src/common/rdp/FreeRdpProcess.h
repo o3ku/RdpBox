@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <thread>
 #include <vector>
 #include <functional>
 #include <memory>
@@ -12,22 +13,21 @@
 
 #include <winpr/wtypes.h>
 
-// The worker thread runs a FreeRdpBackend, not the object the UI holds: a
-// session that has to be abandoned (stop() gives up waiting for a wedged
-// freerdp_disconnect) keeps publishing into its own backend, which lives until
-// the thread ends. The process is only reached through the owner pointer, and
-// only while the alive flag says it is still there.
+// The worker thread runs a FreeRdpBackend, not the object the UI holds. A
+// connection that stop() had to abandon (a wedged freerdp_disconnect must not
+// freeze the window) keeps running against its own backend and releases the
+// freerdp context on its way out. The process object is reached only through a
+// guarded owner pointer, never after that pointer was cleared.
 class FreeRdpBackend;
 
-// Forwarding a pointer type freerdp declares is cheaper than pulling its headers
-// into every consumer of this class. Write the pointer as void * and convert.
 class FreeRdpProcess
 {
 public:
     enum class State { Idle, Starting, Running, Finished };
 
-    // Set once the freerdp context is gone, so the owner knows it no longer
-    // has to wait for (or release) anything the worker holds.
+    // Hand-over token: set by the worker once it has released the freerdp
+    // context, so the UI side knows it no longer has to wait for it (nor free
+    // it a second time).
     struct Abandoned
     {
         std::atomic_bool released{false};
@@ -100,26 +100,20 @@ public:
     void detachClipboardChannel();
     bool challengeCertificate(const CertificateChallenge &challenge);
 
-    // Worker-side entry points. They take the session they belong to, so a
-    // worker that outlives this object never has to look this way.
-    static void publishFromWorkerBackend(FreeRdpBackend &backend,
-                                         State state,
-                                         const std::string &lastError = {});
-    static void applyPendingRequests(const std::shared_ptr<FreeRdpBackend> &backend);
-
 private:
     struct Private;
 
-    // Hands the connection over to a worker that owns its own state. Called
-    // with the context already configured and started.
-    std::shared_ptr<FreeRdpBackend> startWorker(void *context);
+    // Runs one connection on its own thread. The worker owns the backend (and
+    // with it the freerdp context) from the moment it starts: it releases both
+    // on its way out, whatever stop() decided in the meantime.
+    void runWorker(std::shared_ptr<FreeRdpBackend> backend);
 
-    void publishFromWorker(FreeRdpBackend &backend, State state, const std::string &lastError = {});
-    // Queues one input/resize request for the worker thread. Nothing in here
-    // touches freerdp directly: a detached worker must not have the UI thread
-    // call into a context it may already be tearing down.
+    static void publishFromWorkerBackend(FreeRdpBackend &backend,
+                                         State state, const std::string &error = {});
+    static void applyPendingRequests(const std::shared_ptr<FreeRdpBackend> &backend);
+
+    void publishFromWorker(FreeRdpBackend &backend, State state, const std::string &error = {});
     void submit(std::function<void(void *, FreeRdpBackend &)> apply);
-    void sendMousePointer(PointI pos, SizeI viewSize, std::uint16_t flags, bool extended);
-
+    void sendMousePointer(PointI pos, SizeI viewSize, std::uint16_t extraFlags, bool extended);
     std::unique_ptr<Private> m_d;
 };
