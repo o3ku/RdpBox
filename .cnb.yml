@@ -1,0 +1,84 @@
+# CNB 流水线：Windows 侧代码在这里没有构建节点可用，能落地的是
+# 「Linux + Qt 目标」的全量编译与打包 —— 与 .github/workflows/linux.yml 等价，
+# 并把 Qt UI 源码真正编一遍（MFC legacy 目标依赖 afxwin.h，只能在 Windows 上编）。
+main:
+  push:
+    - name: linux-qt
+      docker:
+        image: ubuntu:24.04
+      stages:
+        - name: install-deps
+          script: |
+            set -euo pipefail
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+              build-essential cmake ninja-build pkg-config git ca-certificates \
+              qtbase5-dev libqt5svg5-dev qtbase5-dev-tools \
+              nlohmann-json3-dev libcjson-dev \
+              freerdp3-dev libwinpr3-dev
+            pkg-config --modversion freerdp3 freerdp-client3 winpr3 libcjson
+
+        - name: build
+          # 20 分钟无输出会判定超时，编译过程按期输出心跳。
+          script: |
+            set -euo pipefail
+            cmake --preset linux-release
+            cmake --build --preset linux-release --parallel &
+            build_pid=$!
+            while kill -0 "$build_pid" 2>/dev/null; do
+              sleep 60
+              echo "still building: $(date -u +%H:%M:%S)"
+            done
+            wait "$build_pid"
+
+        - name: smoke-test
+          # 无 X11 显示，跑不了 GUI：只验二进制存在且依赖库全部可解析。
+          script: |
+            set -euo pipefail
+            binary=./build/linux-release/src/RdpBoxQt
+            test -x "$binary"
+            if ldd "$binary" | grep "not found"; then
+              echo "unresolved shared libraries" >&2
+              exit 1
+            fi
+
+# PR 上也要跑：这条流水线是 Qt 目标唯一的编译证据（GitHub Actions 的
+# windows.yml 要 vcpkg 全量拉 qtbase，命中缓存才有性价比）。
+pr:
+  pull_request:
+    - name: linux-qt
+      docker:
+        image: ubuntu:24.04
+      stages:
+        - name: install-deps
+          script: |
+            set -euo pipefail
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+              build-essential cmake ninja-build pkg-config git ca-certificates \
+              qtbase5-dev libqt5svg5-dev qtbase5-dev-tools \
+              nlohmann-json3-dev libcjson-dev \
+              freerdp3-dev libwinpr3-dev
+            pkg-config --modversion freerdp3 freerdp-client3 winpr3 libcjson
+
+        - name: build
+          script: |
+            set -euo pipefail
+            cmake --preset linux-release
+            cmake --build --preset linux-release --parallel &
+            build_pid=$!
+            while kill -0 "$build_pid" 2>/dev/null; do
+              sleep 60
+              echo "still building: $(date -u +%H:%M:%S)"
+            done
+            wait "$build_pid"
+
+        - name: smoke-test
+          script: |
+            set -euo pipefail
+            binary=./build/linux-release/src/RdpBoxQt
+            test -x "$binary"
+            if ldd "$binary" | grep "not found"; then
+              echo "unresolved shared libraries" >&2
+              exit 1
+            fi

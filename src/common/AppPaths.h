@@ -6,6 +6,9 @@ namespace AppPaths
 {
 bool isPortableMode();
 std::wstring executablePath();
+// Directory holding the executable, so callers can name it in a message
+// (portable mode failures). Empty when the module path has no separator.
+std::wstring executableDirectory();
 std::wstring dataRootPath();
 std::wstring profilesFilePath();
 std::wstring updatesDirectoryPath();

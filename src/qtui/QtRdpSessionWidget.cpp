@@ -323,8 +323,20 @@ void QtRdpSessionWidget::setStateChangedCallback(std::function<void(FreeRdpProce
 
 bool QtRdpSessionWidget::event(QEvent *event)
 {
-    if (event && event->type() == QEvent::UngrabMouse)
-        releasePressedMouseButtons();
+    // Every path that can drop the grab ends here too: UngrabMouse for a plain
+    // release, but a deactivated or hidden window is never told about it, and
+    // the remote button would stay pressed.
+    if (event) {
+        switch (event->type()) {
+        case QEvent::UngrabMouse:
+        case QEvent::WindowDeactivate:
+        case QEvent::Hide:
+            releasePressedMouseButtons();
+            break;
+        default:
+            break;
+        }
+    }
 
     if (event && event->type() == QEvent::ShortcutOverride && isConnected()) {
         auto *keyEvent = static_cast<QKeyEvent *>(event);
@@ -405,12 +417,12 @@ void QtRdpSessionWidget::mouseMoveEvent(QMouseEvent *event)
     const unsigned int mouseFlags = mouseFlagsFromEvent(event);
     if (rdp::shouldSynchronizeModifiersForMouseMove(mouseFlags))
         syncMouseModifiers(mouseFlags);
-    if (!m_process)
+    if (!m_process || !shouldForwardMouseMove())
         return;
 
     const auto immediate = m_mouseMoveCoalescer.onMouseMove(m_lastPointerPoint);
     if (immediate)
-        m_process->sendMouseMove(*immediate, viewSize());
+        m_process->sendMouseMove(*immediate, reportedViewSize());
 
     if (m_mouseMoveTimer && !m_mouseMoveTimer->isActive())
         m_mouseMoveTimer->start();
@@ -706,7 +718,7 @@ void QtRdpSessionWidget::requestResize()
     if (!m_process || m_state != FreeRdpProcess::State::Running || width() <= 0 || height() <= 0)
         return;
 
-    const SizeI size = viewSize();
+    const SizeI size = reportedViewSize();
     if (m_resizeBurstTracker.onResize(size) && m_resizeTimer)
         m_resizeTimer->start(); // trailing debounce: the tick sends
 }
@@ -720,7 +732,7 @@ void QtRdpSessionWidget::handleResizeTimer()
         return;
     }
 
-    const SizeI size = viewSize();
+    const SizeI size = reportedViewSize();
     if (m_resizeBurstTracker.onTimeout(size)) {
         beginResolutionUpdate();
         m_process->requestResize(size);
@@ -742,7 +754,7 @@ void QtRdpSessionWidget::flushPendingMouseMove()
 
     const auto pending = m_mouseMoveCoalescer.flush();
     if (pending)
-        m_process->sendMouseMove(*pending, viewSize());
+        m_process->sendMouseMove(*pending, reportedViewSize());
 
     if (m_mouseMoveTimer)
         m_mouseMoveTimer->stop();
@@ -759,7 +771,7 @@ void QtRdpSessionWidget::handleMouseMoveTimer()
 
     const auto pending = m_mouseMoveCoalescer.onTimer();
     if (pending) {
-        m_process->sendMouseMove(*pending, viewSize());
+        m_process->sendMouseMove(*pending, reportedViewSize());
         return;
     }
 
@@ -793,6 +805,15 @@ void QtRdpSessionWidget::promptCertificateChallenge(const FreeRdpProcess::Certif
             process->resolveCertificateChallenge(result == QMessageBox::Yes);
     });
     messageBox->show();
+}
+
+SizeI QtRdpSessionWidget::reportedViewSize() const
+{
+    // Same rule as the frame path: only a laid-out pane has a size to report,
+    // and rounding a hidden one's stray size would scale the pointer wrong.
+    if (width() <= 0 || height() <= 0)
+        return SizeI{};
+    return viewSize();
 }
 
 SizeI QtRdpSessionWidget::viewSize() const
@@ -870,6 +891,16 @@ void QtRdpSessionWidget::sendMouseButton(QMouseEvent *event, bool down)
         grabMouse();
     else
         releaseMouse();
+}
+
+bool QtRdpSessionWidget::shouldForwardMouseMove() const
+{
+    // Hover only drives the remote cursor for the session that owns the input.
+    // It is also the way back in after the pointer was released (another
+    // application took the grab, the window was deactivated), which does not
+    // always arrive as QEvent::UngrabMouse. An unfocused pane would otherwise
+    // keep pushing moves the user meant for another window.
+    return hasFocus();
 }
 
 bool QtRdpSessionWidget::canCaptureSystemKeys() const
@@ -1029,13 +1060,16 @@ void QtRdpSessionWidget::releasePressedMouseButtons()
     if (!m_process || m_process->state() != FreeRdpProcess::State::Running)
         return;
 
+    // The release is what ends the remote drag, so it still goes out now that
+    // this pane no longer owns the input.
     const PointI point = m_hasLastPointerPoint ? m_lastPointerPoint : PointI{};
+    const SizeI size = reportedViewSize();
     if ((pressedButtons & (1u << 0)) != 0)
-        m_process->sendMouseButton(MouseButton::Left, false, point, viewSize());
+        m_process->sendMouseButton(MouseButton::Left, false, point, size);
     if ((pressedButtons & (1u << 1)) != 0)
-        m_process->sendMouseButton(MouseButton::Right, false, point, viewSize());
+        m_process->sendMouseButton(MouseButton::Right, false, point, size);
     if ((pressedButtons & (1u << 2)) != 0)
-        m_process->sendMouseButton(MouseButton::Middle, false, point, viewSize());
+        m_process->sendMouseButton(MouseButton::Middle, false, point, size);
 }
 
 void QtRdpSessionWidget::releaseAllPressedKeys()

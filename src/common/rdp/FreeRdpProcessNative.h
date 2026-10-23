@@ -3,6 +3,7 @@
 #include "FreeRdpProcess.h"
 
 #include <atomic>
+#include <memory>
 
 #include <freerdp3/freerdp/channels/channels.h>
 #include <freerdp3/freerdp/client.h>
@@ -19,7 +20,17 @@
 struct NativeRdpContext
 {
     rdpClientContext common;
+    // Every freerdp callback reaches back to the owning process through
+    // `owner`, and an abandoned worker outlives it. `locked` is the contract:
+    // callbacks hold it across the call, whoever clears it has released the
+    // context, so no new call can start while the owner is being taken apart.
+    struct InvokeLock
+    {
+        std::atomic_bool locked{false};
+    };
+
     FreeRdpProcess *owner = nullptr;
+    std::shared_ptr<InvokeLock> locked;
     DispClientContext *disp = nullptr;
     bool ignoreCertificate = true;
     std::atomic<UINT32> rtt{0};
@@ -28,6 +39,9 @@ struct NativeRdpContext
 struct NativePointer : rdpPointer
 {
     CursorInfo cursor;
+    // Non-zero once nativefreerdp_pointer_new finished; the Free callback only
+    // touches `cursor` when it was really set.
+    unsigned long long cursorSerial = 0;
 };
 
 NativeRdpContext *toNativeContext(rdpContext *context);

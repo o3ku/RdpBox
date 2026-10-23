@@ -3,17 +3,35 @@
 #include "common/NativeTypes.h"
 #include "common/rdp/RdpInputEventUtil.h"
 
+#include <atomic>
 #include <cstdint>
+#include <thread>
+#include <vector>
 #include <functional>
 #include <memory>
 #include <string>
 
 #include <winpr/wtypes.h>
 
+// The worker thread runs a FreeRdpBackend, not the object the UI holds. A
+// connection that stop() had to abandon (a wedged freerdp_disconnect must not
+// freeze the window) keeps running against its own backend and releases the
+// freerdp context on its way out. The process object is reached only through a
+// guarded owner pointer, never after that pointer was cleared.
+class FreeRdpBackend;
+
 class FreeRdpProcess
 {
 public:
     enum class State { Idle, Starting, Running, Finished };
+
+    // Hand-over token: set by the worker once it has released the freerdp
+    // context, so the UI side knows it no longer has to wait for it (nor free
+    // it a second time).
+    struct Abandoned
+    {
+        std::atomic_bool released{false};
+    };
 
     struct ConnectionInfo
     {
@@ -85,5 +103,17 @@ public:
 private:
     struct Private;
 
+    // Runs one connection on its own thread. The worker owns the backend (and
+    // with it the freerdp context) from the moment it starts: it releases both
+    // on its way out, whatever stop() decided in the meantime.
+    void runWorker(std::shared_ptr<FreeRdpBackend> backend);
+
+    static void publishFromWorkerBackend(FreeRdpBackend &backend,
+                                         State state, const std::string &error = {});
+    static void applyPendingRequests(const std::shared_ptr<FreeRdpBackend> &backend);
+
+    void publishFromWorker(FreeRdpBackend &backend, State state, const std::string &error = {});
+    void submit(std::function<void(void *, FreeRdpBackend &)> apply);
+    void sendMousePointer(PointI pos, SizeI viewSize, std::uint16_t extraFlags, bool extended);
     std::unique_ptr<Private> m_d;
 };

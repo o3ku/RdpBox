@@ -99,7 +99,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path ".vcpkg-cache" | Out-Null
           & "$env:VCPKG_ROOT\vcpkg.exe" install `
             --triplet=$env:VCPKG_DEFAULT_TRIPLET `
-            cjson freerdp nlohmann-json `
+            cjson freerdp nlohmann-json qtbase qtsvg `
             --x-install-root="$env:VCPKG_INSTALLED_DIR"
 
       - name: Configure debug tests
@@ -117,6 +117,25 @@ jobs:
 
       - name: Run tests
         run: ctest --test-dir build/msvc-debug-test --output-on-failure
+
+      # qtui/ Windows-only branches (FramelessWin.h, the WH_KEYBOARD_LL hook
+      # path) were compiled by no job: every Windows configure passed
+      # RDPBOX_BUILD_QT=OFF. AUTOCONFIRM=1 stops the qt5 feature install from
+      # waiting on an interactive prompt when a dependency is missing.
+      - name: Configure Qt release
+        shell: pwsh
+        run: |
+          $env:CMAKE_AUTOCONFIRM = "1"
+          cmake -S . -B build/msvc-release-qt -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DRDPBOX_BUILD_QT=ON `
+            -DRDPBOX_BUILD_LEGACY=OFF `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            "-DVCPKG_TARGET_TRIPLET=$env:VCPKG_DEFAULT_TRIPLET" `
+            "-DVCPKG_INSTALLED_DIR=$env:VCPKG_INSTALLED_DIR"
+
+      - name: Build Qt release
+        run: cmake --build build/msvc-release-qt --target RdpBox --parallel
 
       - name: Configure release
         shell: pwsh

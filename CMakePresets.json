@@ -42,6 +42,16 @@
       }
     },
     {
+      "name": "msvc-release-qt",
+      "inherits": "msvc-base",
+      "binaryDir": "${sourceDir}/build/msvc-release-qt",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "RDPBOX_BUILD_QT": "ON",
+        "RDPBOX_BUILD_LEGACY": "OFF"
+      }
+    },
+    {
       "name": "linux-base",
       "hidden": true,
       "generator": "Ninja",
@@ -73,6 +83,10 @@
     {
       "name": "msvc-debug-test",
       "configurePreset": "msvc-debug-test"
+    },
+    {
+      "name": "msvc-release-qt",
+      "configurePreset": "msvc-release-qt"
     },
     {
       "name": "linux-release",

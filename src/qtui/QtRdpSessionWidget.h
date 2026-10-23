@@ -65,6 +65,8 @@ protected:
     void releaseKeyboardInputForTargetTransfer() override;
 
 private:
+    // Hover only reaches the remote session while this pane owns the input.
+    bool shouldForwardMouseMove() const;
     void bindProcessCallbacks();
     void clearProcessCallbacks();
     void stopProcess(bool showDisconnectedOverlay = false);
@@ -81,6 +83,9 @@ private:
     void promptCertificateChallenge(const FreeRdpProcess::CertificateChallenge &challenge,
                                     std::weak_ptr<FreeRdpProcess> weakProcess);
     SizeI viewSize() const;
+    // viewSize() for anything that is reported on behalf of the session
+    // (pointer, resize): zero while the pane is not laid out.
+    SizeI reportedViewSize() const;
     PointI pointFromMouseEvent(const QMouseEvent *event) const;
     unsigned int mouseFlagsFromEvent(const QMouseEvent *event) const;
     void syncMouseModifiers(unsigned int mouseFlags);
