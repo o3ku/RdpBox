@@ -57,16 +57,29 @@ BOOL nativefreerdp_begin_paint(rdpContext *context)
     return TRUE;
 }
 
+namespace
+{
+// Callers get the owner only when it is still safe to talk to it: after a
+// session was abandoned the worker keeps running against its own backend, and
+// the process object it used to point at may already be gone.
+FreeRdpProcess *liveOwner(const NativeRdpContext *nativeContext)
+{
+    if (!nativeContext || !nativeContext->alive || !nativeContext->alive->alive.load())
+        return nullptr;
+    return nativeContext->owner;
+}
+}
+
 void nativefreerdp_copy_frame(rdpContext *context)
 {
     if (!context)
         return;
 
-    NativeRdpContext *nativeContext = toNativeContext(context);
-    if (!nativeContext || !nativeContext->owner)
+    FreeRdpProcess *owner = liveOwner(toNativeContext(context));
+    if (!owner)
         return;
 
-    nativeContext->owner->writeFrameFromContext(context);
+    owner->writeFrameFromContext(context);
 }
 
 BOOL nativefreerdp_end_paint(rdpContext *context)
@@ -146,31 +159,31 @@ BOOL nativefreerdp_pointer_set(rdpContext *context, rdpPointer *pointer)
     if (!context || !pointer)
         return FALSE;
 
-    NativeRdpContext *nativeContext = toNativeContext(context);
-    if (!nativeContext || !nativeContext->owner)
+    FreeRdpProcess *owner = liveOwner(toNativeContext(context));
+    if (!owner)
         return FALSE;
 
-    notifyCursorUpdate(nativeContext->owner, toNativePointer(pointer)->cursor);
+    notifyCursorUpdate(owner, toNativePointer(pointer)->cursor);
     return TRUE;
 }
 
 BOOL nativefreerdp_pointer_set_null(rdpContext *context)
 {
-    NativeRdpContext *nativeContext = toNativeContext(context);
-    if (!nativeContext || !nativeContext->owner)
+    FreeRdpProcess *owner = liveOwner(toNativeContext(context));
+    if (!owner)
         return FALSE;
 
-    notifyCursorUpdate(nativeContext->owner, CursorInfo{CursorKind::Hidden, nullptr, false});
+    notifyCursorUpdate(owner, CursorInfo{CursorKind::Hidden, nullptr, false});
     return TRUE;
 }
 
 BOOL nativefreerdp_pointer_set_default(rdpContext *context)
 {
-    NativeRdpContext *nativeContext = toNativeContext(context);
-    if (!nativeContext || !nativeContext->owner)
+    FreeRdpProcess *owner = liveOwner(toNativeContext(context));
+    if (!owner)
         return FALSE;
 
-    notifyCursorReset(nativeContext->owner);
+    notifyCursorReset(owner);
     return TRUE;
 }
 
@@ -211,8 +224,8 @@ void nativefreerdp_on_channel_connected(void *context, const ChannelConnectedEve
     }
 
     if (std::strcmp(eventArgs->name, CLIPRDR_CHANNEL_NAME) == 0) {
-        if (nativeContext->owner)
-            nativeContext->owner->attachClipboardChannel(eventArgs->pInterface);
+        if (FreeRdpProcess *owner = liveOwner(nativeContext))
+            owner->attachClipboardChannel(eventArgs->pInterface);
         return;
     }
 
@@ -231,8 +244,8 @@ void nativefreerdp_on_channel_disconnected(void *context, const ChannelDisconnec
     }
 
     if (std::strcmp(eventArgs->name, CLIPRDR_CHANNEL_NAME) == 0) {
-        if (nativeContext->owner)
-            nativeContext->owner->detachClipboardChannel();
+        if (FreeRdpProcess *owner = liveOwner(nativeContext))
+            owner->detachClipboardChannel();
         return;
     }
 
@@ -408,9 +421,8 @@ BOOL nativefreerdp_post_connect(freerdp *instance)
     instance->context->update->DesktopResize = nativefreerdp_desktop_resize;
     nativefreerdp_register_pointer(instance->context->graphics);
 
-    NativeRdpContext *nativeContext = toNativeContext(instance->context);
-    if (nativeContext && nativeContext->owner)
-        notifyStateUpdate(nativeContext->owner, FreeRdpProcess::State::Running);
+    if (FreeRdpProcess *owner = liveOwner(toNativeContext(instance->context)))
+        notifyStateUpdate(owner, FreeRdpProcess::State::Running);
 
     nativefreerdp_copy_frame(instance->context);
     return TRUE;
@@ -471,7 +483,8 @@ DWORD nativefreerdp_verify_certificate_ex(freerdp *instance, const char *host, U
     static_cast<void>(flags);
 
     const NativeRdpContext *nativeContext = instance ? toNativeContext(instance->context) : nullptr;
-    if (!nativeContext || !nativeContext->owner)
+    FreeRdpProcess *owner = liveOwner(nativeContext);
+    if (!owner)
         return 0;
 
     if (nativeContext->ignoreCertificate)
@@ -486,7 +499,7 @@ DWORD nativefreerdp_verify_certificate_ex(freerdp *instance, const char *host, U
     challenge.fingerprint = wideFromUtf8(fingerprint ? fingerprint : "");
     challenge.changed = false;
 
-    return nativeContext->owner->challengeCertificate(challenge) ? 2 : 0;
+    return owner->challengeCertificate(challenge) ? 2 : 0;
 }
 
 DWORD nativefreerdp_verify_changed_certificate_ex(freerdp *instance, const char *host, UINT16 port,
@@ -501,7 +514,8 @@ DWORD nativefreerdp_verify_changed_certificate_ex(freerdp *instance, const char 
     static_cast<void>(flags);
 
     const NativeRdpContext *nativeContext = instance ? toNativeContext(instance->context) : nullptr;
-    if (!nativeContext || !nativeContext->owner)
+    FreeRdpProcess *owner = liveOwner(nativeContext);
+    if (!owner)
         return 0;
 
     if (nativeContext->ignoreCertificate)
@@ -516,7 +530,7 @@ DWORD nativefreerdp_verify_changed_certificate_ex(freerdp *instance, const char 
     challenge.fingerprint = wideFromUtf8(newFingerprint ? newFingerprint : "");
     challenge.changed = true;
 
-    return nativeContext->owner->challengeCertificate(challenge) ? 2 : 0;
+    return owner->challengeCertificate(challenge) ? 2 : 0;
 }
 
 BOOL nativefreerdp_global_init()
