@@ -36,7 +36,8 @@ std::vector<std::wstring> parseStartupConnections(const QStringList &arguments)
     for (int i = 1; i < arguments.size(); ++i) {
         const std::wstring argument = arguments.at(i).toStdWString();
         if (argument == L"--portable") {
-            // Failure is surfaced by warnStartupProblems() once the UI exists;
+            // Failure is surfaced by the caller through
+            // AppPaths::portableModeEnableFailed() once the UI exists;
             // enablePortableMode() only reports it, it does not throw.
             AppPaths::enablePortableMode();
             continue;
@@ -437,17 +438,23 @@ int main(int argc, char *argv[])
     if (!appIcon.isNull())
         QApplication::setWindowIcon(appIcon);
 
-    // Must run before QtMainWindow builds its ProfileRepository: the repository
-    // encrypts each password with the mode that is current at save time.
-    const bool portableRequested = application.arguments().contains(QStringLiteral("--portable"));
-    const bool portableFailed = portableRequested && !AppPaths::isPortableMode();
-    if (!PasswordProtectionStartup::initialize(portableRequested))
-        return 1;
+    // Apply --portable first: it persists the flag that both the data root and
+    // the password protection mode are read from. Doing this after initialize()
+    // would encrypt a first-run portable profile with DPAPI into the exe
+    // directory, and every save would then write portableMode back as false.
+    const std::vector<std::wstring> startupConnections = parseStartupConnections(application.arguments());
 
-    QtMainWindow window(parseStartupConnections(application.arguments()));
+    // Must run before QtMainWindow builds its ProfileRepository: the repository
+    // encrypts each password with the mode that is current at save time. A false
+    // return is not fatal; ProfileRepository reports dropped passwords on save.
+    PasswordProtectionStartup::initialize();
+
+    QtMainWindow window(startupConnections);
     window.show();
 
-    if (portableFailed) {
+    // Accurate only now: the flag really could not be persisted, so settings
+    // and profiles fall back to APPDATA with the DPAPI password mode.
+    if (AppPaths::portableModeEnableFailed()) {
         QMessageBox::warning(
             &window, QCoreApplication::translate("RdpBox", "Portable mode"),
             QCoreApplication::translate("RdpBox",

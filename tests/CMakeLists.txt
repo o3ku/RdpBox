@@ -456,6 +456,7 @@ add_executable(AppPersistenceSmokeTests
     smoke/AppPersistenceSmokeTests.cpp
     ${CMAKE_SOURCE_DIR}/src/common/AppPaths.cpp
     ${CMAKE_SOURCE_DIR}/src/common/PasswordProtection.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/PasswordProtectionStartup.cpp
     ${CMAKE_SOURCE_DIR}/src/common/profiles/ProfileRepository.cpp
 )
 

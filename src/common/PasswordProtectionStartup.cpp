@@ -5,16 +5,22 @@
 
 namespace PasswordProtectionStartup
 {
-bool initialize(bool portableRequested)
+bool initialize()
 {
-    // AppPaths already persisted the flag when --portable was parsed; trust the
-    // effective mode rather than the request, so a read-only install directory
-    // falls back to DPAPI instead of a keyless portable file.
-    const bool portable = portableRequested && AppPaths::isPortableMode();
+#ifdef _WIN32
+    // The flag is already persisted (or already failed) by the entry point at
+    // this stage; trust the effective mode, not the raw --portable request.
+    const PasswordProtection::Mode mode = AppPaths::isPortableMode()
+        ? PasswordProtection::Mode::Portable
+        : PasswordProtection::Mode::Dpapi;
+#else
+    // No DPAPI off Windows: protectDpapi() forwards to protectPortable(), which
+    // needs a key that only Mode::Portable derives. Dpapi here would silently
+    // seal every password as an empty string while isReady() stayed true.
+    const PasswordProtection::Mode mode = PasswordProtection::Mode::Portable;
+#endif
 
-    PasswordProtection::setMode(
-        portable ? PasswordProtection::Mode::Portable
-                 : PasswordProtection::Mode::Dpapi);
+    PasswordProtection::setMode(mode);
     return PasswordProtection::isReady();
 }
 }

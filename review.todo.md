@@ -57,8 +57,13 @@
   - 位置：`src/qtui/QtMain.cpp`（缺 `PasswordProtection::setMode`）、`src/common/profiles/ProfileRepository.cpp:53-90`
   - 现象：Qt 入口从不决定 portable/DPAPI 模式 → 非 Windows 下 `g_portableKey` 为空，
     密码静默丢弃；Windows 下 `--portable` 被解析却仍用 DPAPI 加密（换机失效）。
-  - 修法：初始化抽到 `common/PasswordProtectionStartup`，MFC/Qt 共用；
+  - 修法：初始化抽到 `common/PasswordProtectionStartup`，MFC/Qt 共用，且两个入口都**先应用
+    `--portable`（flag 落地）再选模式**；`initialize()` 按 `AppPaths::isPortableMode()` 选模式，
+    `#ifndef _WIN32` 直接 Portable（无 DPAPI）。
     `ProfileRepository::persistWarningNeeded()` 把「保存成功但密码被丢」也报出来。
+  - 顺序为何关键：先选模式后应用 flag 时，首启 `--portable` 仍取 DPAPI → 密码加密进 exe 目录的
+    profiles.json（换机失效），且每次 `save()` 把 `portableMode` 写回 false 与 flag 拉锯；
+    `dataRootPath()` 同样依赖 flag 已落地。挪顺序后「模式 == 路径 == flag」，拉锯自然消失。
 
 - [ ] **P1-3 Qt 连接结束后焦点丢失**
   - 位置：`src/qtui/QtRdpSessionWidget.cpp:611-627`（`Finished` 分支不恢复焦点）、`:875-878`（`canCaptureSystemKeys`）
@@ -124,11 +129,15 @@
     `request->listIndex` 在 `:928` 先无条件写进 format，只有失败回退分支才判越界。
   - 修法：构建阶段维护真实的非空计数；`listIndex` 在使用前统一校验一次。
 
-- [x] **P3-7 便携模式写 flag 失败静默回落**（已修，PR #3 待合）
+- [x] **P3-7 便携模式写 flag 失败静默回落**（Qt 侧已修，PR #3 待合；MFC 侧仍静默回落）
   - 位置：`src/common/AppPaths.cpp:250`、`src/qtui/QtMain.cpp:36`
   - 现象：`enablePortableMode()` 返回 false 时 `isPortableMode()` 读不到 flag，
     静默回落 APPDATA，两个入口都丢弃了返回值。
   - 修法：`AppPaths::portableModeEnableFailed()` 记录失败，Qt 启动弹一次可见告警。
+  - 未修的一半：MFC 入口（`src/mfcui/WinMain.cpp:33`）调 `enablePortableMode()` 后仍丢弃返回值，
+    失败时无任何提示，用户只会看到配置「消失」。
+  - 已顺带修好的一半：`dataRootPath()` 不再需要「flag 另找时机落地」——两个入口都在选模式前
+    应用 flag，所以路径与密码模式始终来自同一个 flag。
 
 - [ ] **P3-3 `wcscpy_s` 截断走 invalid parameter handler**
   - 位置：`src/common/rdp/WindowsClipboardBackend.cpp:450`
