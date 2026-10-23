@@ -53,7 +53,7 @@
   - 修法：local-only 快捷键的 keydown/keyup 直接返回 `NotHandled`，让消息回到 MFC 泵。
     Qt 侧的 `ShortcutOverride`（`QtRdpSessionWidget.cpp:329`）行为是对的，可对照。
 
-- [x] **P1-2 Qt 版未初始化密码保护模式，密码被静默丢弃**（已修，PR #3 待合）
+- [x] **P1-2 Qt 版未初始化密码保护模式，密码被静默丢弃**（PR #3 已合）
   - 位置：`src/qtui/QtMain.cpp`（缺 `PasswordProtection::setMode`）、`src/common/profiles/ProfileRepository.cpp:53-90`
   - 现象：Qt 入口从不决定 portable/DPAPI 模式 → 非 Windows 下 `g_portableKey` 为空，
     密码静默丢弃；Windows 下 `--portable` 被解析却仍用 DPAPI 加密（换机失效）。
@@ -71,7 +71,7 @@
     回到标签页必须再点一次才能捕获 Win/Ctrl+Esc 之类的键。
   - 修法：`Finished` 分支里若 `isVisible()` 则 `setFocus`，并同步 `clearKeyboardTarget`。
 
-- [ ] **P1-4 Qt 鼠标捕获缺少异常路径补发**
+- [x] **P1-4 Qt 鼠标捕获缺少异常路径补发**（PR #6：`WindowDeactivate` / `Hide` 也补发释放）
   - 位置：`src/qtui/QtRdpSessionWidget.cpp:858-873`（`grabMouse`/`releaseMouse`）
   - 现象：MFC 侧在 `ReleaseCapture` 后会补发按键释放（`src/common/rdp/RdpSessionViewInput.cpp:141-152`），
     Qt 只处理 `QEvent::UngrabMouse`；拖窗口/切标签时远端收不到 mouse-up，按钮卡在按下态。
@@ -129,31 +129,57 @@
     `request->listIndex` 在 `:928` 先无条件写进 format，只有失败回退分支才判越界。
   - 修法：构建阶段维护真实的非空计数；`listIndex` 在使用前统一校验一次。
 
-- [x] **P3-7 便携模式写 flag 失败静默回落**（Qt 侧已修，PR #3 待合；MFC 侧仍静默回落）
+- [x] **P3-7 便携模式写 flag 失败静默回落**（Qt 侧 PR #3；MFC 侧 PR #6）
   - 位置：`src/common/AppPaths.cpp:250`、`src/qtui/QtMain.cpp:36`
   - 现象：`enablePortableMode()` 返回 false 时 `isPortableMode()` 读不到 flag，
     静默回落 APPDATA，两个入口都丢弃了返回值。
   - 修法：`AppPaths::portableModeEnableFailed()` 记录失败，Qt 启动弹一次可见告警。
-  - 未修的一半：MFC 入口（`src/mfcui/WinMain.cpp:33`）调 `enablePortableMode()` 后仍丢弃返回值，
-    失败时无任何提示，用户只会看到配置「消失」。
+  - MFC 侧（PR #6）：`CRdpBoxApp::InitInstance()` 在窗口显示后按
+    `portableModeEnableFailed()` 弹一次 `MessageBox`，路径文案改用新增的
+    `AppPaths::executableDirectory()`（Qt 侧也换成它，不再自己拼 `QFileInfo`）。
   - 已顺带修好的一半：`dataRootPath()` 不再需要「flag 另找时机落地」——两个入口都在选模式前
     应用 flag，所以路径与密码模式始终来自同一个 flag。
 
-- [ ] **P3-3 `wcscpy_s` 截断走 invalid parameter handler**
+- [x] **P3-3 `wcscpy_s` 截断走 invalid parameter handler**（PR #4 已合）
   - 位置：`src/common/rdp/WindowsClipboardBackend.cpp:450`
   - 现象：路径超长时 `wcscpy_s` 触发 invalid parameter handler，Release 下直接终止进程。
   - 修法：换 `StringCchCopyW` 并检查返回值；同时校验 `pathLength < wcslen(fileName)`。
 
-- [ ] **P3-4 Windows Qt UI 从没进过 CI**
-  - 位置：`.github/workflows/windows.yml:121-133`、`.github/workflows/release.yml:141-153`、
-    `CMakePresets.json`
+- [x] **P3-4 Windows Qt UI 从没进过 CI**（PR #6）
+  - 位置：`.github/workflows/windows.yml`、`.github/workflows/release.yml`、`CMakePresets.json`
   - 现象：两处 CI 都显式 `-DRDPBOX_BUILD_QT=OFF`，presets 里也没有 Qt on Windows 的组合，
-    `qtui/` 的 Windows 分支（`FramelessWin.h`、`SetWindowsHookEx`）等于无编译验证；
-    `.github/` 是 GitHub Actions，CNB 侧没有 `.cnb.yml`。
-  - 修法：加 `msvc-release-qt` preset（vcpkg 加 `qtbase`/`qtsvg`），CI 至少编译一次；
-    CNB 上补一份等价流水线。
+    `qtui/` 的 Windows 分支（`FramelessWin.h`、`SetWindowsHookEx`）等于无编译验证。
+  - 已做：新增 `msvc-release-qt` preset（`inherits: msvc-base`，Qt ON / Legacy OFF）；
+    `windows.yml` 与 `release.yml` 都装 `qtbase qtsvg` 并编译 `RdpBox`，配置阶段加
+    `CMAKE_AUTOCONFIRM=1`（依赖缺失时失败而不是挂住）。
+  - 未验证：真实编译结果只能等 CI；Qt5 ON + MFC OFF 此前从没跑过，`qtui/` 若有 Windows-only
+    编译错误就是这条第一次暴露它。
 
-- [ ] **P3-5 崩溃面完全没有测试覆盖**
+- [x] **P3-6 `stop()` 无超时 join，断网时整个窗口卡死**（PR #6）
+  - 位置：`src/common/rdp/FreeRdpProcess.cpp`（`stop()`）
+  - 现象：`join()` 无条件等待；`freerdp_disconnect()` 卡住（挂起的服务端、半开 TCP）时，
+    UI 线程上的 `stop()`（析构、切标签、休眠恢复都在 UI 线程）会一直阻塞。
+  - 已做：一次连接的状态搬进 `FreeRdpBackend`，`worker` 只持有它；`stop()` 最多等 5s
+    `Abandoned::released`，仍未置位就放弃这次会话。放弃之后：
+    - 输入/尺寸请求改为排队，由 worker 在线程上应用，UI 线程不再直接调 freerdp
+    - `NativeRdpContext::owner` 的每次解引用先过 `AliveFlag`
+    - freerdp context 由 worker 出口唯一释放，`stop()` 在确认 worker 已放手后才释放自己那份
+  - 未验证：需要真挂起的服务端才能触发；协议用等价模型跑过（正常结束 / 放弃 / 放弃且对象销毁
+    三种情形都是恰好释放一次），C++ 侧编译要等 CI。
+
+- [x] **P3-9 Qt 会话路径的鼠标与重连路径**（PR #6，`main` 上原本没有这条）
+  - 位置：`src/qtui/QtRdpSessionWidget.cpp`（`updateState` / `mouseMoveEvent` / `mousePressEvent`）
+  - 现象：
+    1. 断线后 `Finished` 分支不清帧闸门，晚到帧走 `frameArrivalDecision` 的 `hideOverlay`，
+       把「已断开」覆盖文字一起清掉，只剩黑屏
+    2. Qt 不在 press 前合成 move，单击按服务端旧坐标派发
+    3. 非焦点时 hover 仍喂 `RdpMouseMoveCoalescer`，它会吞掉焦点后的第一次真实移动
+  - 已做：`Finished` 先清闸门并保留最后一帧；press 前补一次 `sendMouseMove`；hover 只在该 pane
+    持有焦点时才转发（`shouldForwardMouseMove()`）；`WindowDeactivate` / `Hide` 也走
+    `releasePressedMouseButtons()`（QEvent::UngrabMouse 不是唯一会丢抓取的路径）。
+  - 未验证：Qt GUI 行为要真窗口手测（容器无 Windows）。
+
+- [ ] **P3-5 崩溃面几乎没有测试覆盖**
   - 位置：`tests/`（21 个目标全是纯逻辑）、`tests/session/SessionManagerIntegrationTests.cpp`（用 Fake）
   - 现象：P0-1/P0-2/P3-2 这些点正好都在无测试区。
   - 修法：先给 `WindowsClipboardBehavior::fileGroupDescriptorByteSize`（已存在但边界没测）
@@ -188,8 +214,9 @@
 
 ## 建议顺序
 
-1. ~~P1-2 + P3-7~~（密码保护初始化与便携模式失败可见性，PR #3 已完成）
-2. P3-3（`StringCchCopyW` 一行改）、P3-6（`stop()` 超时 join）
-3. P3-4 尽早做，让 Qt Windows 分支有编译兜底
-4. P2-2 的接口层可以先做（`SessionManagerInterfaces.h` 不依赖 MFC），
-   目录搬家并到 P2-4，其余 P2-1/P2-4 下次大改时顺势做
+1. ~~P1-2 + P3-7~~（密码保护初始化与便携模式失败可见性，PR #3）
+2. ~~P3-3~~（`StringCchCopyW`，PR #4）
+3. ~~P3-4 + P3-6 + P3-9~~（PR #6；PR #5 因 P1 未合，见其条目备注）
+4. 待做：P1-2 / P3-7 的 Windows 手工验证（`--portable` 首启、DPAPI 换机）
+5. 待做：P0-1/P0-2 的结论只绑定 freerdp 3.19.0，换版本要复审
+6. 结构性重构：P2-4 → P2-1 → P2-2（先搬目录再抽公共逻辑，否则抽完还得搬）
