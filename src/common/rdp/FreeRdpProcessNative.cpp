@@ -11,13 +11,13 @@
 #include <thread>
 #include <utility>
 
-#include <freerdp3/freerdp/autodetect.h>
-#include <freerdp3/freerdp/codec/color.h>
-#include <freerdp3/freerdp/constants.h>
-#include <freerdp3/freerdp/gdi/gdi.h>
-#include <freerdp3/freerdp/input.h>
-#include <freerdp3/freerdp/locale/keyboard.h>
-#include <freerdp3/freerdp/locale/locale.h>
+#include <freerdp/autodetect.h>
+#include <freerdp/codec/color.h>
+#include <freerdp/constants.h>
+#include <freerdp/gdi/gdi.h>
+#include <freerdp/input.h>
+#include <freerdp/locale/keyboard.h>
+#include <freerdp/locale/locale.h>
 
 namespace
 {

@@ -5,13 +5,13 @@
 #include <atomic>
 #include <memory>
 
-#include <freerdp3/freerdp/channels/channels.h>
-#include <freerdp3/freerdp/client.h>
-#include <freerdp3/freerdp/client/channels.h>
-#include <freerdp3/freerdp/client/cliprdr.h>
-#include <freerdp3/freerdp/client/disp.h>
-#include <freerdp3/freerdp/freerdp.h>
-#include <freerdp3/freerdp/graphics.h>
+#include <freerdp/channels/channels.h>
+#include <freerdp/client.h>
+#include <freerdp/client/channels.h>
+#include <freerdp/client/cliprdr.h>
+#include <freerdp/client/disp.h>
+#include <freerdp/freerdp.h>
+#include <freerdp/graphics.h>
 
 #ifndef _WIN32
 #include <winpr/winpr.h>

@@ -22,13 +22,13 @@
 #include <ws2tcpip.h>
 #endif
 
-#include <freerdp3/freerdp/autodetect.h>
-#include <freerdp3/freerdp/client/cliprdr.h>
-#include <freerdp3/freerdp/codecs.h>
-#include <freerdp3/freerdp/constants.h>
-#include <freerdp3/freerdp/input.h>
-#include <freerdp3/freerdp/settings_types.h>
-#include <freerdp3/freerdp/update.h>
+#include <freerdp/autodetect.h>
+#include <freerdp/client/cliprdr.h>
+#include <freerdp/codecs.h>
+#include <freerdp/constants.h>
+#include <freerdp/input.h>
+#include <freerdp/settings_types.h>
+#include <freerdp/update.h>
 
 #ifdef _WIN32
 #include <windows.h>
