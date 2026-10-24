@@ -28,7 +28,7 @@ env:
 jobs:
   release:
     name: Build and publish
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     steps:
       - name: Resolve tag
@@ -113,14 +113,24 @@ jobs:
             -StorePasswordInClearText `
             -NonInteractive
 
+
+      - name: Fetch Qt bundle
+        # Prebuilt vcpkg install root (x64-windows-static-md, windows-2022
+        # image): vcpkg below sees the shipped vcpkg/status and skips Qt.
+        uses: kkzi/qt-static@main
+        with:
+          tag: qt5-win2022-20261024-0121
+          dest: ${{ env.VCPKG_INSTALLED_DIR }}
       - name: Install dependencies
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path ".vcpkg-cache" | Out-Null
           & "$env:VCPKG_ROOT\vcpkg.exe" install `
             --triplet=$env:VCPKG_DEFAULT_TRIPLET `
-            cjson freerdp nlohmann-json qtbase qtsvg `
-            --x-install-root="$env:VCPKG_INSTALLED_DIR"
+            cjson freerdp nlohmann-json qt5-base qt5-svg `
+            --x-install-root="$env:VCPKG_INSTALLED_DIR" `
+            --x-buildtrees-root="D:\vcpkg-buildtrees" `
+            --clean-after-build
 
       - name: Configure debug tests
         shell: pwsh
