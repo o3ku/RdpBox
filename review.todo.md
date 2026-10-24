@@ -150,10 +150,11 @@
   - 现象：两处 CI 都显式 `-DRDPBOX_BUILD_QT=OFF`，presets 里也没有 Qt on Windows 的组合，
     `qtui/` 的 Windows 分支（`FramelessWin.h`、`SetWindowsHookEx`）等于无编译验证。
   - 已做：新增 `msvc-release-qt` preset（`inherits: msvc-base`，Qt ON / Legacy OFF）；
-    `windows.yml` 与 `release.yml` 都装 `qtbase qtsvg` 并编译 `RdpBox`，配置阶段加
-    `CMAKE_AUTOCONFIRM=1`（依赖缺失时失败而不是挂住）。
-  - 未验证：真实编译结果只能等 CI；Qt5 ON + MFC OFF 此前从没跑过，`qtui/` 若有 Windows-only
-    编译错误就是这条第一次暴露它。
+    CI 编译 `RdpBox`，配置阶段加 `CMAKE_AUTOCONFIRM=1`（依赖缺失时失败而不是挂住）。
+    （2026-10-24 修正：RdpBox 是 Qt5 应用，依赖实为 `qt5-base qt5-svg`——原 `qtbase` 是 Qt6、
+    从未编译过；CI 现从 kkzi/qt-static 预编译 bundle 取 Qt，不再源码编译。）
+  - 已验证（2026-10-24）：windows.yml 与 release.yml 多轮全绿，Qt release 目标每次 CI 都编；
+    freerdp 头文件已改为无版本前缀 include（3aa9c57），兼容现行 vcpkg 布局。
 
 - [x] **P3-6 `stop()` 无超时 join，断网时整个窗口卡死**（PR #6）
   - 位置：`src/common/rdp/FreeRdpProcess.cpp`（`stop()`）
@@ -164,8 +165,8 @@
     - 输入/尺寸请求改为排队，由 worker 在线程上应用，UI 线程不再直接调 freerdp
     - `NativeRdpContext::owner` 的每次解引用先过 `AliveFlag`
     - freerdp context 由 worker 出口唯一释放，`stop()` 在确认 worker 已放手后才释放自己那份
-  - 未验证：需要真挂起的服务端才能触发；协议用等价模型跑过（正常结束 / 放弃 / 放弃且对象销毁
-    三种情形都是恰好释放一次），C++ 侧编译要等 CI。
+  - 已验证（2026-10-24）：本机 freerdp 3.19 与 CI freerdp 3.32.1 双侧 53/53 ctest
+    （含 FreeRdpStopSmoke：start→快速失败→析构 stop()，三轮 exit 0，修前 0xC0000005）。
 
 - [x] **P3-9 Qt 会话路径的鼠标与重连路径**（PR #6，`main` 上原本没有这条）
   - 位置：`src/qtui/QtRdpSessionWidget.cpp`（`updateState` / `mouseMoveEvent` / `mousePressEvent`）
@@ -177,7 +178,8 @@
   - 已做：`Finished` 先清闸门并保留最后一帧；press 前补一次 `sendMouseMove`；hover 只在该 pane
     持有焦点时才转发（`shouldForwardMouseMove()`）；`WindowDeactivate` / `Hide` 也走
     `releasePressedMouseButtons()`（QEvent::UngrabMouse 不是唯一会丢抓取的路径）。
-  - 未验证：Qt GUI 行为要真窗口手测（容器无 Windows）。
+  - 未验证：Qt GUI 行为要真窗口手测（容器无 Windows）——并入 GUI 手测挂账
+    （断网保留末帧 / 失焦点击落点 / 断开立连不闪 / 关标签不卡，用户暂缓）。
 
 - [ ] **P3-5 崩溃面几乎没有测试覆盖**
   - 位置：`tests/`（21 个目标全是纯逻辑）、`tests/session/SessionManagerIntegrationTests.cpp`（用 Fake）
@@ -219,4 +221,6 @@
 3. ~~P3-4 + P3-6 + P3-9~~（PR #6；PR #5 因 P1 未合，见其条目备注）
 4. 待做：P1-2 / P3-7 的 Windows 手工验证（`--portable` 首启、DPAPI 换机）
 5. 待做：P0-1/P0-2 的结论只绑定 freerdp 3.19.0，换版本要复审
+   （2026-10-24 已触发：CI/发布二进制现在用 freerdp 3.32.1。53 个 ctest 含 StopSmoke
+   已在 3.32.1 上全绿，部分对冲；`libfreerdp 全库无 gdi_free 调用` 这条结论仍未复审。）
 6. 结构性重构：P2-4 → P2-1 → P2-2（先搬目录再抽公共逻辑，否则抽完还得搬）
