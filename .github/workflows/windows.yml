@@ -11,7 +11,9 @@ on:
 
 concurrency:
   group: windows-ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel: a killed run loses nothing today, but a run that does build
+  # something new loses its cache/package upload.
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -26,7 +28,7 @@ env:
 jobs:
   build-test:
     name: Build and test
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     steps:
       - name: Checkout
@@ -68,12 +70,23 @@ jobs:
       - name: Cache vcpkg packages
         uses: actions/cache@v4
         with:
-          path: |
-            .vcpkg-cache
-            vcpkg_installed
-          key: windows-vcpkg-${{ env.VCPKG_DEFAULT_TRIPLET }}-${{ hashFiles('.github/workflows/windows.yml') }}
+          path: .vcpkg-cache
+          # vcpkg_installed is no longer cached: the bundle replaces it, and a
+          # ~7 GB cache entry costs more than it saves.
+          key: windows-vcpkg-${{ env.VCPKG_DEFAULT_TRIPLET }}
+          # key is workflow-independent on purpose: editing this file must not
+          # invalidate the store (the bundle below carries the real versions).
           restore-keys: |
             windows-vcpkg-${{ env.VCPKG_DEFAULT_TRIPLET }}-
+
+      - name: Fetch Qt bundle
+        # Prebuilt vcpkg install root (x64-windows-static-md, windows-2022
+        # image): vcpkg below sees the shipped vcpkg/status and skips Qt
+        # entirely. Anonymous download - fork PRs work without any secrets.
+        uses: kkzi/qt-static@main
+        with:
+          tag: qt5-win2022-20261024-0121
+          dest: ${{ env.VCPKG_INSTALLED_DIR }}
 
       - name: Configure vcpkg binary cache
         shell: pwsh
@@ -99,8 +112,10 @@ jobs:
           New-Item -ItemType Directory -Force -Path ".vcpkg-cache" | Out-Null
           & "$env:VCPKG_ROOT\vcpkg.exe" install `
             --triplet=$env:VCPKG_DEFAULT_TRIPLET `
-            cjson freerdp nlohmann-json qtbase qtsvg `
-            --x-install-root="$env:VCPKG_INSTALLED_DIR"
+            cjson freerdp nlohmann-json qt5-base qt5-svg `
+            --x-install-root="$env:VCPKG_INSTALLED_DIR" `
+            --x-buildtrees-root="D:\vcpkg-buildtrees" `
+            --clean-after-build
 
       - name: Configure debug tests
         shell: pwsh
