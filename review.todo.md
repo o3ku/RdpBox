@@ -104,11 +104,19 @@
   - 修法：收敛成一份 `BuildPhysicalKeyboardState()` 放 `common/rdp/`（非 Windows 下返回空状态），
     其余调用方改成直接引用它。
 
-- [ ] **P2-4 `common/` 里混进 MFC 视图**
-  - 位置：`src/common/rdp/RdpSessionView.h`（`#include <afxwin.h>`）、`src/CMakeLists.txt:20-23`
-  - 现象：`common/` 不是「无 UI 框架依赖」的，导致 CMake 必须维护两份源文件白名单，
-    两边已开始漂移（Qt 白名单缺 `WindowsClipboardBackend*`、`RdpFocusNotification*` 等）。
-  - 修法：MFC 视图挪到 `mfcui/session/`，`common/` 只留 `RdpKeyboardInputRouter` 这类纯逻辑。
+- [x] **P2-4 `common/` 里混进 MFC 视图**（2026-10-25 PR #9 合并，CodeBuddy 评审通过）
+  - 13 个 MFC 视图私有文件迁 `src/mfcui/session/`（RdpSessionView 全家 + FocusNotification +
+    ProcessEventBehavior/Queue + ResumeRecovery；判定依据=qtui 零引用且 FreeRdpProcess 不依赖）。
+  - 双白名单消灭：`RDPBOX_COMMON_SOURCES`(65) + `COMMON_WIN32_SOURCES`(9) + 各 UI 文件，
+    REMOVE_ITEM hack 删除；新旧多重集逐元素等价（Qt/Win 87、MFC 130、Qt/Linux 78）。
+  - `common/` 现 afx/CWnd/CString 零命中。
+  - 遗留：`RdpWinKeyCodes.h`、`common/ui/MainWindowActivation.h`、`mfcui/MainWindowStatePersistence.h`
+    三个头从未进任何列表（base 上就有），待顺手清理。
+- [x] **假绿通道堵漏**（2026-10-25 PR #10）：PR #8 引入两处测试编译错误
+  （不存在的 `FreeRdpProcess::State::Connecting`、`FILEDESCRIPTORW` 缺 `<shlobj.h>`），
+  双方验证均漏网——CodeBuddy 容器无 MSVC，我方 verify 只编 `RdpBoxLegacy` 就跑 ctest
+  （陈旧二进制 53/53），GitHub Windows CI 在 1b372e1 红 1m56s 未被查看。
+  verify 脚本已改为全量编 `msvc-debug-test`；**合并后必须查 CI 状态**。
 
 - [ ] **P2-5 头文件自包含与重复 include**
   - 位置：`src/common/ConnectionLaunchArgs.cpp:1-3`（自己 include 自己两次）、
