@@ -129,5 +129,37 @@ int main()
         assert(target.events.empty());
     }
 
+    {
+        // A stale generation must never reach the UI: CRdpSessionView drops these via
+        // RdpProcessEventBehavior, which is covered, but the queue itself has to forward the
+        // generation untouched so that filter can work.
+        FakeEventTarget target;
+
+        assert(rdp::process_event_queue::postStateChanged(target, FreeRdpProcess::State::Connecting, 12));
+        assert(rdp::process_event_queue::postFrameUpdated(target, 12));
+        assert(rdp::process_event_queue::postCursorUpdated(target, 12));
+        assert(rdp::process_event_queue::postCertificateRequest(target, 12));
+        assert(target.events.size() == 4);
+        for (const PostedEvent &event : target.events)
+            assert(event.generation == 12);
+
+        constexpr std::uintptr_t nextGeneration = 13;
+        std::optional<rdp::process_event_queue::PendingCertificateRequest> pending;
+
+        FreeRdpProcess::CertificateChallenge stale;
+        stale.host = L"old.example.test";
+        rdp::process_event_queue::storePendingCertificateRequest(pending, 12, stale);
+        assert(pending.has_value());
+        assert(pending->generation == 12);
+
+        FreeRdpProcess::CertificateChallenge current;
+        current.host = L"new.example.test";
+        rdp::process_event_queue::storePendingCertificateRequest(pending, nextGeneration, current);
+        assert(pending.has_value());
+        assert(pending->generation == nextGeneration);
+        assert(pending->generation != 12);
+        assert(pending->challenge.host == L"new.example.test");
+    }
+
     return 0;
 }

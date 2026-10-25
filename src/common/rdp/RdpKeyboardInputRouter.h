@@ -3,13 +3,11 @@
 #include "common/NativeTypes.h"
 #include "common/rdp/RdpInputEventUtil.h"
 #include "common/rdp/RdpModifierSyncTracker.h"
+#include "common/rdp/RdpWinKeyCodes.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <vector>
-
-#include "common/NativeTypes.h"
-#include "common/rdp/RdpWinKeyCodes.h"
 
 struct RdpKeyboardPhysicalState
 {

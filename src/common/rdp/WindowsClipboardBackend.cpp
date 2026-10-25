@@ -694,10 +694,11 @@ static SSIZE_T buildFileDescriptorList(ClipboardContext *clipboard, BYTE **data)
 
     group->cItems = static_cast<UINT>(clipboard->fileCount);
     for (size_t i = 0; i < clipboard->fileCount; ++i) {
-        // addToFileArrays increments fileCount only after a descriptor is built, so entries cannot be null here.
+        // addToFileArrays increments fileCount only after a descriptor is built, so fileCount is the
+        // number of usable descriptors and no entry can be null here. Keep this an assertion: a null
+        // entry would mean the bookkeeping above is broken, not something to skip at runtime.
         WINPR_ASSERT(clipboard->fileDescriptors[i]);
-        if (clipboard->fileDescriptors[i])
-            group->fgd[i] = *clipboard->fileDescriptors[i];
+        group->fgd[i] = *clipboard->fileDescriptors[i];
     }
 
     *data = reinterpret_cast<BYTE*>(group);
@@ -917,6 +918,11 @@ static UINT CALLBACK onServerFileContentsRequest(CliprdrClientContext *context,
     auto *clipboard = static_cast<ClipboardContext*>(context->custom);
     if (!clipboard)
         return ERROR_INTERNAL_ERROR;
+
+    // Validate the index before it reaches FormatEtc or the fallback arrays: both index fileCount
+    // sized storage, so an out of range index must fail once, up front, instead of per branch.
+    const bool knownFile = request->listIndex < clipboard->fileCount;
+
     UINT32 requestedSize =
         rdp::clipboard::fileContentsRequestBufferSize(request->dwFlags == FILECONTENTS_SIZE,
                                                       request->cbRequested);
@@ -929,7 +935,7 @@ static UINT CALLBACK onServerFileContentsRequest(CliprdrClientContext *context,
     UINT rc = ERROR_INTERNAL_ERROR;
 
     IDataObject *dataObject = nullptr;
-    if (SUCCEEDED(OleGetClipboard(&dataObject))) {
+    if (knownFile && SUCCEEDED(OleGetClipboard(&dataObject))) {
         FORMATETC format = {};
         format.cfFormat = RegisterClipboardFormat(CFSTR_FILECONTENTS);
         format.tymed = TYMED_ISTREAM;
@@ -964,22 +970,20 @@ static UINT CALLBACK onServerFileContentsRequest(CliprdrClientContext *context,
         IDataObject_Release(dataObject);
     }
 
-    if (rc != CHANNEL_RC_OK) {
-        if (request->listIndex < clipboard->fileCount) {
-            if (request->dwFlags == FILECONTENTS_SIZE) {
-                *reinterpret_cast<UINT32*>(&data[0]) = clipboard->fileDescriptors[request->listIndex]->nFileSizeLow;
-                *reinterpret_cast<UINT32*>(&data[4]) = clipboard->fileDescriptors[request->listIndex]->nFileSizeHigh;
-                actualSize = requestedSize;
+    if (rc != CHANNEL_RC_OK && knownFile) {
+        if (request->dwFlags == FILECONTENTS_SIZE) {
+            *reinterpret_cast<UINT32*>(&data[0]) = clipboard->fileDescriptors[request->listIndex]->nFileSizeLow;
+            *reinterpret_cast<UINT32*>(&data[4]) = clipboard->fileDescriptors[request->listIndex]->nFileSizeHigh;
+            actualSize = requestedSize;
+            rc = CHANNEL_RC_OK;
+        } else if (request->dwFlags == FILECONTENTS_RANGE) {
+            DWORD fileSize = 0;
+            if (getFileContents(clipboard->fileNames[request->listIndex], data,
+                                static_cast<LONG>(request->nPositionLow),
+                                static_cast<LONG>(request->nPositionHigh),
+                                requestedSize, &fileSize)) {
+                actualSize = fileSize;
                 rc = CHANNEL_RC_OK;
-            } else if (request->dwFlags == FILECONTENTS_RANGE) {
-                DWORD fileSize = 0;
-                if (getFileContents(clipboard->fileNames[request->listIndex], data,
-                                    static_cast<LONG>(request->nPositionLow),
-                                    static_cast<LONG>(request->nPositionHigh),
-                                    requestedSize, &fileSize)) {
-                    actualSize = fileSize;
-                    rc = CHANNEL_RC_OK;
-                }
             }
         }
     }

@@ -65,14 +65,36 @@ int main()
     assert(rdp::clipboard::fileGroupDescriptorByteSize(7, 1) == 11);
     assert(rdp::clipboard::fileGroupDescriptorByteSize(3, 0) == 0);
 
-    // Inside the bound the math still fits; above it, clamp to 0 so 4 + count * size cannot wrap.
-    const std::size_t largestFitting = (maxSize - 4u) / 16u;
-    const std::size_t largestResult = rdp::clipboard::fileGroupDescriptorByteSize(largestFitting, 16);
-    assert(largestResult > largestFitting);
-    assert(largestResult - 4ull == largestFitting * 16ull);
-    assert(rdp::clipboard::fileGroupDescriptorByteSize(largestFitting + 1, 16) == 0);
-    assert(rdp::clipboard::fileGroupDescriptorByteSize(maxSize, 16) == 0);
+    // Boundary of the clamp, for a descriptor size that divides the headroom evenly.
+    constexpr std::size_t descriptorSize = 16;
+    const std::size_t largestFitting = (maxSize - 4u) / descriptorSize;
+
+    assert(rdp::clipboard::fileGroupDescriptorByteSize(largestFitting, descriptorSize)
+           == 4ull + largestFitting * descriptorSize);
+    assert(rdp::clipboard::fileGroupDescriptorByteSize(largestFitting + 1, descriptorSize) == 0);
+    assert(rdp::clipboard::fileGroupDescriptorByteSize(maxSize, descriptorSize) == 0);
     assert(rdp::clipboard::fileGroupDescriptorByteSize(maxSize, maxSize) == 0);
+    assert(rdp::clipboard::fileGroupDescriptorByteSize(maxSize, 1) == 0);
+
+    // A descriptor size with a remainder: the largest fitting count still has to be computed from
+    // the floor, and one more item must be rejected rather than wrap.
+    constexpr std::size_t oddDescriptorSize = 3;
+    const std::size_t oddLargestFitting = (maxSize - 4u) / oddDescriptorSize;
+    assert(rdp::clipboard::fileGroupDescriptorByteSize(oddLargestFitting - 1, oddDescriptorSize)
+           == 4ull + (oddLargestFitting - 1) * oddDescriptorSize);
+    assert(rdp::clipboard::fileGroupDescriptorByteSize(oddLargestFitting, oddDescriptorSize)
+           == 4ull + oddLargestFitting * oddDescriptorSize);
+    assert(rdp::clipboard::fileGroupDescriptorByteSize(oddLargestFitting + 1, oddDescriptorSize) == 0);
+    assert(rdp::clipboard::fileGroupDescriptorByteSize(oddLargestFitting + 2, oddDescriptorSize) == 0);
+
+    // Real world shapes: the clipboard caps the descriptor array at kMaxClipboardFileCount, and an
+    // empty list still needs the 4 byte cItems header.
+    assert(rdp::clipboard::fileGroupDescriptorByteSize(0, sizeof(FILEDESCRIPTORW)) == 4);
+    assert(rdp::clipboard::fileGroupDescriptorByteSize(1, sizeof(FILEDESCRIPTORW))
+           == 4 + sizeof(FILEDESCRIPTORW));
+    assert(rdp::clipboard::fileGroupDescriptorByteSize(rdp::clipboard::kMaxClipboardFileCount,
+                                                       sizeof(FILEDESCRIPTORW))
+           == 4 + rdp::clipboard::kMaxClipboardFileCount * sizeof(FILEDESCRIPTORW));
 
     return 0;
 }
