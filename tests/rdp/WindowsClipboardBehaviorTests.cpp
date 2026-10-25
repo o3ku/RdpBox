@@ -3,6 +3,7 @@
 #include <limits>
 
 #include <windows.h>
+#include <shlobj.h>
 
 #include "common/rdp/WindowsClipboardBehavior.h"
 
