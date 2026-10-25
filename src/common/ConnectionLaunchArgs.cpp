@@ -1,7 +1,5 @@
 #include "common/ConnectionLaunchArgs.h"
 
-#include "common/ConnectionLaunchArgs.h"
-
 #include "Win32String.h"
 
 #include <algorithm>
