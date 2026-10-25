@@ -1,6 +1,6 @@
 #include <cassert>
 
-#include "common/rdp/RdpFocusNotification.h"
+#include "mfcui/session/RdpFocusNotification.h"
 
 int main()
 {

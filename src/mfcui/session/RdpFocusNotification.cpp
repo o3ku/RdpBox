@@ -1,4 +1,4 @@
-#include "common/rdp/RdpFocusNotification.h"
+#include "mfcui/session/RdpFocusNotification.h"
 
 namespace rdp
 {

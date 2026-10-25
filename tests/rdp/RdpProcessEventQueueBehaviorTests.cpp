@@ -1,7 +1,7 @@
 #include <cassert>
 #include <vector>
 
-#include "common/rdp/RdpProcessEventQueueBehavior.h"
+#include "mfcui/session/RdpProcessEventQueueBehavior.h"
 
 namespace
 {
@@ -135,7 +135,7 @@ int main()
         // generation untouched so that filter can work.
         FakeEventTarget target;
 
-        assert(rdp::process_event_queue::postStateChanged(target, FreeRdpProcess::State::Connecting, 12));
+        assert(rdp::process_event_queue::postStateChanged(target, FreeRdpProcess::State::Running, 12));
         assert(rdp::process_event_queue::postFrameUpdated(target, 12));
         assert(rdp::process_event_queue::postCursorUpdated(target, 12));
         assert(rdp::process_event_queue::postCertificateRequest(target, 12));

@@ -1,4 +1,4 @@
-#include "common/rdp/RdpResumeRecovery.h"
+#include "mfcui/session/RdpResumeRecovery.h"
 
 void RdpResumeRecovery::reset()
 {
