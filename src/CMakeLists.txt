@@ -242,8 +242,6 @@ set(RDPBOX_SOURCES
 if(RDPBOX_BUILD_QT)
     find_package(Qt5 5.15 CONFIG REQUIRED COMPONENTS Widgets Svg)
 
-
-
     if(WIN32)
         add_executable(RdpBox WIN32 ${RDPBOX_QT_SOURCES})
     else()
