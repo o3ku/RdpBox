@@ -2,7 +2,7 @@
 
 #include "SessionManager.h"
 
-#include "common/rdp/RdpSessionView.h"
+#include "mfcui/session/RdpSessionView.h"
 #include "mfcui/BrowserTabBar.h"
 
 #include <memory>

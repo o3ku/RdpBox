@@ -4,7 +4,7 @@
 #include "common/rdp/RdpInputEventUtil.h"
 #include "common/ui/MainWindowShortcuts.h"
 #include "common/rdp/RdpCertificatePromptBehavior.h"
-#include "common/rdp/RdpProcessEventBehavior.h"
+#include "mfcui/session/RdpProcessEventBehavior.h"
 
 #include <utility>
 

@@ -1,6 +1,6 @@
 #include <cassert>
 
-#include "common/rdp/RdpProcessEventBehavior.h"
+#include "mfcui/session/RdpProcessEventBehavior.h"
 
 int main()
 {

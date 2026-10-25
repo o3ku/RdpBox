@@ -69,12 +69,95 @@ endif()
 
 set(RDPBOX_GITHUB_URL_VALUE "https://github.com/o3ku/RdpBox")
 
-set(RDPBOX_QT_SOURCES
-    qtui/FramelessWin.h
+# Framework-free sources shared by both UI frontends. Listed exactly once:
+# a file belongs here only if it compiles without Qt and without MFC, on
+# every platform the Qt build targets.
+set(RDPBOX_COMMON_SOURCES
     common/rdp/RdpSessionKeyboardHook.h
     common/rdp/RdpSessionKeyboardHook.cpp
     common/ui/MainWindowShortcuts.h
     common/ui/MainWindowShortcuts.cpp
+    common/AppPaths.h
+    common/AppPaths.cpp
+    common/ConnectionLaunchArgs.h
+    common/ConnectionLaunchArgs.cpp
+    common/PasswordProtection.h
+    common/PasswordProtection.cpp
+    common/PasswordProtectionStartup.h
+    common/PasswordProtectionStartup.cpp
+    common/UpdateClient.h
+    common/UpdateClient.cpp
+    common/profiles/Profile.h
+    common/profiles/ProfileRepository.h
+    common/profiles/ProfileRepository.cpp
+    common/rdp/FrameBufferMemory.h
+    common/rdp/FreeRdpProcess.h
+    common/rdp/FreeRdpProcess.cpp
+    common/rdp/FreeRdpProcessNative.h
+    common/rdp/FreeRdpProcessNative.cpp
+    common/rdp/PlatformClipboardBackend.h
+    common/rdp/RdpClipboardBridge.h
+    common/rdp/RdpClipboardBridge.cpp
+    common/rdp/RdpCertificatePromptBehavior.h
+    common/rdp/RdpCertificatePromptBehavior.cpp
+    common/rdp/RdpCursorClassifier.h
+    common/rdp/RdpCursorClassifier.cpp
+    common/rdp/RdpInputEventUtil.h
+    common/rdp/RdpInputModifiers.h
+    common/rdp/RdpInputModifiers.cpp
+    common/rdp/RdpKeyboardInputRouter.h
+    common/rdp/RdpKeyboardInputRouter.cpp
+    common/rdp/RdpMouseMoveCoalescer.h
+    common/rdp/RdpMouseMoveCoalescer.cpp
+    common/rdp/RdpModifierSyncTracker.h
+    common/rdp/RdpModifierSyncTracker.cpp
+    common/rdp/RdpReconnectInteraction.h
+    common/rdp/RdpReservedShortcutTracker.h
+    common/rdp/RdpReservedShortcutTracker.cpp
+    common/rdp/RdpSessionKeyboardState.h
+    common/rdp/RdpSessionKeyboardState.cpp
+    common/rdp/RdpSessionMouseState.h
+    common/rdp/RdpSessionMouseState.cpp
+    common/rdp/RdpResizeBurstTracker.h
+    common/rdp/RdpResizeBurstTracker.cpp
+    common/rdp/RdpResolutionRecovery.h
+    common/rdp/RdpResolutionRecovery.cpp
+    common/rdp/RdpSessionViewBehavior.h
+    common/rdp/RdpSessionViewBehavior.cpp
+    common/rdp/WindowsClipboardBackend.h
+    common/rdp/WindowsClipboardBehavior.h
+    common/ui/ConnectionListBehavior.h
+    common/ui/ConnectionListBehavior.cpp
+    common/ui/ProfileEditBehavior.h
+    common/ui/ProfileEditBehavior.cpp
+    common/ui/MainWindowTabBehavior.h
+    common/ui/MainWindowTabBehavior.cpp
+    common/ui/MainWindowSessionBehavior.h
+    common/ui/MainWindowSessionBehavior.cpp
+    common/ui/MainWindowUpdateBehavior.h
+    common/ui/MainWindowUpdateBehavior.cpp
+    common/ui/WindowStateScaling.h
+    common/ui/WindowStateScaling.cpp
+)
+
+# Windows-only shared sources (clipboard backend, Win32 input helpers).
+# Both UIs get them on Windows; the Qt Linux build never sees them, so the
+# old per-file REMOVE_ITEM hack is gone.
+set(RDPBOX_COMMON_WIN32_SOURCES
+    common/rdp/ClipboardWindowReady.h
+    common/rdp/RdpInputEventUtil.cpp
+    common/rdp/WindowsClipboardBackend.cpp
+    common/rdp/WindowsClipboardBackendDataObject.cpp
+    common/rdp/WindowsClipboardBackendWindow.cpp
+    common/rdp/WindowsClipboardBackendInternal.h
+    common/rdp/WindowsClipboardBehavior.cpp
+    resources/resource.h
+    resources/app_icon.rc
+)
+
+set(RDPBOX_QT_SOURCES
+    ${RDPBOX_COMMON_SOURCES}
+    qtui/FramelessWin.h
     qtui/QtMain.cpp
     qtui/QtMainWindow.h
     qtui/QtMainWindow.cpp
@@ -87,79 +170,20 @@ set(RDPBOX_QT_SOURCES
     qtui/QtShortcutSettings.h
     qtui/QtShortcutSettings.cpp
     resources/qt_resources.qrc
-    common/AppPaths.h
-    common/AppPaths.cpp
-    common/ConnectionLaunchArgs.h
-    common/ConnectionLaunchArgs.cpp
-    common/PasswordProtection.h
-    common/PasswordProtection.cpp
-    common/PasswordProtectionStartup.h
-    common/PasswordProtectionStartup.cpp
-    common/UpdateClient.h
-    common/UpdateClient.cpp
-    common/profiles/Profile.h
-    common/profiles/ProfileRepository.h
-    common/profiles/ProfileRepository.cpp
-    common/rdp/ClipboardWindowReady.h
-    common/rdp/FrameBufferMemory.h
-    common/rdp/FreeRdpProcess.h
-    common/rdp/FreeRdpProcess.cpp
-    common/rdp/FreeRdpProcessNative.h
-    common/rdp/FreeRdpProcessNative.cpp
-    common/rdp/PlatformClipboardBackend.h
-    common/rdp/RdpClipboardBridge.h
-    common/rdp/RdpClipboardBridge.cpp
-    common/rdp/RdpCertificatePromptBehavior.h
-    common/rdp/RdpCertificatePromptBehavior.cpp
-    common/rdp/RdpCursorClassifier.h
-    common/rdp/RdpCursorClassifier.cpp
-    common/rdp/RdpInputEventUtil.h
-    common/rdp/RdpInputEventUtil.cpp
-    common/rdp/RdpInputModifiers.h
-    common/rdp/RdpInputModifiers.cpp
-    common/rdp/RdpKeyboardInputRouter.h
-    common/rdp/RdpKeyboardInputRouter.cpp
-    common/rdp/RdpMouseMoveCoalescer.h
-    common/rdp/RdpMouseMoveCoalescer.cpp
-    common/rdp/RdpModifierSyncTracker.h
-    common/rdp/RdpModifierSyncTracker.cpp
-    common/rdp/RdpReconnectInteraction.h
-    common/rdp/RdpReservedShortcutTracker.h
-    common/rdp/RdpReservedShortcutTracker.cpp
-    common/rdp/RdpSessionKeyboardState.h
-    common/rdp/RdpSessionKeyboardState.cpp
-    common/rdp/RdpSessionMouseState.h
-    common/rdp/RdpSessionMouseState.cpp
-    common/rdp/RdpResizeBurstTracker.h
-    common/rdp/RdpResizeBurstTracker.cpp
-    common/rdp/RdpResolutionRecovery.h
-    common/rdp/RdpResolutionRecovery.cpp
-    common/rdp/RdpSessionViewBehavior.h
-    common/rdp/RdpSessionViewBehavior.cpp
-    common/rdp/WindowsClipboardBackend.h
-    common/rdp/WindowsClipboardBackend.cpp
-    common/rdp/WindowsClipboardBackendDataObject.cpp
-    common/rdp/WindowsClipboardBackendInternal.h
-    common/rdp/WindowsClipboardBackendWindow.cpp
-    common/rdp/WindowsClipboardBehavior.h
-    common/rdp/WindowsClipboardBehavior.cpp
-    common/ui/ConnectionListBehavior.h
-    common/ui/ConnectionListBehavior.cpp
-    common/ui/ProfileEditBehavior.h
-    common/ui/ProfileEditBehavior.cpp
-    common/ui/MainWindowTabBehavior.h
-    common/ui/MainWindowTabBehavior.cpp
-    common/ui/MainWindowSessionBehavior.h
-    common/ui/MainWindowSessionBehavior.cpp
-    common/ui/MainWindowUpdateBehavior.h
-    common/ui/MainWindowUpdateBehavior.cpp
-    common/ui/WindowStateScaling.h
-    common/ui/WindowStateScaling.cpp
-    resources/resource.h
-    resources/app_icon.rc
 )
 
+if(WIN32)
+    list(APPEND RDPBOX_QT_SOURCES
+        ${RDPBOX_COMMON_WIN32_SOURCES}
+    )
+endif()
+
 set(RDPBOX_SOURCES
+    ${RDPBOX_COMMON_SOURCES}
+    ${RDPBOX_COMMON_WIN32_SOURCES}
+    common/NativeTypes.h
+    common/Win32String.h
+    common/session/SessionResumePolicy.h
     mfcui/RdpBoxApp.h
     mfcui/RdpBoxApp.cpp
     mfcui/WinMain.cpp
@@ -168,79 +192,19 @@ set(RDPBOX_SOURCES
     mfcui/MainWindowChrome.cpp
     mfcui/MainWindowSessions.cpp
     mfcui/MainWindowUpdate.cpp
-    common/AppPaths.h
-    common/AppPaths.cpp
-    common/ConnectionLaunchArgs.h
-    common/ConnectionLaunchArgs.cpp
-    common/PasswordProtection.h
-    common/PasswordProtection.cpp
-    common/PasswordProtectionStartup.h
-    common/PasswordProtectionStartup.cpp
-    common/UpdateClient.h
-    common/UpdateClient.cpp
-    common/NativeTypes.h
-    common/Win32String.h
-    common/profiles/Profile.h
-    common/profiles/ProfileRepository.h
-    common/profiles/ProfileRepository.cpp
-    common/rdp/FreeRdpProcess.h
-    common/rdp/FreeRdpProcess.cpp
-    common/rdp/FreeRdpProcessNative.h
-    common/rdp/FreeRdpProcessNative.cpp
-    common/rdp/RdpCursorClassifier.h
-    common/rdp/RdpCursorClassifier.cpp
-    common/rdp/RdpFocusNotification.h
-    common/rdp/RdpFocusNotification.cpp
-    common/rdp/RdpInputEventUtil.h
-    common/rdp/RdpInputEventUtil.cpp
-    common/rdp/RdpInputModifiers.h
-    common/rdp/RdpInputModifiers.cpp
-    common/rdp/RdpKeyboardInputRouter.h
-    common/rdp/RdpKeyboardInputRouter.cpp
-    common/rdp/RdpReconnectInteraction.h
-    common/rdp/RdpResolutionRecovery.h
-    common/rdp/RdpResolutionRecovery.cpp
-    common/rdp/RdpSessionViewBehavior.h
-    common/rdp/RdpSessionViewBehavior.cpp
-    common/rdp/RdpReservedShortcutTracker.h
-    common/rdp/RdpReservedShortcutTracker.cpp
-    common/rdp/RdpModifierSyncTracker.h
-    common/rdp/RdpModifierSyncTracker.cpp
-    common/rdp/RdpMouseMoveCoalescer.h
-    common/rdp/RdpMouseMoveCoalescer.cpp
-    common/rdp/RdpProcessEventBehavior.h
-    common/rdp/RdpProcessEventBehavior.cpp
-    common/rdp/RdpProcessEventQueueBehavior.h
-    common/rdp/RdpProcessEventQueueBehavior.cpp
-    common/rdp/RdpResumeRecovery.h
-    common/rdp/RdpResumeRecovery.cpp
-    common/rdp/RdpResizeBurstTracker.h
-    common/rdp/RdpResizeBurstTracker.cpp
-    common/rdp/RdpSessionKeyboardState.h
-    common/rdp/RdpSessionKeyboardState.cpp
-    common/rdp/RdpSessionMouseState.h
-    common/rdp/RdpSessionMouseState.cpp
-    common/rdp/FrameBufferMemory.h
-    common/rdp/RdpClipboardBridge.h
-    common/rdp/RdpClipboardBridge.cpp
-    common/rdp/RdpCertificatePromptBehavior.h
-    common/rdp/RdpCertificatePromptBehavior.cpp
-    common/rdp/ClipboardWindowReady.h
-    common/rdp/PlatformClipboardBackend.h
-    common/rdp/RdpSessionView.h
-    common/rdp/RdpSessionView.cpp
-    common/rdp/RdpSessionViewInput.cpp
-    common/rdp/RdpSessionKeyboardHook.h
-    common/rdp/RdpSessionKeyboardHook.cpp
-    common/rdp/RdpSessionViewMessages.cpp
-    common/rdp/RdpSessionViewRendering.cpp
-    common/rdp/WindowsClipboardBackend.h
-    common/rdp/WindowsClipboardBehavior.h
-    common/rdp/WindowsClipboardBehavior.cpp
-    common/rdp/WindowsClipboardBackendInternal.h
-    common/rdp/WindowsClipboardBackendDataObject.cpp
-    common/rdp/WindowsClipboardBackendWindow.cpp
-    common/rdp/WindowsClipboardBackend.cpp
+    mfcui/session/RdpFocusNotification.h
+    mfcui/session/RdpFocusNotification.cpp
+    mfcui/session/RdpProcessEventBehavior.h
+    mfcui/session/RdpProcessEventBehavior.cpp
+    mfcui/session/RdpProcessEventQueueBehavior.h
+    mfcui/session/RdpProcessEventQueueBehavior.cpp
+    mfcui/session/RdpResumeRecovery.h
+    mfcui/session/RdpResumeRecovery.cpp
+    mfcui/session/RdpSessionView.h
+    mfcui/session/RdpSessionView.cpp
+    mfcui/session/RdpSessionViewInput.cpp
+    mfcui/session/RdpSessionViewMessages.cpp
+    mfcui/session/RdpSessionViewRendering.cpp
     mfcui/session/SessionManager.h
     mfcui/session/SessionManagerInterfaces.h
     mfcui/session/SessionManager.cpp
@@ -249,31 +213,18 @@ set(RDPBOX_SOURCES
     mfcui/session/SessionCollectionBehavior.cpp
     mfcui/session/SessionTabBehavior.h
     mfcui/session/SessionTabBehavior.cpp
-    common/session/SessionResumePolicy.h
     mfcui/AboutDialog.h
     mfcui/AboutDialog.cpp
-    common/ui/MainWindowShortcuts.h
-    common/ui/MainWindowShortcuts.cpp
     mfcui/ShortcutsDialog.h
     mfcui/ShortcutsDialog.cpp
     mfcui/BrowserTabBehavior.h
     mfcui/BrowserTabBehavior.cpp
-    common/ui/ConnectionListBehavior.h
-    common/ui/ConnectionListBehavior.cpp
     mfcui/ProfileEditDialog.h
     mfcui/ProfileEditDialog.cpp
-    common/ui/ProfileEditBehavior.h
-    common/ui/ProfileEditBehavior.cpp
     mfcui/ConnectionListDialog.h
     mfcui/ConnectionListDialog.cpp
     mfcui/BrowserTabBar.h
     mfcui/BrowserTabBar.cpp
-    common/ui/MainWindowTabBehavior.h
-    common/ui/MainWindowTabBehavior.cpp
-    common/ui/MainWindowSessionBehavior.h
-    common/ui/MainWindowSessionBehavior.cpp
-    common/ui/MainWindowUpdateBehavior.h
-    common/ui/MainWindowUpdateBehavior.cpp
     mfcui/MainWindowLayoutBehavior.h
     mfcui/MainWindowLayoutBehavior.cpp
     mfcui/FlatButton.h
@@ -283,31 +234,15 @@ set(RDPBOX_SOURCES
     mfcui/ParentResizeForwarder.h
     mfcui/ParentResizeForwarder.cpp
     mfcui/Win10Theme.h
-    common/ui/WindowStateScaling.h
-    common/ui/WindowStateScaling.cpp
     mfcui/WindowFrameMetrics.h
     mfcui/WindowFrameMetrics.cpp
-    resources/resource.h
     resources/mfc_ui.rc
-    resources/app_icon.rc
 )
 
 if(RDPBOX_BUILD_QT)
     find_package(Qt5 5.15 CONFIG REQUIRED COMPONENTS Widgets Svg)
 
-    if(NOT WIN32)
-        list(REMOVE_ITEM RDPBOX_QT_SOURCES
-            common/rdp/ClipboardWindowReady.h
-            common/rdp/RdpInputEventUtil.cpp
-            common/rdp/WindowsClipboardBackend.cpp
-            common/rdp/WindowsClipboardBackendDataObject.cpp
-            common/rdp/WindowsClipboardBackendWindow.cpp
-            common/rdp/WindowsClipboardBackendInternal.h
-            common/rdp/WindowsClipboardBehavior.cpp
-            resources/resource.h
-            resources/app_icon.rc
-        )
-    endif()
+
 
     if(WIN32)
         add_executable(RdpBox WIN32 ${RDPBOX_QT_SOURCES})

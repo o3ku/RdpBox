@@ -102,7 +102,7 @@ add_test(NAME RdpKeyboardInputRouterTests COMMAND RdpKeyboardInputRouterTests)
 
 add_executable(RdpFocusNotificationTests
     rdp/RdpFocusNotificationTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpFocusNotification.cpp
+    ${CMAKE_SOURCE_DIR}/src/mfcui/session/RdpFocusNotification.cpp
 )
 
 target_include_directories(RdpFocusNotificationTests PRIVATE
@@ -174,7 +174,7 @@ add_executable(FreeRdpStopSmoke
     ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpInputEventUtil.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpInputModifiers.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpSessionViewBehavior.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpProcessEventBehavior.cpp
+    ${CMAKE_SOURCE_DIR}/src/mfcui/session/RdpProcessEventBehavior.cpp
 )
 
 target_include_directories(FreeRdpStopSmoke PRIVATE
@@ -246,7 +246,7 @@ add_test(NAME RdpInputEventUtilTests COMMAND RdpInputEventUtilTests)
 
 add_executable(RdpProcessEventBehaviorTests
     rdp/RdpProcessEventBehaviorTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpProcessEventBehavior.cpp
+    ${CMAKE_SOURCE_DIR}/src/mfcui/session/RdpProcessEventBehavior.cpp
 )
 
 target_include_directories(RdpProcessEventBehaviorTests PRIVATE
@@ -257,7 +257,7 @@ add_test(NAME RdpProcessEventBehaviorTests COMMAND RdpProcessEventBehaviorTests)
 
 add_executable(RdpProcessEventQueueBehaviorTests
     rdp/RdpProcessEventQueueBehaviorTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpProcessEventQueueBehavior.cpp
+    ${CMAKE_SOURCE_DIR}/src/mfcui/session/RdpProcessEventQueueBehavior.cpp
 )
 
 target_include_directories(RdpProcessEventQueueBehaviorTests PRIVATE
@@ -288,7 +288,7 @@ add_test(NAME RdpCursorClassifierTests COMMAND RdpCursorClassifierTests)
 
 add_executable(RdpResumeRecoveryTests
     rdp/RdpResumeRecoveryTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpResumeRecovery.cpp
+    ${CMAKE_SOURCE_DIR}/src/mfcui/session/RdpResumeRecovery.cpp
 )
 
 target_include_directories(RdpResumeRecoveryTests PRIVATE

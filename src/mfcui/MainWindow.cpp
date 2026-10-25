@@ -2,7 +2,7 @@
 
 #include "common/Win32String.h"
 #include "common/profiles/ProfileRepository.h"
-#include "common/rdp/RdpSessionView.h"
+#include "mfcui/session/RdpSessionView.h"
 #include "mfcui/session/SessionManager.h"
 #include "mfcui/AboutDialog.h"
 #include "common/ui/MainWindowActivation.h"

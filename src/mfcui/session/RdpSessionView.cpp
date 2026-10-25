@@ -2,8 +2,8 @@
 
 #include "common/rdp/FrameBufferMemory.h"
 #include "common/rdp/RdpCursorClassifier.h"
-#include "common/rdp/RdpFocusNotification.h"
-#include "common/rdp/RdpProcessEventQueueBehavior.h"
+#include "mfcui/session/RdpFocusNotification.h"
+#include "mfcui/session/RdpProcessEventQueueBehavior.h"
 #include "common/rdp/RdpSessionKeyboardHook.h"
 #include "common/rdp/RdpSessionViewBehavior.h"
 #include "mfcui/Win10Theme.h"

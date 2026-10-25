@@ -12,9 +12,9 @@
 
 #include "common/profiles/Profile.h"
 #include "common/rdp/FreeRdpProcess.h"
-#include "common/rdp/RdpProcessEventQueueBehavior.h"
+#include "mfcui/session/RdpProcessEventQueueBehavior.h"
 #include "common/rdp/RdpResolutionRecovery.h"
-#include "common/rdp/RdpResumeRecovery.h"
+#include "mfcui/session/RdpResumeRecovery.h"
 #include "common/rdp/RdpSessionMouseState.h"
 #include "common/rdp/RdpSessionKeyboardState.h"
 #include "common/rdp/RdpKeyboardInputRouter.h"
