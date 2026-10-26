@@ -84,12 +84,13 @@
 
 ## P2 重复代码与架构
 
-- [ ] **P2-1 会话状态机在 MFC/Qt 各写一份**
-  - 位置：`src/common/rdp/RdpSessionView.cpp`（752 行）、`src/qtui/QtRdpSessionWidget.cpp`（1049 行）
-  - 现象：`FrameGate`、`ResizeBurst`、`RecoveryTimer`、`MouseMoveCoalescer`、
-    `pressedMouseButtons`、`releaseAllPressedKeys` 逐行相似，只有定时器 API 不同。
-  - 修法：抽 `SessionConnectionState`（纯逻辑，`RdpSessionViewBehavior.h` 已有一半）+
-    `IMouseButtonTracker`，两侧只留薄壳。
+- [~] **P2-1 会话状态机在 MFC/Qt 各写一份**（1a 已落地 2026-10-26 PR #11，CodeBuddy 评审通过）
+  - **P2-1a 完成**：Qt 采纳 `RdpSessionMouseState`（吞掉私有按钮位图+coalescer+last point，净 -40 行）；
+    两侧帧闸门去摊平为单个 `FrameGateState` 成员；新增 `resetPendingMove()` 解决 Qt 排队回调下
+    全量 reset 抹掉已记录按下的丢 release 风险（CodeBuddy 评审发现）；补 `RdpSessionMouseStateTests`
+    （基线 53→54）。
+  - **P2-1b 待做**：真 `SessionConnectionState` 状态机抽取（帧闸门生命周期+resize burst+恢复相位+
+    overlay 决策），视图只留定时器/事件 API 薄壳。
 
 - [ ] **P2-2 Qt 完全绕过 `SessionManager`**
   - 位置：`src/qtui/QtMainWindow.cpp:2248-2320`
