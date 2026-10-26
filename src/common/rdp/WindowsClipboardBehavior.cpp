@@ -37,6 +37,14 @@ std::uint32_t fileContentsRequestBufferSize(bool sizeRequest, std::uint32_t requ
     return sizeRequest ? sizeof(std::uint64_t) : requestedSize;
 }
 
+bool isDirectoryDescriptorEntry(std::uint32_t fileAttributes)
+{
+    // INVALID_FILE_ATTRIBUTES (all bits set) marks a failed attributes query,
+    // not a directory; reject it explicitly.
+    return fileAttributes != INVALID_FILE_ATTRIBUTES
+        && (fileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+}
+
 std::uint32_t boundedFileContentsResponseSize(bool responseOk,
                                               std::uint32_t requestedSize,
                                               std::uint32_t dataLength)

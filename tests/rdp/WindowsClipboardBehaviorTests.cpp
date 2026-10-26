@@ -97,5 +97,13 @@ int main()
                                                        sizeof(FILEDESCRIPTORW))
            == 4 + rdp::clipboard::kMaxClipboardFileCount * sizeof(FILEDESCRIPTORW));
 
+    // Directory detection: FILE_ATTRIBUTE_DIRECTORY without the 0xFFFFFFFF
+    // wildcard of a failed GetFileAttributes query.
+    assert(!rdp::clipboard::isDirectoryDescriptorEntry(0));                       // plain file
+    assert(!rdp::clipboard::isDirectoryDescriptorEntry(FILE_ATTRIBUTE_ARCHIVE));                    // archive file
+    assert(rdp::clipboard::isDirectoryDescriptorEntry(FILE_ATTRIBUTE_DIRECTORY));                     // directory
+    assert(rdp::clipboard::isDirectoryDescriptorEntry(FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_READONLY));                     // dir + readonly
+    assert(!rdp::clipboard::isDirectoryDescriptorEntry(INVALID_FILE_ATTRIBUTES));             // attributes query failed
+
     return 0;
 }

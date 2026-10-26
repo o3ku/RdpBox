@@ -21,6 +21,12 @@ bool shouldAcceptRemoteClipboardFormat(std::uint32_t localFormatId,
 
 std::uint32_t fileContentsRequestBufferSize(bool sizeRequest, std::uint32_t requestedSize);
 
+// A FILEDESCRIPTORW attributes value identifies a directory entry (and not a
+// failed GetFileAttributes query, which returns INVALID_FILE_ATTRIBUTES with
+// every bit set). Directory entries have no byte stream: file-contents
+// requests for them must fail instead of answering empty data.
+bool isDirectoryDescriptorEntry(std::uint32_t fileAttributes);
+
 std::uint32_t boundedFileContentsResponseSize(bool responseOk,
                                               std::uint32_t requestedSize,
                                               std::uint32_t dataLength);
