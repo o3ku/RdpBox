@@ -6,6 +6,7 @@
 #include "common/rdp/RdpCursorClassifier.h"
 #include "common/rdp/RdpInputEventUtil.h"
 #include "common/rdp/RdpInputModifiers.h"
+#include "common/rdp/RdpKeyboardPhysicalProbing.h"
 #include "common/rdp/RdpReconnectInteraction.h"
 #include "common/rdp/RdpSessionViewBehavior.h"
 
@@ -114,54 +115,6 @@ Qt::CursorShape cursorShapeFromKind(CursorKind kind)
     return Qt::ArrowCursor;
 }
 
-bool isVirtualKeyPhysicallyDown(int virtualKey)
-{
-#ifdef _WIN32
-    return (::GetAsyncKeyState(virtualKey) & 0x8000) != 0;
-#else
-    // ponytail: no GetAsyncKeyState equivalent off Windows; physical modifier
-    // sync falls back to per-event modifiers.
-    static_cast<void>(virtualKey);
-    return false;
-#endif
-}
-
-unsigned int physicalKeyboardModifiers()
-{
-    unsigned int modifiers = ModifierNone;
-    if (isVirtualKeyPhysicallyDown(VK_CONTROL))
-        modifiers |= ModifierControl;
-    if (isVirtualKeyPhysicallyDown(VK_SHIFT))
-        modifiers |= ModifierShift;
-    if (isVirtualKeyPhysicallyDown(VK_MENU))
-        modifiers |= ModifierAlt;
-    if (isVirtualKeyPhysicallyDown(VK_LWIN) || isVirtualKeyPhysicallyDown(VK_RWIN))
-        modifiers |= ModifierWin;
-    return modifiers;
-}
-
-RdpKeyboardPhysicalState physicalKeyboardState()
-{
-    RdpKeyboardPhysicalState state;
-    state.modifiers = physicalKeyboardModifiers();
-    if (isVirtualKeyPhysicallyDown(VK_RCONTROL))
-        state.controlVirtualKey = VK_RCONTROL;
-    else if (isVirtualKeyPhysicallyDown(VK_LCONTROL))
-        state.controlVirtualKey = VK_LCONTROL;
-    if (isVirtualKeyPhysicallyDown(VK_RSHIFT))
-        state.shiftVirtualKey = VK_RSHIFT;
-    else if (isVirtualKeyPhysicallyDown(VK_LSHIFT))
-        state.shiftVirtualKey = VK_LSHIFT;
-    if (isVirtualKeyPhysicallyDown(VK_RMENU))
-        state.altVirtualKey = VK_RMENU;
-    else if (isVirtualKeyPhysicallyDown(VK_LMENU))
-        state.altVirtualKey = VK_LMENU;
-    if (isVirtualKeyPhysicallyDown(VK_RWIN))
-        state.winVirtualKey = VK_RWIN;
-    else if (isVirtualKeyPhysicallyDown(VK_LWIN))
-        state.winVirtualKey = VK_LWIN;
-    return state;
-}
 
 std::uint32_t keyMessageFromQtEvent(const QKeyEvent *event, bool down)
 {
@@ -169,7 +122,7 @@ std::uint32_t keyMessageFromQtEvent(const QKeyEvent *event, bool down)
     const bool altContext = virtualKey == VK_MENU
         || virtualKey == VK_LMENU
         || virtualKey == VK_RMENU
-        || (physicalKeyboardModifiers() & ModifierAlt) != 0;
+        || (rdp::physical_keyboard::physicalKeyboardModifiers() & ModifierAlt) != 0;
     if (down)
         return altContext ? WM_SYSKEYDOWN : WM_KEYDOWN;
     return altContext ? WM_SYSKEYUP : WM_KEYUP;
@@ -835,7 +788,7 @@ void QtRdpSessionWidget::syncMouseModifiers(unsigned int mouseFlags)
 
     sendKeyboardActions(m_keyboardRouter.synchronizeMouseModifiers(
         mouseFlags,
-        physicalKeyboardState(),
+        rdp::physical_keyboard::physicalKeyboardState(),
         hasFocus()));
 }
 
@@ -912,7 +865,7 @@ void QtRdpSessionWidget::forwardNativeKeyMessage(std::uint32_t message,
     sendKeyboardActions(m_keyboardRouter.handleKeyMessage(message,
                                                           virtualKey,
                                                           *nativeEvent,
-                                                          physicalKeyboardState(),
+                                                          rdp::physical_keyboard::physicalKeyboardState(),
                                                           hasFocus()));
 }
 
@@ -994,7 +947,7 @@ void QtRdpSessionWidget::sendKeyEvent(QKeyEvent *event, bool down)
     sendKeyboardActions(m_keyboardRouter.handleKeyMessage(message,
                                                           virtualKey,
                                                           *nativeEvent,
-                                                          physicalKeyboardState(),
+                                                          rdp::physical_keyboard::physicalKeyboardState(),
                                                           hasFocus()));
     event->accept();
 #endif // _WIN32

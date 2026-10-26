@@ -19,6 +19,7 @@
 #include "mfcui/session/RdpProcessEventQueueBehavior.h"
 #include "mfcui/session/RdpResumeRecovery.h"
 #include "common/rdp/RdpKeyboardInputRouter.h"
+#include "common/rdp/RdpKeyboardPhysicalProbing.h"
 #include "common/rdp/RdpResizeBurstTracker.h"
 #include "common/rdp/RdpSessionKeyboardHook.h"
 

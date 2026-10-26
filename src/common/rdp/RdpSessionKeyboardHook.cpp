@@ -1,6 +1,7 @@
 #include "common/rdp/RdpSessionKeyboardHook.h"
 
 #include "common/rdp/RdpInputEventUtil.h"
+#include "common/rdp/RdpKeyboardPhysicalProbing.h"
 #include "common/ui/MainWindowShortcuts.h"
 
 #include <cstdint>
@@ -40,56 +41,17 @@ namespace
 RdpSystemKeyTarget *g_systemKeyTarget = nullptr;
 HHOOK g_keyboardHook = nullptr;
 
-bool isVirtualKeyPhysicallyDown(int virtualKey)
-{
-    return (::GetAsyncKeyState(virtualKey) & 0x8000) != 0;
-}
-
-unsigned int physicalKeyboardModifiers()
-{
-    unsigned int modifiers = ModifierNone;
-    if (isVirtualKeyPhysicallyDown(VK_CONTROL))
-        modifiers |= ModifierControl;
-    if (isVirtualKeyPhysicallyDown(VK_SHIFT))
-        modifiers |= ModifierShift;
-    if (isVirtualKeyPhysicallyDown(VK_MENU))
-        modifiers |= ModifierAlt;
-    if (isVirtualKeyPhysicallyDown(VK_LWIN) || isVirtualKeyPhysicallyDown(VK_RWIN))
-        modifiers |= ModifierWin;
-    return modifiers;
-}
-
-RdpKeyboardPhysicalState physicalKeyboardState()
-{
-    RdpKeyboardPhysicalState state;
-    state.modifiers = physicalKeyboardModifiers();
-    if (isVirtualKeyPhysicallyDown(VK_RCONTROL))
-        state.controlVirtualKey = VK_RCONTROL;
-    else if (isVirtualKeyPhysicallyDown(VK_LCONTROL))
-        state.controlVirtualKey = VK_LCONTROL;
-    if (isVirtualKeyPhysicallyDown(VK_RSHIFT))
-        state.shiftVirtualKey = VK_RSHIFT;
-    else if (isVirtualKeyPhysicallyDown(VK_LSHIFT))
-        state.shiftVirtualKey = VK_LSHIFT;
-    if (isVirtualKeyPhysicallyDown(VK_RMENU))
-        state.altVirtualKey = VK_RMENU;
-    else if (isVirtualKeyPhysicallyDown(VK_LMENU))
-        state.altVirtualKey = VK_LMENU;
-    if (isVirtualKeyPhysicallyDown(VK_RWIN))
-        state.winVirtualKey = VK_RWIN;
-    else if (isVirtualKeyPhysicallyDown(VK_LWIN))
-        state.winVirtualKey = VK_LWIN;
-    return state;
-}
-
 bool isReservedLowLevelShortcut(const KBDLLHOOKSTRUCT *info)
 {
     if (!info)
         return false;
 
-    return ui::isReservedMainWindowShortcut(isVirtualKeyPhysicallyDown(VK_CONTROL),
-                                            isVirtualKeyPhysicallyDown(VK_SHIFT),
-                                            isVirtualKeyPhysicallyDown(VK_MENU)
+    const bool controlDown = rdp::physical_keyboard::isVirtualKeyPhysicallyDown(VK_CONTROL);
+    const bool shiftDown = rdp::physical_keyboard::isVirtualKeyPhysicallyDown(VK_SHIFT);
+    const bool altDown = rdp::physical_keyboard::isVirtualKeyPhysicallyDown(VK_MENU);
+    return ui::isReservedMainWindowShortcut(controlDown,
+                                            shiftDown,
+                                            altDown
                                                 || (info->flags & LLKHF_ALTDOWN) != 0,
                                             static_cast<unsigned int>(info->vkCode));
 }
@@ -115,7 +77,7 @@ bool shouldCaptureLowLevelKey(const KBDLLHOOKSTRUCT *info, bool keyUp)
 
     return g_systemKeyTarget->shouldCaptureLowLevelKey(
         lowLevelKeyEventFromInfo(info, keyUp),
-        physicalKeyboardState());
+        rdp::physical_keyboard::physicalKeyboardState());
 }
 
 LRESULT CALLBACK keyboardHookProc(int code, WPARAM wParam, LPARAM lParam)
@@ -133,7 +95,7 @@ LRESULT CALLBACK keyboardHookProc(int code, WPARAM wParam, LPARAM lParam)
     const bool extended = (info->flags & LLKHF_EXTENDED) != 0;
     const RdpLowLevelKeyEvent lowLevelEvent = lowLevelKeyEventFromInfo(info, keyUp);
     const std::uint32_t message =
-        g_systemKeyTarget->messageForLowLevelKey(lowLevelEvent, physicalKeyboardState());
+        g_systemKeyTarget->messageForLowLevelKey(lowLevelEvent, rdp::physical_keyboard::physicalKeyboardState());
     const std::intptr_t keyLParam = static_cast<std::intptr_t>((info->scanCode & 0xFFu) << 16)
         | (extended ? 0x01000000 : 0)
         | (keyUp ? 0xC0000000 : 0);
