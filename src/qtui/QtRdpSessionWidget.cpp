@@ -529,6 +529,9 @@ void QtRdpSessionWidget::stopProcess(bool showDisconnectedOverlay)
     // behind this point.
     m_inputSuspended = true;
     m_process->stop();
+    // stop() has returned: the session is swapped out and submit()
+    // drops input on its own from here, so input forwarding reopens.
+    m_inputSuspended = false;
     if (showDisconnectedOverlay)
         updateState(FreeRdpProcess::State::Finished);
 }

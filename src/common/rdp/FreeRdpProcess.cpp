@@ -730,7 +730,6 @@ void FreeRdpProcess::submit(std::function<void(void *, FreeRdpBackend &)> apply)
         // The session is being torn down behind this call (stop() frees the
         // backend while an input event still reaches it through a nested
         // message pump). Dropping one input beat beats crashing the process.
-        std::fprintf(stderr, "RdpBox: dropped input for a session being torn down.\n");
     }
 }
 
