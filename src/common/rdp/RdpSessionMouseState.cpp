@@ -1,5 +1,11 @@
 #include "common/rdp/RdpSessionMouseState.h"
 
+void RdpSessionMouseState::resetPendingMove()
+{
+    m_moveCoalescer.reset();
+    m_moveTimerActive = false;
+}
+
 void RdpSessionMouseState::reset()
 {
     m_pressedButtons = 0;

@@ -594,7 +594,7 @@ void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
                 rdp::session_view::initialFrameDiscardCount(!info.codecName.empty());
         }
         m_keyboardRouter.reset();
-        m_mouseState.reset();
+        m_mouseState.resetPendingMove();
         if (m_mouseMoveTimer)
             m_mouseMoveTimer->stop();
         m_resizeBurstTracker.reset();
@@ -603,7 +603,7 @@ void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
         m_resolutionRecovery.reset();
         syncRecoveryTimer();
     } else if (state == FreeRdpProcess::State::Finished) {
-        m_mouseState.reset();
+        m_mouseState.resetPendingMove();
         if (m_mouseMoveTimer)
             m_mouseMoveTimer->stop();
         m_resizeBurstTracker.reset();
@@ -723,7 +723,7 @@ void QtRdpSessionWidget::flushPendingMouseMove()
     if (!m_process) {
         if (m_mouseMoveTimer)
             m_mouseMoveTimer->stop();
-        m_mouseState.reset();
+        m_mouseState.resetPendingMove();
         return;
     }
 
@@ -740,7 +740,7 @@ void QtRdpSessionWidget::handleMouseMoveTimer()
     if (!m_process) {
         if (m_mouseMoveTimer)
             m_mouseMoveTimer->stop();
-        m_mouseState.reset();
+        m_mouseState.resetPendingMove();
         return;
     }
 

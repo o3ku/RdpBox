@@ -409,7 +409,8 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
             m_frameGate.remaining =
                 rdp::session_view::initialFrameDiscardCount(!info.codecName.empty());
         }
-        if (!m_frameGate.resolutionUpdatePending && !m_frameGate.waitingForFirstContentFrame && !m_frameGate.active)
+        if (!m_frameGate.resolutionUpdatePending && !m_frameGate.waitingForFirstContentFrame
+            && !m_frameGate.active)
             clearOverlay();
         m_keyboardState.reset();
         m_mouseState.reset();
