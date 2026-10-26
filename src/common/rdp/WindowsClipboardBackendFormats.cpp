@@ -27,7 +27,7 @@ UINT32 clipboardGetLocalFormatIdByName(ClipboardContext *clipboard, const TCHAR 
     return 0;
 }
 
-UINT32 clipboardHtmlFormatId()
+UINT32 clipboardHtmlFormatId(void)
 {
     return RegisterClipboardFormatA("HTML Format");
 }

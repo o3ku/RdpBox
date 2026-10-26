@@ -7,8 +7,6 @@
 #include <winpr/library.h>
 #include <winpr/string.h>
 
-#include <shlobj.h>
-#include <strsafe.h>
 #include <winuser.h>
 
 #include <cstdlib>
