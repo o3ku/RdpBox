@@ -84,13 +84,16 @@
 
 ## P2 重复代码与架构
 
-- [~] **P2-1 会话状态机在 MFC/Qt 各写一份**（1a 已落地 2026-10-26 PR #11，CodeBuddy 评审通过）
+- [x] **P2-1 会话状态机在 MFC/Qt 各写一份**（1a 落地 2026-10-26 PR #11；1b 勘察后裁定不做，2026-10-26）
   - **P2-1a 完成**：Qt 采纳 `RdpSessionMouseState`（吞掉私有按钮位图+coalescer+last point，净 -40 行）；
     两侧帧闸门去摊平为单个 `FrameGateState` 成员；新增 `resetPendingMove()` 解决 Qt 排队回调下
     全量 reset 抹掉已记录按下的丢 release 风险（CodeBuddy 评审发现）；补 `RdpSessionMouseStateTests`
     （基线 53→54）。
-  - **P2-1b 待做**：真 `SessionConnectionState` 状态机抽取（帧闸门生命周期+resize burst+恢复相位+
-    overlay 决策），视图只留定时器/事件 API 薄壳。
+  - **P2-1b 裁定不做**（2026-10-26 勘察）：状态机的决策核心（闸门算术/overlay 文案/钳制/burst/恢复策略）
+    已全部是共享纯类；剩余重复仅 ~40-60 行/侧的编排，且每处与框架调用交织（SetTimer/KillTimer vs
+    QTimer、Invalidate vs update、CString vs QString）。抽 `SessionConnectionState`+定时器抽象层
+    预计 +150~200 行接口/适配器去消 ~100 行重复——净增代码且加间接层，收益不抵。除非未来出现
+    第三个前端或两侧编排再次漂移出真 bug，否则维持现状。
 
 - [ ] **P2-2 Qt 完全绕过 `SessionManager`**
   - 位置：`src/qtui/QtMainWindow.cpp:2248-2320`
