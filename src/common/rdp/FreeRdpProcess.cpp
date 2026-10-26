@@ -720,11 +720,18 @@ void FreeRdpProcess::submit(std::function<void(void *, FreeRdpBackend &)> apply)
     // The queue is drained by the worker between event waits, so an input
     // request never runs freerdp on this thread. Taking the process lock first
     // and the session lock second keeps that ordering one-way.
-    std::scoped_lock lock(backend->mutex);
-    rdpContext *context = backend->context();
-    if (!context || backend->stopRequested)
-        return;
-    backend->appliers.push_back({context, std::move(apply)});
+    try {
+        std::scoped_lock lock(backend->mutex);
+        rdpContext *context = backend->context();
+        if (!context || backend->stopRequested)
+            return;
+        backend->appliers.push_back({context, std::move(apply)});
+    } catch (const std::system_error &) {
+        // The session is being torn down behind this call (stop() frees the
+        // backend while an input event still reaches it through a nested
+        // message pump). Dropping one input beat beats crashing the process.
+        std::fprintf(stderr, "RdpBox: dropped input for a session being torn down.\n");
+    }
 }
 
 void FreeRdpProcess::sendFocusIn()

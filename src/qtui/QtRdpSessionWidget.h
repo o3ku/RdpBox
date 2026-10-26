@@ -113,5 +113,10 @@ private:
     QTimer *m_recoveryTimer = nullptr;
     QPointer<QMessageBox> m_certPrompt;
     bool m_reconnecting = false;
+    // Input forwarding is closed while the process is being stopped: the
+    // stop path can pump messages (clipboard/OLE teardown), and an input
+    // event delivered in that window must not reach the half-torn-down
+    // session. Reopened by the next connectToHost().
+    bool m_inputSuspended = false;
     rdp::session_view::FrameGateState m_frameGate;
 };

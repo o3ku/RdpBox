@@ -184,6 +184,8 @@ void QtRdpSessionWidget::connectToHost()
     if (!m_process)
         return;
 
+    m_inputSuspended = false;
+
     m_keyboardRouter.reset();
     m_mouseState.reset();
     m_resolutionRecovery.reset();
@@ -351,7 +353,7 @@ void QtRdpSessionWidget::mouseMoveEvent(QMouseEvent *event)
     const unsigned int mouseFlags = mouseFlagsFromEvent(event);
     if (rdp::shouldSynchronizeModifiersForMouseMove(mouseFlags))
         syncMouseModifiers(mouseFlags);
-    if (!m_process || !shouldForwardMouseMove())
+    if (!m_process || m_inputSuspended || !shouldForwardMouseMove())
         return;
 
     const auto immediate = m_mouseState.onPointerMove(pointerPoint);
@@ -395,7 +397,7 @@ void QtRdpSessionWidget::mouseReleaseEvent(QMouseEvent *event)
 
 void QtRdpSessionWidget::wheelEvent(QWheelEvent *event)
 {
-    if (!m_process)
+    if (!m_process || m_inputSuspended)
         return;
 
     flushPendingMouseMove();
@@ -427,7 +429,7 @@ void QtRdpSessionWidget::focusInEvent(QFocusEvent *event)
 {
     QWidget::focusInEvent(event);
     rdp::session_view_input::setKeyboardTarget(this);
-    if (m_process)
+    if (m_process && !m_inputSuspended)
         m_process->sendFocusIn();
     releaseAllPressedKeys();
 }
@@ -522,6 +524,10 @@ void QtRdpSessionWidget::stopProcess(bool showDisconnectedOverlay)
     m_frameGate.active = false;
     m_frameGate.remaining = 0;
     m_keyboardRouter.reset();
+    // Close input forwarding before the teardown that can pump messages:
+    // an input event delivered through that pump must not reach the session
+    // behind this point.
+    m_inputSuspended = true;
     m_process->stop();
     if (showDisconnectedOverlay)
         updateState(FreeRdpProcess::State::Finished);
@@ -671,7 +677,7 @@ void QtRdpSessionWidget::handleResizeTimer()
 
 void QtRdpSessionWidget::flushPendingMouseMove()
 {
-    if (!m_process) {
+    if (!m_process || m_inputSuspended) {
         if (m_mouseMoveTimer)
             m_mouseMoveTimer->stop();
         m_mouseState.resetPendingMove();
@@ -688,7 +694,7 @@ void QtRdpSessionWidget::flushPendingMouseMove()
 
 void QtRdpSessionWidget::handleMouseMoveTimer()
 {
-    if (!m_process) {
+    if (!m_process || m_inputSuspended) {
         if (m_mouseMoveTimer)
             m_mouseMoveTimer->stop();
         m_mouseState.resetPendingMove();
@@ -792,7 +798,7 @@ void QtRdpSessionWidget::syncMouseModifiers(unsigned int mouseFlags)
 
 void QtRdpSessionWidget::sendMouseButton(QMouseEvent *event, bool down)
 {
-    if (!m_process || !event)
+    if (!m_process || !event || m_inputSuspended)
         return;
 
     const MouseButton button = mouseButtonFromQt(event->button());
@@ -869,7 +875,7 @@ void QtRdpSessionWidget::forwardNativeKeyMessage(std::uint32_t message,
 
 void QtRdpSessionWidget::sendKeyEvent(QKeyEvent *event, bool down)
 {
-    if (!m_process || !event)
+    if (!m_process || !event || m_inputSuspended)
         return;
 
 #ifndef _WIN32
