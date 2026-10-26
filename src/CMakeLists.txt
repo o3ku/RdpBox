@@ -152,6 +152,8 @@ set(RDPBOX_COMMON_WIN32_SOURCES
     common/rdp/WindowsClipboardBackend.cpp
     common/rdp/WindowsClipboardBackendDataObject.cpp
     common/rdp/WindowsClipboardBackendWindow.cpp
+    common/rdp/WindowsClipboardBackendFiles.cpp
+    common/rdp/WindowsClipboardBackendFormats.cpp
     common/rdp/WindowsClipboardBackendInternal.h
     common/rdp/WindowsClipboardBehavior.cpp
     resources/resource.h

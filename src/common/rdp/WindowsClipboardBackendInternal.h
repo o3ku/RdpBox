@@ -116,3 +116,16 @@ UINT clipboardSendFileContentsRequest(ClipboardContext *clipboard, const void *s
 DWORD WINAPI clipboardThreadProc(LPVOID argument);
 BOOL createFileDataObject(ClipboardContext *clipboard, IDataObject **dataObject);
 void destroyFileDataObject(IDataObject *instance);
+
+// WindowsClipboardBackendFormats.cpp - remote/local format id mapping.
+UINT32 clipboardGetLocalFormatIdByName(ClipboardContext *clipboard, const TCHAR *formatName);
+UINT32 clipboardHtmlFormatId();
+UINT32 clipboardLocalFormatIdForRemoteFormat(const CLIPRDR_FORMAT &format);
+BOOL clipboardClearFormatMap(ClipboardContext *clipboard);
+void clipboardEnsureMapCapacity(ClipboardContext *clipboard);
+
+// WindowsClipboardBackendFiles.cpp - file-list arrays and FILEDESCRIPTORW packing.
+void clipboardClearFileArray(ClipboardContext *clipboard);
+BOOL clipboardGetFileContents(WCHAR *fileName, BYTE *buffer, LONG positionLow, LONG positionHigh,
+                              DWORD requested, DWORD *size);
+SSIZE_T clipboardBuildFileDescriptorList(ClipboardContext *clipboard, BYTE **data);

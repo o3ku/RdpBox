@@ -169,6 +169,8 @@ add_executable(FreeRdpStopSmoke
     ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBackend.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBackendDataObject.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBackendWindow.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBackendFiles.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBackendFormats.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBehavior.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpCursorClassifier.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpInputEventUtil.cpp
