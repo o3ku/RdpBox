@@ -285,6 +285,22 @@ static UINT sendFileContentsResponse(ClipboardContext *clipboard, UINT32 streamI
     return clipboard->context->ClientFileContentsResponse(clipboard->context, &response);
 }
 
+// Directory entries have no byte stream. Failing the request lets the remote
+// side handle the entry as a directory instead of writing a zero-byte file.
+static UINT sendFileContentsFailure(ClipboardContext *clipboard, UINT32 streamId)
+{
+    if (!clipboard || !clipboard->context || !clipboard->context->ClientFileContentsResponse)
+        return ERROR_INTERNAL_ERROR;
+
+    CLIPRDR_FILE_CONTENTS_RESPONSE response = {};
+    response.common.msgType = CB_FILECONTENTS_RESPONSE;
+    response.common.msgFlags = CB_RESPONSE_FAIL;
+    response.common.dataLen = kCliprdrFileContentsResponseBasePayloadSize;
+    response.streamId = streamId;
+    response.cbRequested = 0;
+    return clipboard->context->ClientFileContentsResponse(clipboard->context, &response);
+}
+
 static UINT waitForClipboardResponse(ClipboardContext *clipboard, HANDLE responseEvent)
 {
     if (!clipboard || !responseEvent || !clipboard->abortEvent)
@@ -612,6 +628,13 @@ static UINT CALLBACK onServerFileContentsRequest(CliprdrClientContext *context,
     BYTE *data = static_cast<BYTE*>(calloc(1, requestedSize));
     if (!data)
         return ERROR_INTERNAL_ERROR;
+
+    if (knownFile && rdp::clipboard::isDirectoryDescriptorEntry(
+                         clipboard->fileDescriptors[request->listIndex]->dwFileAttributes)) {
+        const UINT failRc = sendFileContentsFailure(clipboard, request->streamId);
+        free(data);
+        return failRc;
+    }
 
     UINT actualSize = 0;
     UINT rc = ERROR_INTERNAL_ERROR;
