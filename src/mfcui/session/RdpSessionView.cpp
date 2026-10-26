@@ -2,6 +2,7 @@
 
 #include "common/rdp/FrameBufferMemory.h"
 #include "common/rdp/RdpCursorClassifier.h"
+#include "common/rdp/RdpKeyboardPhysicalProbing.h"
 #include "mfcui/session/RdpFocusNotification.h"
 #include "mfcui/session/RdpProcessEventQueueBehavior.h"
 #include "common/rdp/RdpSessionKeyboardHook.h"
@@ -64,44 +65,7 @@ public:
 private:
     HWND m_hwnd = nullptr;
 };
-
-bool isVirtualKeyPhysicallyDown(int virtualKey)
-{
-    return (::GetAsyncKeyState(virtualKey) & 0x8000) != 0;
-}
-
-RdpKeyboardPhysicalState physicalKeyboardState()
-{
-    RdpKeyboardPhysicalState state;
-    if (isVirtualKeyPhysicallyDown(VK_CONTROL))
-        state.modifiers |= ModifierControl;
-    if (isVirtualKeyPhysicallyDown(VK_SHIFT))
-        state.modifiers |= ModifierShift;
-    if (isVirtualKeyPhysicallyDown(VK_MENU))
-        state.modifiers |= ModifierAlt;
-    if (isVirtualKeyPhysicallyDown(VK_LWIN) || isVirtualKeyPhysicallyDown(VK_RWIN))
-        state.modifiers |= ModifierWin;
-
-    if (isVirtualKeyPhysicallyDown(VK_RCONTROL))
-        state.controlVirtualKey = VK_RCONTROL;
-    else if (isVirtualKeyPhysicallyDown(VK_LCONTROL))
-        state.controlVirtualKey = VK_LCONTROL;
-    if (isVirtualKeyPhysicallyDown(VK_RSHIFT))
-        state.shiftVirtualKey = VK_RSHIFT;
-    else if (isVirtualKeyPhysicallyDown(VK_LSHIFT))
-        state.shiftVirtualKey = VK_LSHIFT;
-    if (isVirtualKeyPhysicallyDown(VK_RMENU))
-        state.altVirtualKey = VK_RMENU;
-    else if (isVirtualKeyPhysicallyDown(VK_LMENU))
-        state.altVirtualKey = VK_LMENU;
-    if (isVirtualKeyPhysicallyDown(VK_RWIN))
-        state.winVirtualKey = VK_RWIN;
-    else if (isVirtualKeyPhysicallyDown(VK_LWIN))
-        state.winVirtualKey = VK_LWIN;
-
-    return state;
-}
-}
+} // namespace
 
 IMPLEMENT_DYNAMIC(CRdpSessionView, CWnd)
 
@@ -470,7 +434,7 @@ void CRdpSessionView::updateCursorFromProcess()
 
 RdpKeyboardPhysicalState CRdpSessionView::currentKeyboardPhysicalState() const
 {
-    return physicalKeyboardState();
+    return rdp::physical_keyboard::physicalKeyboardState();
 }
 
 void CRdpSessionView::setFocusToFreeRdp()
