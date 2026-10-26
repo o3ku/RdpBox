@@ -70,14 +70,14 @@ void CRdpSessionView::OnPaint()
 
             const rdp::session_view::FrameArrivalDecision frameDecision =
                 rdp::session_view::frameArrivalDecision(
-                    rdp::session_view::FrameGateState{m_frameGateActive,
-                                                      m_frameGateRemaining,
-                                                      m_waitingForFirstContentFrame,
-                                                      m_resolutionUpdatePending});
-            m_frameGateActive = frameDecision.state.active;
-            m_frameGateRemaining = frameDecision.state.remaining;
-            m_waitingForFirstContentFrame = frameDecision.state.waitingForFirstContentFrame;
-            m_resolutionUpdatePending = frameDecision.state.resolutionUpdatePending;
+                    rdp::session_view::FrameGateState{m_frameGate.active,
+                                                      m_frameGate.remaining,
+                                                      m_frameGate.waitingForFirstContentFrame,
+                                                      m_frameGate.resolutionUpdatePending});
+            m_frameGate.active = frameDecision.state.active;
+            m_frameGate.remaining = frameDecision.state.remaining;
+            m_frameGate.waitingForFirstContentFrame = frameDecision.state.waitingForFirstContentFrame;
+            m_frameGate.resolutionUpdatePending = frameDecision.state.resolutionUpdatePending;
             hideOverlayAfterFramePresent = hideOverlayAfterFramePresent || frameDecision.hideOverlay;
 
             if (frameDecision.renderFrame) {

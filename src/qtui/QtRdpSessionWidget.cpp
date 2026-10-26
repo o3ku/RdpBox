@@ -175,22 +175,6 @@ std::uint32_t keyMessageFromQtEvent(const QKeyEvent *event, bool down)
     return altContext ? WM_SYSKEYUP : WM_KEYUP;
 }
 
-unsigned int mouseButtonBit(MouseButton button)
-{
-    switch (button) {
-    case MouseButton::Left:
-        return 1u << 0;
-    case MouseButton::Right:
-        return 1u << 1;
-    case MouseButton::Middle:
-        return 1u << 2;
-    case MouseButton::None:
-    case MouseButton::Back:
-    case MouseButton::Forward:
-        return 0; // extended buttons are not forwarded (same as before)
-    }
-    return 0;
-}
 
 bool shouldSuppressTextInputMessage(UINT message)
 {
@@ -250,13 +234,12 @@ void QtRdpSessionWidget::connectToHost()
         return;
 
     m_keyboardRouter.reset();
-    m_pressedMouseButtons = 0;
-    m_hasLastPointerPoint = false;
+    m_mouseState.reset();
     m_resolutionRecovery.reset();
-    m_resolutionUpdatePending = false;
-    m_waitingForFirstContentFrame = true;
-    m_frameGateActive = true;
-    m_frameGateRemaining = 0;
+    m_frameGate.resolutionUpdatePending = false;
+    m_frameGate.waitingForFirstContentFrame = true;
+    m_frameGate.active = true;
+    m_frameGate.remaining = 0;
     m_frameGeneration = 0;
     m_frame = {};
     const SizeI size = viewSize();
@@ -412,15 +395,15 @@ void QtRdpSessionWidget::resizeEvent(QResizeEvent *event)
 
 void QtRdpSessionWidget::mouseMoveEvent(QMouseEvent *event)
 {
-    m_lastPointerPoint = pointFromMouseEvent(event);
-    m_hasLastPointerPoint = true;
+    const PointI pointerPoint = pointFromMouseEvent(event);
+    m_mouseState.notePointerPosition(pointerPoint);
     const unsigned int mouseFlags = mouseFlagsFromEvent(event);
     if (rdp::shouldSynchronizeModifiersForMouseMove(mouseFlags))
         syncMouseModifiers(mouseFlags);
     if (!m_process || !shouldForwardMouseMove())
         return;
 
-    const auto immediate = m_mouseMoveCoalescer.onMouseMove(m_lastPointerPoint);
+    const auto immediate = m_mouseState.onPointerMove(pointerPoint);
     if (immediate)
         m_process->sendMouseMove(*immediate, reportedViewSize());
 
@@ -438,7 +421,7 @@ void QtRdpSessionWidget::mousePressEvent(QMouseEvent *event)
                                          isConnected(),
                                          m_process != nullptr,
                                          processFinished,
-                                         m_resolutionUpdatePending)) {
+                                         m_frameGate.resolutionUpdatePending)) {
             reconnect();
             event->accept();
             return;
@@ -466,8 +449,7 @@ void QtRdpSessionWidget::wheelEvent(QWheelEvent *event)
 
     flushPendingMouseMove();
     const QPoint position = event->position().toPoint();
-    m_lastPointerPoint = PointI{position.x(), position.y()};
-    m_hasLastPointerPoint = true;
+    m_mouseState.notePointerPosition(PointI{position.x(), position.y()});
     unsigned int mouseFlags = ModifierNone;
     if ((event->modifiers() & Qt::ControlModifier) != 0)
         mouseFlags |= MK_CONTROL;
@@ -577,17 +559,17 @@ void QtRdpSessionWidget::stopProcess(bool showDisconnectedOverlay)
     clearProcessCallbacks();
     if (m_mouseMoveTimer)
         m_mouseMoveTimer->stop();
-    m_mouseMoveCoalescer.reset();
+    m_mouseState.reset();
     if (m_resizeTimer)
         m_resizeTimer->stop();
     m_resizeBurstTracker.reset();
     m_resolutionRecovery.reset();
     if (m_recoveryTimer)
         m_recoveryTimer->stop();
-    m_resolutionUpdatePending = false;
-    m_waitingForFirstContentFrame = false;
-    m_frameGateActive = false;
-    m_frameGateRemaining = 0;
+    m_frameGate.resolutionUpdatePending = false;
+    m_frameGate.waitingForFirstContentFrame = false;
+    m_frameGate.active = false;
+    m_frameGate.remaining = 0;
     m_keyboardRouter.reset();
     m_process->stop();
     if (showDisconnectedOverlay)
@@ -606,13 +588,13 @@ void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
             m_overlayText = QString::fromStdWString(rdp::session_view::finishedOverlayText(error));
     }
     if (state == FreeRdpProcess::State::Running) {
-        if (m_process && m_frameGateActive) {
+        if (m_process && m_frameGate.active) {
             const auto info = m_process->connectionInfo();
-            m_frameGateRemaining =
+            m_frameGate.remaining =
                 rdp::session_view::initialFrameDiscardCount(!info.codecName.empty());
         }
         m_keyboardRouter.reset();
-        m_mouseMoveCoalescer.reset();
+        m_mouseState.reset();
         if (m_mouseMoveTimer)
             m_mouseMoveTimer->stop();
         m_resizeBurstTracker.reset();
@@ -621,7 +603,7 @@ void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
         m_resolutionRecovery.reset();
         syncRecoveryTimer();
     } else if (state == FreeRdpProcess::State::Finished) {
-        m_mouseMoveCoalescer.reset();
+        m_mouseState.reset();
         if (m_mouseMoveTimer)
             m_mouseMoveTimer->stop();
         m_resizeBurstTracker.reset();
@@ -630,10 +612,10 @@ void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
         m_resolutionRecovery.reset();
         if (m_recoveryTimer)
             m_recoveryTimer->stop();
-        m_resolutionUpdatePending = false;
-        m_waitingForFirstContentFrame = false;
-        m_frameGateActive = false;
-        m_frameGateRemaining = 0;
+        m_frameGate.resolutionUpdatePending = false;
+        m_frameGate.waitingForFirstContentFrame = false;
+        m_frameGate.active = false;
+        m_frameGate.remaining = 0;
     }
     if (state == FreeRdpProcess::State::Running || state == FreeRdpProcess::State::Finished)
         m_reconnecting = false;
@@ -650,15 +632,8 @@ void QtRdpSessionWidget::consumeFrame()
     FrameBuffer nextFrame;
     if (m_process->consumeFrameIfNewer(m_frameGeneration, nextFrame)) {
         const rdp::session_view::FrameArrivalDecision frameDecision =
-            rdp::session_view::frameArrivalDecision(
-                rdp::session_view::FrameGateState{m_frameGateActive,
-                                                  m_frameGateRemaining,
-                                                  m_waitingForFirstContentFrame,
-                                                  m_resolutionUpdatePending});
-        m_frameGateActive = frameDecision.state.active;
-        m_frameGateRemaining = frameDecision.state.remaining;
-        m_waitingForFirstContentFrame = frameDecision.state.waitingForFirstContentFrame;
-        m_resolutionUpdatePending = frameDecision.state.resolutionUpdatePending;
+            rdp::session_view::frameArrivalDecision(m_frameGate);
+        m_frameGate = frameDecision.state;
 
         if (frameDecision.renderFrame)
             m_frame = std::move(nextFrame);
@@ -684,9 +659,9 @@ void QtRdpSessionWidget::updateCursor()
 
 void QtRdpSessionWidget::beginResolutionUpdate()
 {
-    m_resolutionUpdatePending = true;
-    m_frameGateActive = true;
-    m_frameGateRemaining = rdp::session_view::initialFrameDiscardCount(true);
+    m_frameGate.resolutionUpdatePending = true;
+    m_frameGate.active = true;
+    m_frameGate.remaining = rdp::session_view::initialFrameDiscardCount(true);
     m_resolutionRecovery.begin(isConnected());
     syncRecoveryTimer();
     m_overlayText = QString::fromStdWString(rdp::session_view::startOverlayText(true));
@@ -748,11 +723,11 @@ void QtRdpSessionWidget::flushPendingMouseMove()
     if (!m_process) {
         if (m_mouseMoveTimer)
             m_mouseMoveTimer->stop();
-        m_mouseMoveCoalescer.reset();
+        m_mouseState.reset();
         return;
     }
 
-    const auto pending = m_mouseMoveCoalescer.flush();
+    const auto pending = m_mouseState.flushPendingPointerMove();
     if (pending)
         m_process->sendMouseMove(*pending, reportedViewSize());
 
@@ -765,11 +740,11 @@ void QtRdpSessionWidget::handleMouseMoveTimer()
     if (!m_process) {
         if (m_mouseMoveTimer)
             m_mouseMoveTimer->stop();
-        m_mouseMoveCoalescer.reset();
+        m_mouseState.reset();
         return;
     }
 
-    const auto pending = m_mouseMoveCoalescer.onTimer();
+    const auto pending = m_mouseState.onPointerMoveTimer();
     if (pending) {
         m_process->sendMouseMove(*pending, reportedViewSize());
         return;
@@ -873,21 +848,13 @@ void QtRdpSessionWidget::sendMouseButton(QMouseEvent *event, bool down)
     if (button == MouseButton::None)
         return;
 
-    m_lastPointerPoint = pointFromMouseEvent(event);
-    m_hasLastPointerPoint = true;
+    m_mouseState.notePointerPosition(pointFromMouseEvent(event));
     syncMouseModifiers(mouseFlagsFromEvent(event));
-    m_process->sendMouseButton(button, down, m_lastPointerPoint, viewSize());
+    m_process->sendMouseButton(button, down, m_mouseState.currentPointerPosition(), viewSize());
 
-    const unsigned int bit = mouseButtonBit(button);
-    if (bit == 0)
-        return;
+    m_mouseState.noteButton(button, down);
 
-    if (down)
-        m_pressedMouseButtons |= bit;
-    else
-        m_pressedMouseButtons &= ~bit;
-
-    if (m_pressedMouseButtons != 0)
+    if (m_mouseState.pressedButtons() != 0)
         grabMouse();
     else
         releaseMouse();
@@ -1050,8 +1017,8 @@ void QtRdpSessionWidget::sendKeyboardActions(
 
 void QtRdpSessionWidget::releasePressedMouseButtons()
 {
-    const unsigned int pressedButtons = m_pressedMouseButtons;
-    m_pressedMouseButtons = 0;
+    const unsigned int pressedButtons = m_mouseState.pressedButtons();
+    m_mouseState.clearPressedButtons();
     releaseMouse();
 
     if (pressedButtons == 0)
@@ -1062,7 +1029,7 @@ void QtRdpSessionWidget::releasePressedMouseButtons()
 
     // The release is what ends the remote drag, so it still goes out now that
     // this pane no longer owns the input.
-    const PointI point = m_hasLastPointerPoint ? m_lastPointerPoint : PointI{};
+    const PointI point = m_mouseState.currentPointerPosition();
     const SizeI size = reportedViewSize();
     if ((pressedButtons & (1u << 0)) != 0)
         m_process->sendMouseButton(MouseButton::Left, false, point, size);

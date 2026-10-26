@@ -333,10 +333,10 @@ void CRdpSessionView::startProcess()
     m_connected = false;
     m_cachedFrameGeneration = 0;
     FrameBufferMemory::release(m_cachedFrame);
-    m_resolutionUpdatePending = false;
-    m_waitingForFirstContentFrame = true;
-    m_frameGateActive = true;
-    m_frameGateRemaining = 0;
+    m_frameGate.resolutionUpdatePending = false;
+    m_frameGate.waitingForFirstContentFrame = true;
+    m_frameGate.active = true;
+    m_frameGate.remaining = 0;
     m_resizeBurstTracker.reset();
     if (m_mouseState.pointerMoveTimerActive()) {
         KillTimer(kMouseMoveTimerId);
@@ -380,10 +380,10 @@ void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
     }
 
     m_connected = false;
-    m_resolutionUpdatePending = false;
-    m_waitingForFirstContentFrame = false;
-    m_frameGateActive = false;
-    m_frameGateRemaining = 0;
+    m_frameGate.resolutionUpdatePending = false;
+    m_frameGate.waitingForFirstContentFrame = false;
+    m_frameGate.active = false;
+    m_frameGate.remaining = 0;
     m_pendingResize = {};
     m_hasPendingResize = false;
     m_cachedFrameGeneration = 0;
@@ -404,12 +404,12 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
     switch (state) {
     case FreeRdpProcess::State::Running: {
         m_connected = true;
-        if (m_process && m_frameGateActive) {
+        if (m_process && m_frameGate.active) {
             auto info = m_process->connectionInfo();
-            m_frameGateRemaining =
+            m_frameGate.remaining =
                 rdp::session_view::initialFrameDiscardCount(!info.codecName.empty());
         }
-        if (!m_resolutionUpdatePending && !m_waitingForFirstContentFrame && !m_frameGateActive)
+        if (!m_frameGate.resolutionUpdatePending && !m_frameGate.waitingForFirstContentFrame && !m_frameGate.active)
             clearOverlay();
         m_keyboardState.reset();
         m_mouseState.reset();
@@ -426,10 +426,10 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
     }
     case FreeRdpProcess::State::Finished:
         m_connected = false;
-        m_resolutionUpdatePending = false;
-        m_waitingForFirstContentFrame = false;
-        m_frameGateActive = false;
-        m_frameGateRemaining = 0;
+        m_frameGate.resolutionUpdatePending = false;
+        m_frameGate.waitingForFirstContentFrame = false;
+        m_frameGate.active = false;
+        m_frameGate.remaining = 0;
         KillTimer(kResizeTimerId);
         KillTimer(kResumeRecoveryTimerId);
         m_resolutionRecovery.reset();
@@ -513,9 +513,9 @@ void CRdpSessionView::clearOverlay()
 
 void CRdpSessionView::beginResolutionUpdate()
 {
-    m_resolutionUpdatePending = true;
-    m_frameGateActive = true;
-    m_frameGateRemaining = rdp::session_view::initialFrameDiscardCount(true);
+    m_frameGate.resolutionUpdatePending = true;
+    m_frameGate.active = true;
+    m_frameGate.remaining = rdp::session_view::initialFrameDiscardCount(true);
     m_resolutionRecovery.begin(m_connected);
     syncRecoveryTimer();
     showOverlay(rdp::session_view::startOverlayText(true).c_str());

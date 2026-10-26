@@ -5,7 +5,8 @@
 #include "common/rdp/FreeRdpProcess.h"
 #include "common/rdp/RdpKeyboardInputRouter.h"
 #include "common/rdp/RdpSessionKeyboardHook.h"
-#include "common/rdp/RdpMouseMoveCoalescer.h"
+#include "common/rdp/RdpSessionMouseState.h"
+#include "common/rdp/RdpSessionViewBehavior.h"
 #include "common/rdp/RdpResizeBurstTracker.h"
 #include "common/rdp/RdpResolutionRecovery.h"
 
@@ -104,19 +105,13 @@ private:
     QString m_overlayText;
     std::function<void(FreeRdpProcess::State)> m_stateChanged;
     RdpKeyboardInputRouter m_keyboardRouter;
-    RdpMouseMoveCoalescer m_mouseMoveCoalescer;
+    RdpSessionMouseState m_mouseState;
     RdpResizeBurstTracker m_resizeBurstTracker;
     RdpResolutionRecovery m_resolutionRecovery;
     QTimer *m_mouseMoveTimer = nullptr;
     QTimer *m_resizeTimer = nullptr;
     QTimer *m_recoveryTimer = nullptr;
     QPointer<QMessageBox> m_certPrompt;
-    unsigned int m_pressedMouseButtons = 0;
-    PointI m_lastPointerPoint;
-    bool m_hasLastPointerPoint = false;
     bool m_reconnecting = false;
-    bool m_frameGateActive = false;
-    int m_frameGateRemaining = 0;
-    bool m_waitingForFirstContentFrame = false;
-    bool m_resolutionUpdatePending = false;
+    rdp::session_view::FrameGateState m_frameGate;
 };
