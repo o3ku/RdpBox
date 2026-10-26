@@ -28,7 +28,7 @@ void clipboardClearFileArray(ClipboardContext *clipboard)
 }
 
 BOOL clipboardGetFileContents(WCHAR *fileName, BYTE *buffer, LONG positionLow, LONG positionHigh,
-                            DWORD requested, DWORD *size)
+                              DWORD requested, DWORD *size)
 {
     if (!fileName || !buffer || !size)
         return FALSE;
