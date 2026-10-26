@@ -139,15 +139,17 @@
     `onServerFileContentsRequest` 的 OLE IStream 路径提取为早退 helper，回调拍平。
   - 评审确认 OLE 提取后 dataObject 先释放等价（证据链：STGMEDIUM 拥有流，DataObject.cpp:472 AddRef）。
 
-- [ ] **P3-2 剪贴板文件列表的计数与越界**
-  - 位置：`src/common/rdp/WindowsClipboardBackend.cpp:680-694`、`:959-975`
-  - 现象：`cItems` 按 `fileCount` 写，但循环里遇到空 descriptor 就跳过 → 资源管理器读到未初始化项；
-    `request->listIndex` 在 `:928` 先无条件写进 format，只有失败回退分支才判越界。
-  - 修法：构建阶段维护真实的非空计数；`listIndex` 在使用前统一校验一次。
-  - 补充（2026-10-26 PR #13 评审新发现，CodeBuddy）：目录型 `listIndex` 的 FILE_CONTENTS 请求会
-    **静默空回**——`getFileContents` 用 FILE_FLAG_BACKUP_SEMANTICS 能打开目录，随后 ReadFile 失败
-    → fallback 不置 rc → 以 actualSize==0 发空响应。修法：`dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY`
-    时直接回 CB_RESPONSE_FAIL。
+- [x] **P3-2 剪贴板文件列表的计数与越界**（计数/越界半 2026-10-25 PR #8；目录静默空回半 2026-10-26 PR #14）
+  - 计数（cItems vs 跳过项）：PR #8 已收——addToFileArrays 只在 descriptor 建成后递增 fileCount，
+    循环内 WINPR_ASSERT 锁不变量。
+  - listIndex 越界：PR #8 已收——进入 FormatEtc/回退数组前统一校验。
+  - 目录型 listIndex 静默空回（PR #13 评审发现）：PR #14 已修——目录项在 OLE 尝试前直接回
+    CB_RESPONSE_FAIL；判定排除 INVALID_FILE_ATTRIBUTES 通配；手测项（拖文件夹）随 GUI 清单。
+  - 挂账（PR #14 评审遗留）：
+    - DataObject.cpp:332 的目录判定与 isDirectoryDescriptorEntry **语义不等价**（FD_ATTRIBUTES
+      标志位门 vs INVALID 排除），复用需带 validity 参数——清理项。
+    - CodeBuddy 自查 P2：出站侧（我们主动粘目录）streamSeek(DataObject.cpp:261) 对 size=0 目录
+      回 E_FAIL，资源管理器在 RANGE 阶段吃到 seek 失败而非干净失败响应——真机观察后定。
 
 - [x] **P3-7 便携模式写 flag 失败静默回落**（Qt 侧 PR #3；MFC 侧 PR #6）
   - 位置：`src/common/AppPaths.cpp:250`、`src/qtui/QtMain.cpp:36`
