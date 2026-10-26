@@ -9,6 +9,10 @@ class RdpSessionMouseState
 {
 public:
     void reset();
+    // Drop a pending coalesced move only. Views with queued callbacks must use
+    // this (not reset()) while a live process may still deliver mouse events:
+    // reset() would erase a recorded press before its release goes out.
+    void resetPendingMove();
     void notePointerPosition(PointI point);
     PointI currentPointerPosition() const;
 

@@ -329,6 +329,18 @@ target_include_directories(RdpSessionViewBehaviorTests PRIVATE
 
 add_test(NAME RdpSessionViewBehaviorTests COMMAND RdpSessionViewBehaviorTests)
 
+add_executable(RdpSessionMouseStateTests
+    rdp/RdpSessionMouseStateTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpSessionMouseState.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpMouseMoveCoalescer.cpp
+)
+
+target_include_directories(RdpSessionMouseStateTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME RdpSessionMouseStateTests COMMAND RdpSessionMouseStateTests)
+
 add_executable(RdpReservedShortcutTrackerTests
     rdp/RdpReservedShortcutTrackerTests.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpReservedShortcutTracker.cpp

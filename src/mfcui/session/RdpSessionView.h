@@ -15,6 +15,7 @@
 #include "common/rdp/RdpResolutionRecovery.h"
 #include "common/rdp/RdpSessionKeyboardState.h"
 #include "common/rdp/RdpSessionMouseState.h"
+#include "common/rdp/RdpSessionViewBehavior.h"
 #include "mfcui/session/RdpProcessEventQueueBehavior.h"
 #include "mfcui/session/RdpResumeRecovery.h"
 #include "common/rdp/RdpKeyboardInputRouter.h"
@@ -149,10 +150,7 @@ private:
     CString m_overlayText;
     CFont m_overlayFont;
     bool m_reconnecting = false;
-    bool m_resolutionUpdatePending = false;
-    bool m_waitingForFirstContentFrame = false;
-    bool m_frameGateActive = false;
-    int m_frameGateRemaining = 0;
+    rdp::session_view::FrameGateState m_frameGate;
     uint64_t m_cachedFrameGeneration = 0;
     FrameBuffer m_cachedFrame;
     HCURSOR m_cursorHandle = nullptr;

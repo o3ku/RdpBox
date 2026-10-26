@@ -128,7 +128,7 @@ void CRdpSessionView::handleMouseButtonDown(UINT flags, CPoint point, MouseButto
                                         m_connected,
                                         m_process != nullptr,
                                         processFinished,
-                                        m_resolutionUpdatePending)) {
+                                        m_frameGate.resolutionUpdatePending)) {
         if (m_reconnectRequested)
             m_reconnectRequested();
         return;
