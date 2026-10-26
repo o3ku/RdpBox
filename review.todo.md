@@ -95,13 +95,15 @@
     预计 +150~200 行接口/适配器去消 ~100 行重复——净增代码且加间接层，收益不抵。除非未来出现
     第三个前端或两侧编排再次漂移出真 bug，否则维持现状。
 
-- [ ] **P2-2 Qt 完全绕过 `SessionManager`**
-  - 位置：`src/qtui/QtMainWindow.cpp:2248-2320`
-  - 现象：`m_tabs` + `m_tabBar` + `m_sessionStates` 三份平行索引，靠线性查找同步；
-    `migrateSessionIdentity`（`:2304`）与 `sessionTabIndexForProfileName` 都是重复劳动。
-  - 修法：让 Qt 也实现 `ISessionTabs/ISessionHost`，复用 `mfcui/session/` 里已经抽好的逻辑
-    （目录需要先按 P2-4 搬家）。
-
+- [x] **P2-2 Qt 完全绕过 `SessionManager`**（2026-10-26 勘察后裁定不做接口采纳）
+  - 勘察发现前提不成立：Qt 并没有复制 SessionManager 的生命周期策略——布局/可见性/换页由
+    QTabWidget 原生提供（SessionManager 的存在恰因 MFC 没有这层）。三份索引中 `m_tabs`(QTabWidget)
+    与 `m_tabBar`(自绘 BrowserTabBar) 是 **Qt 内部**平行索引，`m_sessionStates` 是纯表现层状态
+    （tooltip/图标/RTT 着色），均不在 SessionManager 职责面内。
+  - 真正两侧同形的策略只有 open 去重（~10 行）与改名身份迁移（~15 行），不值 4 个接口适配器 +
+    64 处调用点改写 + 手工回归标签生命周期。
+  - 若做，只做 Qt 内部简化：m_tabs/m_tabBar 双索引合一（QStackedWidget + BrowserTabBar），
+    独立于本条，属 P3 级小单。
 - [ ] **P2-3 键盘物理状态构造写了三份**
   - 位置：`src/common/rdp/RdpSessionView.cpp:73-108`、`src/common/rdp/RdpSessionKeyboardHook.cpp:44-61`、
     `src/qtui/QtRdpSessionWidget.cpp:117-166`（三份 `isVirtualKeyPhysicallyDown` + 修饰键 + 左右键判定）
