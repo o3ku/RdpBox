@@ -11,13 +11,13 @@
   - 证伪机理（现行代码可证）：`pointer_free` 有 `cursorSerial == 0` 早退守卫——只有经过
     `pointer_new` 发放过序列号的指针才会被释放，而 `pointer_new` 在发放后**显式初始化** cursor
     （destroyCursorInfo(旧) + createCursor）。未经 New 的模板尾部垃圾到不了 destroyCursorInfo。
-    （结论绑 3.19.0 的 Free/Alloc 回调序，随 ⑤ 一并复审。）
+    （结论绑 3.19.0 的回调序已于 2026-10-26 在 3.32.1 上复审成立，见建议顺序第 5 条。）
 
 - [x] **P0-2 `gdi_free` 与 FreeRDP 生命周期重复释放**（2026-10-24 复核，2026-10-26 对码确认已修）
   - 现行代码：`FreeRdpProcessNative.cpp:495-503` 唯一 `gdi_free`（worker 持有连接），`gdi_init`
     `:463-466` 每会话一次（重连可重跑 post_connect）。PR #6（79f6026）确立 freeContext() 单一
     锁护释放点：freerdp_client_stop → freerdp_client_context_free。FreeRdpStopSmoke（三轮
-    start→fail→stop）53/53 持续在跑，对冲 double-free 面。（3.32.1 复审随 ⑤。）
+    start→fail→stop）53/53 持续在跑，对冲 double-free 面。（2026-10-26 已在 3.32.1 上复审成立，见建议顺序第 5 条。）
 
 - [x] **P0-3 连接线程与 UI 线程职责错位**（2026-10-24 复核，2026-10-26 对码确认已修）
   - 现行代码：`gdi_init` 已在 worker 线程的 post_connect（`FreeRdpProcessNative.cpp:463-466`，
@@ -228,7 +228,12 @@
 2. ~~P3-3~~（`StringCchCopyW`，PR #4）
 3. ~~P3-4 + P3-6 + P3-9~~（PR #6；PR #5 因 P1 未合，见其条目备注）
 4. 待做：P1-2 / P3-7 的 Windows 手工验证（`--portable` 首启、DPAPI 换机）
-5. 待做：P0-1/P0-2 的结论只绑定 freerdp 3.19.0，换版本要复审
-   （2026-10-24 已触发：CI/发布二进制现在用 freerdp 3.32.1。53 个 ctest 含 StopSmoke
-   已在 3.32.1 上全绿，部分对冲；`libfreerdp 全库无 gdi_free 调用` 这条结论仍未复审。）
+5. ~~P0-1/P0-2 复审~~（2026-10-26 完成，对 3.32.1 源码 tag bf217a5 逐条复验）：
+   - **P0-1 证伪在 3.32.1 成立**：`graphics.c:86-96` Pointer_Alloc = `calloc(1, Prototype->size)`
+     全尺寸清零后拷贝模板——派生尾部恒零；模板拷贝 `*Prototype = *pointer` 界内。
+   - **P0-2 证伪在 3.32.1 成立**：libfreerdp 全库 `gdi_free` 仅 2 处（gdi.c 定义 + gdi_init
+     内部失败自善后），核心链从不代释放；`gdi_free` 自身幂等（gdi 判空 + 置 nullptr）。
+   - **附带（PR #14 依赖）**：3.32.1 `cliprdr_common.c:391-395` 对 file-contents 响应
+     `dataLen < 4` 拒收（WARN+ERROR_INVALID_DATA）；发送侧 `cliprdr_main.c:72` 线上 dataLen
+     仍由实写回填——我们的 fail 响应形态（基载 8/cbRequested 0）在 3.32.1 同样正确。
 6. 结构性重构：P2-4 → P2-1 → P2-2（先搬目录再抽公共逻辑，否则抽完还得搬）
