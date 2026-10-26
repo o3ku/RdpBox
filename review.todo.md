@@ -133,17 +133,21 @@
 
 ## P3 可维护性与工程化
 
-- [ ] **P3-1 剪贴板后端单文件 1168 行**
-  - 位置：`src/common/rdp/WindowsClipboardBackend.cpp`（format map、文件描述符组包、
-    OLE 回调、线程管理、注册表查询全在一起）
-  - 修法：至少把「文件描述符构建」（`:672-700`）和「format map」拆成独立文件；
-    `onServerFileContentsRequest`（`:902-980`）的 4 层嵌套改成早退。
+- [x] **P3-1 剪贴板后端单文件 1168 行**（2026-10-26 PR #13 合并，CodeBuddy 评审通过）
+  - 主文件 1181→835 行：文件组包簇 → `WindowsClipboardBackendFiles.cpp`（286 行），format map →
+    `WindowsClipboardBackendFormats.cpp`（85 行）；13 个搬家函数字节级一致（CodeBuddy AST 级比对）。
+    `onServerFileContentsRequest` 的 OLE IStream 路径提取为早退 helper，回调拍平。
+  - 评审确认 OLE 提取后 dataObject 先释放等价（证据链：STGMEDIUM 拥有流，DataObject.cpp:472 AddRef）。
 
 - [ ] **P3-2 剪贴板文件列表的计数与越界**
   - 位置：`src/common/rdp/WindowsClipboardBackend.cpp:680-694`、`:959-975`
   - 现象：`cItems` 按 `fileCount` 写，但循环里遇到空 descriptor 就跳过 → 资源管理器读到未初始化项；
     `request->listIndex` 在 `:928` 先无条件写进 format，只有失败回退分支才判越界。
   - 修法：构建阶段维护真实的非空计数；`listIndex` 在使用前统一校验一次。
+  - 补充（2026-10-26 PR #13 评审新发现，CodeBuddy）：目录型 `listIndex` 的 FILE_CONTENTS 请求会
+    **静默空回**——`getFileContents` 用 FILE_FLAG_BACKUP_SEMANTICS 能打开目录，随后 ReadFile 失败
+    → fallback 不置 rc → 以 actualSize==0 发空响应。修法：`dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY`
+    时直接回 CB_RESPONSE_FAIL。
 
 - [x] **P3-7 便携模式写 flag 失败静默回落**（Qt 侧 PR #3；MFC 侧 PR #6）
   - 位置：`src/common/AppPaths.cpp:250`、`src/qtui/QtMain.cpp:36`
