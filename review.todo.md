@@ -6,52 +6,39 @@
 
 ## P0 崩溃与未定义行为
 
-- [ ] **P0-1 点阵指针跨作用域泄漏**
+- [x] **P0-1 点阵指针跨作用域泄漏**（2026-10-24 复核证伪，2026-10-26 对码确认）
   - 位置：`src/common/rdp/FreeRdpProcessNative.cpp:186-200`（`nativefreerdp_register_pointer`）
-  - 现象：`rdpPointer pointer` 是栈变量，`graphics_register_pointer` 会按 `pointer.size`
-    （写成 `sizeof(NativePointer)`）整体拷贝模板，Free 回调里 `toNativePointer(pointer)->cursor`
-    读到的 `CursorInfo` 从未初始化：`destroyCursorInfo` 会拿到随机 HANDLE/堆指针。
-  - 修法：模板改为堆分配并在 `nativefreerdp_client_free` 释放，或在 `pointer_new` 里首次
-    `std::memset` 掉 `NativePointer` 的尾部。补一条 `Pointer_Alloc` 路径的单测。
+  - 证伪机理（现行代码可证）：`pointer_free` 有 `cursorSerial == 0` 早退守卫——只有经过
+    `pointer_new` 发放过序列号的指针才会被释放，而 `pointer_new` 在发放后**显式初始化** cursor
+    （destroyCursorInfo(旧) + createCursor）。未经 New 的模板尾部垃圾到不了 destroyCursorInfo。
+    （结论绑 3.19.0 的 Free/Alloc 回调序，随 ⑤ 一并复审。）
 
-- [ ] **P0-2 `gdi_free` 与 FreeRDP 生命周期重复释放**
-  - 位置：`src/common/rdp/FreeRdpProcessNative.cpp:403`（`gdi_init`）、`:426`（`post_disconnect` 里 `gdi_free`）
-  - 现象：上游 3.x 在 `post_disconnect` 之后还有 `freerdp_client_stop` → `rdp_free` → `update_free`，
-    这条链会再次释放 GDI 相关资源；自行 `gdi_free` 使 `context->gdi` 置空后，后续 update 侧仍持有旧指针。
-  - 修法：明确唯一释放点——要么只保留 `post_disconnect`（与 X11/Windows 客户端一致），
-    要么挪到 `freerdp_client_context_free`（`src/common/rdp/FreeRdpProcess.cpp:294`）之前，
-    不能两处都留；改完在 freerdp 3.5 与 3.9 上各跑一次 连接→断开→重连，
-    用 Application Verifier 看有没有 double free。
+- [x] **P0-2 `gdi_free` 与 FreeRDP 生命周期重复释放**（2026-10-24 复核，2026-10-26 对码确认已修）
+  - 现行代码：`FreeRdpProcessNative.cpp:495-503` 唯一 `gdi_free`（worker 持有连接），`gdi_init`
+    `:463-466` 每会话一次（重连可重跑 post_connect）。PR #6（79f6026）确立 freeContext() 单一
+    锁护释放点：freerdp_client_stop → freerdp_client_context_free。FreeRdpStopSmoke（三轮
+    start→fail→stop）53/53 持续在跑，对冲 double-free 面。（3.32.1 复审随 ⑤。）
 
-- [ ] **P0-3 连接线程与 UI 线程职责错位**
-  - 位置：`src/common/rdp/FreeRdpProcess.cpp:200-300`、`src/qtui/QtRdpSessionWidget.cpp:557-582`
-  - 现象：`gdi_init` 在 UI 线程的 `start()` 里调，真正的收帧/`gdi_free` 在 worker 线程和 UI 线程之间
-    交叉（`stop()` 由 `~QtRdpSessionWidget:242`、`handleHostResume:294` 触发，都在 UI 线程；
-    MFC 侧同理走 `RdpSessionView::destroy`）。
-  - 修法：把 `gdi_init` 挪进 worker 线程入口（`FreeRdpProcess.cpp:211` 起），
-    生命周期与 `freerdp_connect`（`:241`）对齐；
-    或给 `stop()` 加超时并在超时后放弃 join + 明确日志，避免断网时 UI 卡死。
+- [x] **P0-3 连接线程与 UI 线程职责错位**（2026-10-24 复核，2026-10-26 对码确认已修）
+  - 现行代码：`gdi_init` 已在 worker 线程的 post_connect（`FreeRdpProcessNative.cpp:463-466`，
+    注释明言「post_connect can run again on reconnect」）；PR #6（79f6026 "let the worker own the
+    context end to end"）：Private::context 整删、freeContext() 单一释放点、stop() 不再直接触
+    context 指针（abort 走 lockedContext()）。UI 线程不再参与 GDI 生命周期。
 
-- [ ] **P0-4 MFC 主窗口所有权不明确**
-  - 位置：`src/mfcui/RdpBoxApp.cpp:67-75`、`src/mfcui/MainWindowSessions.cpp:125-136`
-  - 现象：`new MainWindow()` 交给 `m_pMainWnd`（`MainWindow` 是否覆写 `PostNcDestroy` 要先确认，
-    若无则 MFC 默认 `delete this`），`createShell()` 失败时又走 `delete frame`，
-    `OnDestroy` 里还会 `m_sessionManager.reset()`——三处所有权交织，当前只靠判空侥幸不炸。
-  - 前置：先确认 `MainWindow::PostNcDestroy` 有没有覆写。
-  - 修法：明确单一所有权——`PostNcDestroy` 里 `delete this` 并把 `m_pMainWnd` 置空，
-    `RdpBoxApp` 不再持有裸指针。
+- [x] **P0-4 MFC 主窗口所有权不明确**（2026-10-24 复核证伪，2026-10-26 对码确认）
+  - 前置确认结果：`MainWindow : CFrameWnd` **未覆写** PostNcDestroy → 走 CFrameWnd 默认
+    （`delete this`），这是标准 MFC 所有权：`new MainWindow()` → `m_pMainWnd = frame` →
+    关窗自动删除。`createShell()` 失败路径的 `delete frame` 发生在 `m_pMainWnd` 赋值**之前**
+    （RdpBoxApp.cpp:66-68），无双重删除窗口。三处"交织"实为同一所有权的三个阶段，不是竞争。
 
 ## P1 功能失效
 
-- [ ] **P1-1 MFC 下 Ctrl+N / Ctrl+P 彻底丢失**
-  - 位置：`src/common/rdp/RdpSessionViewMessages.cpp:18-40`（`handleWindowKeyMessage`）、
-    `src/common/ui/MainWindowShortcuts.cpp`（`isReservedMainWindowShortcut`）、
-    `src/mfcui/MainWindow.cpp:155-175`（`PreTranslateMessage`）
-  - 现象：按下 local-only 快捷键时 `noteConsumedLocalShortcutKey` 记账并 `PassThrough`，
-    但 `WindowProc` 对 keydown 仍返回 0（吞掉），而 MFC 处理快捷键的 `PreTranslateMessage`
-    只在消息未被吞时执行 → 远端收不到，本地也不响应。
-  - 修法：local-only 快捷键的 keydown/keyup 直接返回 `NotHandled`，让消息回到 MFC 泵。
-    Qt 侧的 `ShortcutOverride`（`QtRdpSessionWidget.cpp:329`）行为是对的，可对照。
+- [x] **P1-1 MFC 下 Ctrl+N / Ctrl+P 彻底丢失**（2026-10-24 复核证伪，2026-10-26 对码确认）
+  - 证伪机理：原述**泵序反了**——MFC 消息泵是 `PreTranslateMessage` **先于** `WindowProc`
+    （PumpMessage → PreTranslate → Translate/Dispatch → WindowProc）。WindowProc 里吞掉
+    keydown 发生在 PreTranslate 已经返回之后，本地快捷键照常触发；`PassThrough` 只影响
+    远端转发（本就该拦）。`RdpSessionViewMessages.cpp:28-31` 现行行为正确。
+    （真机手测清单里保留一条 Ctrl+N/P 验证即可闭环。）
 
 - [x] **P1-2 Qt 版未初始化密码保护模式，密码被静默丢弃**（PR #3 已合）
   - 位置：`src/qtui/QtMain.cpp`（缺 `PasswordProtection::setMode`）、`src/common/profiles/ProfileRepository.cpp:53-90`
@@ -65,11 +52,9 @@
     profiles.json（换机失效），且每次 `save()` 把 `portableMode` 写回 false 与 flag 拉锯；
     `dataRootPath()` 同样依赖 flag 已落地。挪顺序后「模式 == 路径 == flag」，拉锯自然消失。
 
-- [ ] **P1-3 Qt 连接结束后焦点丢失**
-  - 位置：`src/qtui/QtRdpSessionWidget.cpp:611-627`（`Finished` 分支不恢复焦点）、`:875-878`（`canCaptureSystemKeys`）
-  - 现象：断线后 `Finished` 时无人 `setFocus`，`canCaptureSystemKeys()` 要求 `hasFocus()`，
-    回到标签页必须再点一次才能捕获 Win/Ctrl+Esc 之类的键。
-  - 修法：`Finished` 分支里若 `isVisible()` 则 `setFocus`，并同步 `clearKeyboardTarget`。
+- [x] **P1-3 Qt 连接结束后焦点丢失**（2026-10-24 复核证伪，见「核实结论」区）
+  - 证伪依据：`handleBecameVisible()` 已有 `setFocus`——回到标签页（visible 路径）自动恢复焦点，
+    `Finished` 分支无需抢焦点；断线会话不抢键盘捕获是合理设计。真机若发现需点两次，重开此条。
 
 - [x] **P1-4 Qt 鼠标捕获缺少异常路径补发**（PR #6：`WindowDeactivate` / `Hide` 也补发释放）
   - 位置：`src/qtui/QtRdpSessionWidget.cpp:858-873`（`grabMouse`/`releaseMouse`）
@@ -77,10 +62,9 @@
     Qt 只处理 `QEvent::UngrabMouse`；拖窗口/切标签时远端收不到 mouse-up，按钮卡在按下态。
   - 修法：`UngrabMouse`、`deactivateWindow`、`hide` 统一走 `releasePressedMouseButtons()`。
 
-- [ ] **P1-5 非 Windows 下仍提示可更新**
-  - 位置：`src/common/UpdateClient.cpp:595-615`（平台 stub 恒 false）、`src/qtui/QtMainWindow.cpp:1882-1925`
-  - 现象：Linux 构建照样显示「有新版本」，点击后下载/校验直接失败，只弹错误。
-  - 修法：`fetchLatestRelease` 阶段就按平台过滤 asset，无匹配不进入「可更新」状态。
+- [x] **P1-5 非 Windows 下仍提示可更新**（2026-10-24 复核证伪，2026-10-26 对码确认）
+  - 证伪依据：`UpdateClient.cpp` 双实现——Win32 走 winhttp（:358），非 Win32 stub（:585）恒
+    返回 false → Linux 构建根本进不了「有新版本」状态，原述的失败路径不可达。
 
 ## P2 重复代码与架构
 
@@ -126,10 +110,10 @@
   （陈旧二进制 53/53），GitHub Windows CI 在 1b372e1 红 1m56s 未被查看。
   verify 脚本已改为全量编 `msvc-debug-test`；**合并后必须查 CI 状态**。
 
-- [ ] **P2-5 头文件自包含与重复 include**
-  - 位置：`src/common/ConnectionLaunchArgs.cpp:1-3`（自己 include 自己两次）、
-    `src/common/rdp/RdpKeyboardInputRouter.h:3-13`（`NativeTypes.h` include 两次）
-  - 修法：清掉，顺手开一次 `/showIncludes` 或 IWYU 复查。
+- [x] **P2-5 头文件自包含与重复 include**（6376060 已修；PR #8 header hygiene 一并收）
+  - 对码确认：`ConnectionLaunchArgs.cpp` 自包含 include 只剩 1 处；`RdpKeyboardInputRouter.h`
+    的 `NativeTypes.h` 只剩 1 处（P2-3 拆叶子头后由 `RdpKeyboardPhysicalState.h` 承接）。
+    `/showIncludes`/IWYU 全面复查未做——真要收口挂 P3 待办。
 
 ## P3 可维护性与工程化
 
@@ -203,11 +187,13 @@
   - 未验证：Qt GUI 行为要真窗口手测（容器无 Windows）——并入 GUI 手测挂账
     （断网保留末帧 / 失焦点击落点 / 断开立连不闪 / 关标签不卡，用户暂缓）。
 
-- [ ] **P3-5 崩溃面几乎没有测试覆盖**
-  - 位置：`tests/`（21 个目标全是纯逻辑）、`tests/session/SessionManagerIntegrationTests.cpp`（用 Fake）
-  - 现象：P0-1/P0-2/P3-2 这些点正好都在无测试区。
-  - 修法：先给 `WindowsClipboardBehavior::fileGroupDescriptorByteSize`（已存在但边界没测）
-    和 `RdpProcessEventQueueBehavior` 的 generation 过滤补用例；P0 修复再各配一条回归测试。
+- [x] **P3-5 崩溃面几乎没有测试覆盖**（分三块陆续落地：PR #6/#8/#10/#11/#14）
+  - `fileGroupDescriptorByteSize` 溢出钳制分支：PR #8 补齐（0/1/max/奇数尺寸边界）。
+  - `RdpProcessEventQueueBehavior` generation 过滤：PR #8 补齐 + PR #10 修复其编译雷后真跑。
+  - P0 回归：PR #6 的 FreeRdpStopSmoke（三轮 start→fail→stop，poison-on-free）常驻 ctest。
+  - 追加：RdpSessionMouseStateTests（PR #11）、isDirectoryDescriptorEntry 断言（PR #14）。
+  - 仍挂：Probing 非 Win32 空状态断言——但 Linux CI 不编测试树，该断言无处可跑；等 Linux
+    测试基建存在再说（与 P3-8 一并考虑）。
 
 ## P1-2 修复的复查（PR #3，修复后二次走查）
 
