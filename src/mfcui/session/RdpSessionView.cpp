@@ -2,6 +2,7 @@
 
 #include "common/rdp/FrameBufferMemory.h"
 #include "common/rdp/RdpCursorClassifier.h"
+#include "common/rdp/RdpKeyboardPhysicalProbing.h"
 #include "mfcui/session/RdpFocusNotification.h"
 #include "mfcui/session/RdpProcessEventQueueBehavior.h"
 #include "common/rdp/RdpSessionKeyboardHook.h"

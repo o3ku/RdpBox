@@ -115,7 +115,6 @@ Qt::CursorShape cursorShapeFromKind(CursorKind kind)
     return Qt::ArrowCursor;
 }
 
-
 std::uint32_t keyMessageFromQtEvent(const QKeyEvent *event, bool down)
 {
     const unsigned int virtualKey = static_cast<unsigned int>(event->nativeVirtualKey());
@@ -127,7 +126,6 @@ std::uint32_t keyMessageFromQtEvent(const QKeyEvent *event, bool down)
         return altContext ? WM_SYSKEYDOWN : WM_KEYDOWN;
     return altContext ? WM_SYSKEYUP : WM_KEYUP;
 }
-
 
 bool shouldSuppressTextInputMessage(UINT message)
 {
