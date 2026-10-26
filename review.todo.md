@@ -104,11 +104,13 @@
     64 处调用点改写 + 手工回归标签生命周期。
   - 若做，只做 Qt 内部简化：m_tabs/m_tabBar 双索引合一（QStackedWidget + BrowserTabBar），
     独立于本条，属 P3 级小单。
-- [ ] **P2-3 键盘物理状态构造写了三份**
-  - 位置：`src/common/rdp/RdpSessionView.cpp:73-108`、`src/common/rdp/RdpSessionKeyboardHook.cpp:44-61`、
-    `src/qtui/QtRdpSessionWidget.cpp:117-166`（三份 `isVirtualKeyPhysicallyDown` + 修饰键 + 左右键判定）
-  - 修法：收敛成一份 `BuildPhysicalKeyboardState()` 放 `common/rdp/`（非 Windows 下返回空状态），
-    其余调用方改成直接引用它。
+- [x] **P2-3 键盘物理状态构造写了三份**（2026-10-26 PR #12 合并，CodeBuddy 评审通过）
+  - 三份文件私有 static（hook/MFC 视图/Qt 视图，且已漂移：MFC 份 modifiers 内联、无独立函数）统一为
+    `common/rdp/RdpKeyboardPhysicalProbing.{h,cpp}` 的 `rdp::physical_keyboard`；`RdpKeyboardPhysicalState`
+    结构拆叶子头共享。评审修正：签名 unsigned int、lossy 的 `physicalKeyboardModifiers()` 不进公共 API、
+    Probing 头不拉 Router。净 -52 行。
+  - 遗留（挂账）：`knowsNonModifierKeys`/`pressedVirtualKeys` 全仓只读不写（死字段，Router.cpp:52/396），
+    建议加注释；Probing 非 Windows 空状态可编一个 #ifndef _WIN32 断言（随 P3-5）。
 
 - [x] **P2-4 `common/` 里混进 MFC 视图**（2026-10-25 PR #9 合并，CodeBuddy 评审通过）
   - 13 个 MFC 视图私有文件迁 `src/mfcui/session/`（RdpSessionView 全家 + FocusNotification +
