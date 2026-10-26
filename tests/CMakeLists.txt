@@ -16,6 +16,54 @@ function(rdpbox_prepend_test_runtime_path test_name runtime_target)
     endif()
 endfunction()
 
+# Shared production sources compiled once for the whole test suite.
+# Targets link rdpbox_test_support instead of listing each file again
+# (P3-8: removes 123 redundant compilations per full test build).
+add_library(rdpbox_test_support STATIC
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpMouseMoveCoalescer.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpModifierSyncTracker.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpInputModifiers.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpInputEventUtil.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBehavior.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBackendDataObject.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpCursorClassifier.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpSessionViewBehavior.cpp
+    ${CMAKE_SOURCE_DIR}/src/mfcui/session/RdpProcessEventBehavior.cpp
+    ${CMAKE_SOURCE_DIR}/src/mfcui/session/SessionCollectionBehavior.cpp
+    ${CMAKE_SOURCE_DIR}/src/mfcui/session/SessionTabBehavior.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/AppPaths.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/PasswordProtection.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/profiles/ProfileRepository.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/PasswordProtectionStartup.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/ConnectionLaunchArgs.cpp
+    ${CMAKE_SOURCE_DIR}/src/mfcui/WindowFrameMetrics.cpp
+    ${CMAKE_SOURCE_DIR}/src/mfcui/BrowserTabBehavior.cpp
+    ${CMAKE_SOURCE_DIR}/src/mfcui/ParentResizeForwarder.cpp
+)
+
+target_include_directories(rdpbox_test_support PUBLIC
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(rdpbox_test_support PRIVATE
+    nlohmann_json::nlohmann_json
+    freerdp
+    freerdp-client
+    winpr
+)
+
+# ParentResizeForwarder/BrowserTabBar include afx; static-lib objects are
+# pulled lazily, so only the MFC-aware consumers actually link MFC.
+target_compile_definitions(rdpbox_test_support PRIVATE _AFXDLL)
+
+# freerdp 3.19 vcpkg layout keeps headers under freerdp3/ (see src/CMakeLists).
+get_target_property(RDPBOX_TEST_SUPPORT_FREERDP_INCLUDE_DIRS freerdp INTERFACE_INCLUDE_DIRECTORIES)
+foreach(_freerdp_include_dir IN LISTS RDPBOX_TEST_SUPPORT_FREERDP_INCLUDE_DIRS)
+    if(EXISTS "${_freerdp_include_dir}/freerdp3")
+        target_include_directories(rdpbox_test_support PRIVATE "${_freerdp_include_dir}/freerdp3")
+    endif()
+endforeach()
+
 add_executable(RdpResizeBurstTrackerTests
     rdp/RdpResizeBurstTrackerTests.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpResizeBurstTracker.cpp
@@ -61,8 +109,8 @@ target_link_libraries(RdpNativeGdiGateTests PRIVATE freerdp freerdp-client winpr
 
 add_executable(RdpMouseMoveCoalescerTests
     rdp/RdpMouseMoveCoalescerTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpMouseMoveCoalescer.cpp
 )
+target_link_libraries(RdpMouseMoveCoalescerTests PRIVATE rdpbox_test_support)
 
 target_include_directories(RdpMouseMoveCoalescerTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -72,9 +120,8 @@ add_test(NAME RdpMouseMoveCoalescerTests COMMAND RdpMouseMoveCoalescerTests)
 
 add_executable(RdpModifierSyncTrackerTests
     rdp/RdpModifierSyncTrackerTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpModifierSyncTracker.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpInputModifiers.cpp
 )
+target_link_libraries(RdpModifierSyncTrackerTests PRIVATE rdpbox_test_support)
 
 target_include_directories(RdpModifierSyncTrackerTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -85,10 +132,8 @@ add_test(NAME RdpModifierSyncTrackerTests COMMAND RdpModifierSyncTrackerTests)
 add_executable(RdpKeyboardInputRouterTests
     rdp/RdpKeyboardInputRouterTests.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpKeyboardInputRouter.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpInputModifiers.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpInputEventUtil.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpModifierSyncTracker.cpp
 )
+target_link_libraries(RdpKeyboardInputRouterTests PRIVATE rdpbox_test_support)
 
 target_include_directories(RdpKeyboardInputRouterTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -123,8 +168,8 @@ add_test(NAME ClipboardWindowReadyTests COMMAND ClipboardWindowReadyTests)
 
 add_executable(WindowsClipboardBehaviorTests
     rdp/WindowsClipboardBehaviorTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBehavior.cpp
 )
+target_link_libraries(WindowsClipboardBehaviorTests PRIVATE rdpbox_test_support)
 
 target_include_directories(WindowsClipboardBehaviorTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -134,8 +179,8 @@ add_test(NAME WindowsClipboardBehaviorTests COMMAND WindowsClipboardBehaviorTest
 
 add_executable(WindowsClipboardDataObjectTests
     rdp/WindowsClipboardDataObjectTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBackendDataObject.cpp
 )
+target_link_libraries(WindowsClipboardDataObjectTests PRIVATE rdpbox_test_support)
 
 target_include_directories(WindowsClipboardDataObjectTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -167,17 +212,11 @@ add_executable(FreeRdpStopSmoke
     ${CMAKE_SOURCE_DIR}/src/common/rdp/FreeRdpProcessNative.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpClipboardBridge.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBackend.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBackendDataObject.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBackendWindow.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBackendFiles.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBackendFormats.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBehavior.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpCursorClassifier.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpInputEventUtil.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpInputModifiers.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpSessionViewBehavior.cpp
-    ${CMAKE_SOURCE_DIR}/src/mfcui/session/RdpProcessEventBehavior.cpp
 )
+target_link_libraries(FreeRdpStopSmoke PRIVATE rdpbox_test_support)
 
 target_include_directories(FreeRdpStopSmoke PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -226,8 +265,8 @@ add_test(NAME FrameBufferMemoryTests COMMAND FrameBufferMemoryTests)
 
 add_executable(RdpInputModifiersTests
     rdp/RdpInputModifiersTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpInputModifiers.cpp
 )
+target_link_libraries(RdpInputModifiersTests PRIVATE rdpbox_test_support)
 
 target_include_directories(RdpInputModifiersTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -237,8 +276,8 @@ add_test(NAME RdpInputModifiersTests COMMAND RdpInputModifiersTests)
 
 add_executable(RdpInputEventUtilTests
     rdp/RdpInputEventUtilTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpInputEventUtil.cpp
 )
+target_link_libraries(RdpInputEventUtilTests PRIVATE rdpbox_test_support)
 
 target_include_directories(RdpInputEventUtilTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -248,8 +287,8 @@ add_test(NAME RdpInputEventUtilTests COMMAND RdpInputEventUtilTests)
 
 add_executable(RdpProcessEventBehaviorTests
     rdp/RdpProcessEventBehaviorTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/mfcui/session/RdpProcessEventBehavior.cpp
 )
+target_link_libraries(RdpProcessEventBehaviorTests PRIVATE rdpbox_test_support)
 
 target_include_directories(RdpProcessEventBehaviorTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -274,8 +313,8 @@ add_test(NAME RdpProcessEventQueueBehaviorTests COMMAND RdpProcessEventQueueBeha
 
 add_executable(RdpCursorClassifierTests
     rdp/RdpCursorClassifierTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpCursorClassifier.cpp
 )
+target_link_libraries(RdpCursorClassifierTests PRIVATE rdpbox_test_support)
 
 target_include_directories(RdpCursorClassifierTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -322,8 +361,8 @@ add_test(NAME RdpResolutionRecoveryTests COMMAND RdpResolutionRecoveryTests)
 
 add_executable(RdpSessionViewBehaviorTests
     rdp/RdpSessionViewBehaviorTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpSessionViewBehavior.cpp
 )
+target_link_libraries(RdpSessionViewBehaviorTests PRIVATE rdpbox_test_support)
 
 target_include_directories(RdpSessionViewBehaviorTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -334,8 +373,8 @@ add_test(NAME RdpSessionViewBehaviorTests COMMAND RdpSessionViewBehaviorTests)
 add_executable(RdpSessionMouseStateTests
     rdp/RdpSessionMouseStateTests.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpSessionMouseState.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpMouseMoveCoalescer.cpp
 )
+target_link_libraries(RdpSessionMouseStateTests PRIVATE rdpbox_test_support)
 
 target_include_directories(RdpSessionMouseStateTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -366,9 +405,8 @@ add_test(NAME SessionResumePolicyTests COMMAND SessionResumePolicyTests)
 
 add_executable(SessionCollectionBehaviorTests
     session/SessionCollectionBehaviorTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/mfcui/session/SessionCollectionBehavior.cpp
-    ${CMAKE_SOURCE_DIR}/src/mfcui/session/SessionTabBehavior.cpp
 )
+target_link_libraries(SessionCollectionBehaviorTests PRIVATE rdpbox_test_support)
 
 target_include_directories(SessionCollectionBehaviorTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -378,8 +416,8 @@ add_test(NAME SessionCollectionBehaviorTests COMMAND SessionCollectionBehaviorTe
 
 add_executable(SessionTabBehaviorTests
     session/SessionTabBehaviorTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/mfcui/session/SessionTabBehavior.cpp
 )
+target_link_libraries(SessionTabBehaviorTests PRIVATE rdpbox_test_support)
 
 target_include_directories(SessionTabBehaviorTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -390,12 +428,8 @@ add_test(NAME SessionTabBehaviorTests COMMAND SessionTabBehaviorTests)
 add_executable(SessionManagerIntegrationTests
     session/SessionManagerIntegrationTests.cpp
     ${CMAKE_SOURCE_DIR}/src/mfcui/session/SessionManager.cpp
-    ${CMAKE_SOURCE_DIR}/src/mfcui/session/SessionCollectionBehavior.cpp
-    ${CMAKE_SOURCE_DIR}/src/mfcui/session/SessionTabBehavior.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/AppPaths.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/PasswordProtection.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/profiles/ProfileRepository.cpp
 )
+target_link_libraries(SessionManagerIntegrationTests PRIVATE rdpbox_test_support)
 
 target_include_directories(SessionManagerIntegrationTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -414,10 +448,8 @@ add_test(NAME SessionManagerIntegrationTests COMMAND SessionManagerIntegrationTe
 
 add_executable(ProfileRepositoryTests
     profiles/ProfileRepositoryTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/AppPaths.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/PasswordProtection.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/profiles/ProfileRepository.cpp
 )
+target_link_libraries(ProfileRepositoryTests PRIVATE rdpbox_test_support)
 
 target_include_directories(ProfileRepositoryTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -449,8 +481,8 @@ add_test(NAME Win32StringTests COMMAND Win32StringTests)
 
 add_executable(PasswordProtectionTests
     common/PasswordProtectionTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/PasswordProtection.cpp
 )
+target_link_libraries(PasswordProtectionTests PRIVATE rdpbox_test_support)
 
 target_include_directories(PasswordProtectionTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -465,10 +497,8 @@ add_test(NAME PasswordProtectionTests COMMAND PasswordProtectionTests)
 
 add_executable(PasswordProtectionStartupTests
     common/PasswordProtectionStartupTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/PasswordProtectionStartup.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/PasswordProtection.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/AppPaths.cpp
 )
+target_link_libraries(PasswordProtectionStartupTests PRIVATE rdpbox_test_support)
 
 target_include_directories(PasswordProtectionStartupTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -495,8 +525,8 @@ add_test(NAME ProfileNativeTypesTests COMMAND ProfileNativeTypesTests)
 
 add_executable(ConnectionLaunchArgsTests
     common/ConnectionLaunchArgsTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/ConnectionLaunchArgs.cpp
 )
+target_link_libraries(ConnectionLaunchArgsTests PRIVATE rdpbox_test_support)
 
 target_include_directories(ConnectionLaunchArgsTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -506,10 +536,9 @@ add_test(NAME ConnectionLaunchArgsTests COMMAND ConnectionLaunchArgsTests)
 
 add_executable(UpdateClientTests
     common/UpdateClientTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/AppPaths.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/ConnectionLaunchArgs.cpp
     ${CMAKE_SOURCE_DIR}/src/common/UpdateClient.cpp
 )
+target_link_libraries(UpdateClientTests PRIVATE rdpbox_test_support)
 
 target_include_directories(UpdateClientTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -528,8 +557,8 @@ add_test(NAME UpdateClientTests COMMAND UpdateClientTests)
 
 add_executable(AppPathsTests
     common/AppPathsTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/AppPaths.cpp
 )
+target_link_libraries(AppPathsTests PRIVATE rdpbox_test_support)
 
 target_include_directories(AppPathsTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -544,11 +573,8 @@ add_test(NAME AppPathsTests COMMAND AppPathsTests)
 
 add_executable(AppPersistenceSmokeTests
     smoke/AppPersistenceSmokeTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/AppPaths.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/PasswordProtection.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/PasswordProtectionStartup.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/profiles/ProfileRepository.cpp
 )
+target_link_libraries(AppPersistenceSmokeTests PRIVATE rdpbox_test_support)
 
 target_include_directories(AppPersistenceSmokeTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -567,8 +593,8 @@ add_test(NAME AppPersistenceSmokeTests COMMAND AppPersistenceSmokeTests)
 
 add_executable(WindowFrameMetricsTests
     ui/WindowFrameMetricsTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/mfcui/WindowFrameMetrics.cpp
 )
+target_link_libraries(WindowFrameMetricsTests PRIVATE rdpbox_test_support)
 
 target_include_directories(WindowFrameMetricsTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -664,8 +690,8 @@ add_test(NAME MainWindowUpdateBehaviorTests COMMAND MainWindowUpdateBehaviorTest
 add_executable(MainWindowLayoutBehaviorTests
     ui/MainWindowLayoutBehaviorTests.cpp
     ${CMAKE_SOURCE_DIR}/src/mfcui/MainWindowLayoutBehavior.cpp
-    ${CMAKE_SOURCE_DIR}/src/mfcui/WindowFrameMetrics.cpp
 )
+target_link_libraries(MainWindowLayoutBehaviorTests PRIVATE rdpbox_test_support)
 
 target_include_directories(MainWindowLayoutBehaviorTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -697,8 +723,8 @@ add_test(NAME ProfileEditBehaviorTests COMMAND ProfileEditBehaviorTests)
 
 add_executable(BrowserTabBehaviorTests
     ui/BrowserTabBehaviorTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/mfcui/BrowserTabBehavior.cpp
 )
+target_link_libraries(BrowserTabBehaviorTests PRIVATE rdpbox_test_support)
 
 target_include_directories(BrowserTabBehaviorTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -709,9 +735,8 @@ add_test(NAME BrowserTabBehaviorTests COMMAND BrowserTabBehaviorTests)
 add_executable(BrowserTabBarTests
     ui/BrowserTabBarTests.cpp
     ${CMAKE_SOURCE_DIR}/src/mfcui/BrowserTabBar.cpp
-    ${CMAKE_SOURCE_DIR}/src/mfcui/BrowserTabBehavior.cpp
-    ${CMAKE_SOURCE_DIR}/src/mfcui/ParentResizeForwarder.cpp
 )
+target_link_libraries(BrowserTabBarTests PRIVATE rdpbox_test_support)
 
 target_include_directories(BrowserTabBarTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
@@ -730,8 +755,8 @@ add_test(NAME BrowserTabBarTests COMMAND BrowserTabBarTests)
 
 add_executable(ParentResizeForwarderTests
     ui/ParentResizeForwarderTests.cpp
-    ${CMAKE_SOURCE_DIR}/src/mfcui/ParentResizeForwarder.cpp
 )
+target_link_libraries(ParentResizeForwarderTests PRIVATE rdpbox_test_support)
 
 target_include_directories(ParentResizeForwarderTests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
