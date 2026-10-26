@@ -123,6 +123,7 @@ jobs:
           cmake -S . -B build/msvc-debug-test -G Ninja `
             -DCMAKE_BUILD_TYPE=Debug `
             -DBUILD_TEST=ON `
+            -DRDPBOX_BUILD_QT=ON `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
             "-DVCPKG_TARGET_TRIPLET=$env:VCPKG_DEFAULT_TRIPLET" `
             "-DVCPKG_INSTALLED_DIR=$env:VCPKG_INSTALLED_DIR"
