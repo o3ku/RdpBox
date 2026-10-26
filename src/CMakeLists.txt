@@ -107,6 +107,7 @@ set(RDPBOX_COMMON_SOURCES
     common/rdp/RdpInputModifiers.cpp
     common/rdp/RdpKeyboardInputRouter.h
     common/rdp/RdpKeyboardInputRouter.cpp
+    common/rdp/RdpKeyboardPhysicalState.h
     common/rdp/RdpKeyboardPhysicalProbing.h
     common/rdp/RdpKeyboardPhysicalProbing.cpp
     common/rdp/RdpMouseMoveCoalescer.h

@@ -8,31 +8,39 @@
 #endif
 #include <windows.h>
 
+namespace
+{
+
+// Internal: aggregate-only view of the modifiers. Not exposed - callers that
+// need left/right detail go through physicalKeyboardState().
+unsigned int physicalKeyboardModifiers()
+{
+    unsigned int modifiers = ModifierNone;
+    if (rdp::physical_keyboard::isVirtualKeyPhysicallyDown(VK_CONTROL))
+        modifiers |= ModifierControl;
+    if (rdp::physical_keyboard::isVirtualKeyPhysicallyDown(VK_SHIFT))
+        modifiers |= ModifierShift;
+    if (rdp::physical_keyboard::isVirtualKeyPhysicallyDown(VK_MENU))
+        modifiers |= ModifierAlt;
+    if (rdp::physical_keyboard::isVirtualKeyPhysicallyDown(VK_LWIN)
+        || rdp::physical_keyboard::isVirtualKeyPhysicallyDown(VK_RWIN))
+        modifiers |= ModifierWin;
+    return modifiers;
+}
+
+} // namespace
+
 namespace rdp::physical_keyboard
 {
 
-bool isVirtualKeyPhysicallyDown(int virtualKey)
+bool isVirtualKeyPhysicallyDown(unsigned int virtualKey)
 {
 #ifdef _WIN32
-    return (::GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+    return (::GetAsyncKeyState(static_cast<int>(virtualKey)) & 0x8000) != 0;
 #else
     static_cast<void>(virtualKey);
     return false;
 #endif
-}
-
-unsigned int physicalKeyboardModifiers()
-{
-    unsigned int modifiers = ModifierNone;
-    if (isVirtualKeyPhysicallyDown(VK_CONTROL))
-        modifiers |= ModifierControl;
-    if (isVirtualKeyPhysicallyDown(VK_SHIFT))
-        modifiers |= ModifierShift;
-    if (isVirtualKeyPhysicallyDown(VK_MENU))
-        modifiers |= ModifierAlt;
-    if (isVirtualKeyPhysicallyDown(VK_LWIN) || isVirtualKeyPhysicallyDown(VK_RWIN))
-        modifiers |= ModifierWin;
-    return modifiers;
 }
 
 RdpKeyboardPhysicalState physicalKeyboardState()

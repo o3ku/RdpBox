@@ -122,7 +122,7 @@ std::uint32_t keyMessageFromQtEvent(const QKeyEvent *event, bool down)
     const bool altContext = virtualKey == VK_MENU
         || virtualKey == VK_LMENU
         || virtualKey == VK_RMENU
-        || (rdp::physical_keyboard::physicalKeyboardModifiers() & ModifierAlt) != 0;
+        || (rdp::physical_keyboard::physicalKeyboardState().modifiers & ModifierAlt) != 0;
     if (down)
         return altContext ? WM_SYSKEYDOWN : WM_KEYDOWN;
     return altContext ? WM_SYSKEYUP : WM_KEYUP;

@@ -2,6 +2,7 @@
 
 #include "common/NativeTypes.h"
 #include "common/rdp/RdpInputEventUtil.h"
+#include "common/rdp/RdpKeyboardPhysicalState.h"
 #include "common/rdp/RdpModifierSyncTracker.h"
 #include "common/rdp/RdpWinKeyCodes.h"
 
@@ -9,16 +10,6 @@
 #include <cstdint>
 #include <vector>
 
-struct RdpKeyboardPhysicalState
-{
-    unsigned int modifiers = ModifierNone;
-    unsigned int controlVirtualKey = VK_CONTROL;
-    unsigned int shiftVirtualKey = VK_SHIFT;
-    unsigned int altVirtualKey = VK_MENU;
-    unsigned int winVirtualKey = VK_LWIN;
-    bool knowsNonModifierKeys = false;
-    std::vector<unsigned int> pressedVirtualKeys;
-};
 
 struct RdpLowLevelKeyEvent
 {

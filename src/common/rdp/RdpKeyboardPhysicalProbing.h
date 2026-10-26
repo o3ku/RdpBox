@@ -1,6 +1,6 @@
 #pragma once
 
-#include "common/rdp/RdpKeyboardInputRouter.h"
+#include "common/rdp/RdpKeyboardPhysicalState.h"
 
 namespace rdp::physical_keyboard
 {
@@ -9,9 +9,7 @@ namespace rdp::physical_keyboard
 // the low-level keyboard hook. Off Windows there is no GetAsyncKeyState
 // equivalent; probing reports "not down" and modifier sync falls back to
 // per-event modifiers.
-bool isVirtualKeyPhysicallyDown(int virtualKey);
-
-unsigned int physicalKeyboardModifiers();
+bool isVirtualKeyPhysicallyDown(unsigned int virtualKey);
 
 RdpKeyboardPhysicalState physicalKeyboardState();
 
