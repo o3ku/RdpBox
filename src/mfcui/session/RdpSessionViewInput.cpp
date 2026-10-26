@@ -28,7 +28,7 @@ void CRdpSessionView::syncMouseModifiers(UINT mouseFlags)
 
 void CRdpSessionView::flushPendingMouseMove()
 {
-    if (!m_process) {
+    if (!m_process || m_inputSuspended) {
         if (m_mouseState.pointerMoveTimerActive()) {
             KillTimer(kMouseMoveTimerId);
             m_mouseState.setPointerMoveTimerActive(false);
@@ -52,7 +52,7 @@ void CRdpSessionView::OnMouseMove(UINT flags, CPoint point)
     m_mouseState.notePointerPosition(pointer);
     if (rdp::shouldSynchronizeModifiersForMouseMove(flags))
         syncMouseModifiers(flags);
-    if (!m_process)
+    if (!m_process || m_inputSuspended)
         return;
 
     const auto immediate = m_mouseState.onPointerMove(pointer);
@@ -156,7 +156,7 @@ BOOL CRdpSessionView::OnMouseWheel(UINT flags, short zDelta, CPoint point)
 {
     flushPendingMouseMove();
     syncMouseModifiers(flags);
-    if (m_process) {
+    if (m_process && !m_inputSuspended) {
         CPoint clientPoint(point);
         ScreenToClient(&clientPoint);
         const PointI pointer = pointFromCPoint(clientPoint);

@@ -132,6 +132,7 @@ void CRdpSessionView::connectToHost(const Profile &profile)
     stopProcess(false);
 
     m_process = std::make_shared<FreeRdpProcess>();
+    m_inputSuspended = false;
     bindProcessCallbacks(++m_processGeneration);
     startProcess();
 }
@@ -289,7 +290,7 @@ void CRdpSessionView::disableLocalIme() const
 
 void CRdpSessionView::startProcess()
 {
-    if (!m_process || !GetSafeHwnd())
+    if (!m_process || m_inputSuspended || !GetSafeHwnd())
         return;
 
     KillTimer(kResumeRecoveryTimerId);
@@ -339,6 +340,10 @@ void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
     ++m_processGeneration;
 
     if (m_process) {
+        // Close input forwarding before the teardown that can pump messages:
+        // an input message delivered through that pump must not reach the
+        // session behind this point.
+        m_inputSuspended = true;
         m_process->stop();
         m_process.reset();
     }
@@ -561,7 +566,7 @@ void CRdpSessionView::OnSize(UINT type, int cx, int cy)
 void CRdpSessionView::OnTimer(UINT_PTR timerId)
 {
     if (timerId == kMouseMoveTimerId) {
-        if (!m_process) {
+        if (!m_process || m_inputSuspended) {
             KillTimer(kMouseMoveTimerId);
             m_mouseState.setPointerMoveTimerActive(false);
             return;
@@ -651,7 +656,7 @@ void CRdpSessionView::OnCaptureChanged(CWnd *wnd)
 
 void CRdpSessionView::sendKeyboardAction(const RdpSessionKeyboardState::KeyAction &action)
 {
-    if (!m_process)
+    if (!m_process || m_inputSuspended)
         return;
 
     const unsigned int virtualKey = action.virtualKey != 0
@@ -675,7 +680,7 @@ void CRdpSessionView::releaseKeyboardTargetIfInactive()
 
 void CRdpSessionView::sendTrackedMouseButton(MouseButton button, bool down, PointI point)
 {
-    if (!m_process)
+    if (!m_process || m_inputSuspended)
         return;
 
     m_process->sendMouseButton(button, down, point, currentViewSize());

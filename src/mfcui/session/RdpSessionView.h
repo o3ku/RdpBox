@@ -156,6 +156,11 @@ private:
     HCURSOR m_cursorHandle = nullptr;
     bool m_ownsCursorHandle = false;
     bool m_connected = false;
+    // Input forwarding is closed while the session process is being stopped:
+    // the stop path can pump messages (clipboard/OLE teardown), and an input
+    // message delivered in that window must not reach the half-torn-down
+    // session. Reopened by the next connectToHost().
+    bool m_inputSuspended = false;
     bool m_created = false;
     RdpSessionMouseState m_mouseState;
 };
