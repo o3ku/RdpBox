@@ -82,6 +82,12 @@ int main()
         assert(script.find(L"Wait-Process") != std::wstring::npos);
         assert(script.find(L"$argsLine = '--portable --connections=\"\u6d4b\u8bd5\u673a204,dev box\"'") != std::wstring::npos);
         assert(script.find(L"Remove-Item -LiteralPath '$scriptPath'") != std::wstring::npos);
+        // The swap must be judged by an explicit success flag: $dst exists in
+        // both outcomes, so Test-Path reported a locked-bak failure as success
+        // and deleted the downloaded update.
+        assert(script.find(L"$replaced = $true") != std::wstring::npos);
+        assert(script.find(L"if (-not $replaced) { throw 'replacement failed' }") != std::wstring::npos);
+        assert(script.find(L"if (-not $launched)") != std::wstring::npos);
     }
 
     return 0;
