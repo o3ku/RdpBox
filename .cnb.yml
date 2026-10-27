@@ -3,7 +3,8 @@
 # 真正编一遍（MFC legacy 目标依赖 afxwin.h，只能在 Windows 上编）。
 #
 # 脚本由 CNB 的脚本外壳直接执行，运行的是 `sh` 而不是 bash：不要写
-# `set -euo pipefail`（pipefail 在 dash 里不存在），也避免数组/`[[ ]]`。
+# `set -euo pipefail`（pipefail 在 dash 里不存在），也避免 bash 专有语法
+# （数组、`[[ ]]`、heredoc）。
 main:
   push:
     - name: linux-qt
@@ -35,7 +36,8 @@ main:
             wait "$build_pid"
 
         - name: package
-          # 便携包 = 二进制 + 依赖的 Qt5/freerdp/winpr/cjson 共享库 + xcb/svg 插件。
+          # 便携包 = 二进制 + 依赖的 Qt5/freerdp/winpr/cjson 共享库 + xcb/svg 插件
+          # + translations（CMake 的 POST_BUILD 把 .qm 放在二进制旁，缺了就走英文）。
           script: |
             set -eu
             VERSION="$(sed -n 's/^ *project(RdpBox VERSION \([0-9][0-9.]*\).*/\1/p' src/CMakeLists.txt | head -1)"
@@ -45,6 +47,7 @@ main:
             mkdir -p "${STAGE}/lib" "${STAGE}/plugins/platforms" "${STAGE}/plugins/imageformats"
 
             cp build/linux-release/src/RdpBoxQt "${STAGE}/RdpBoxQt"
+            cp -r build/linux-release/src/translations "${STAGE}/translations"
 
             ldd build/linux-release/src/RdpBoxQt | awk '/=> \/|^\//{print $3}' | sort -u | while read -r lib; do
               case "${lib}" in
@@ -76,7 +79,7 @@ main:
               exit 1
             fi
             ls -l dist/*.tar.gz
-            tar -tzf dist/*.tar.gz | grep -E '/RdpBoxQt$|/RdpBoxQt.sh$|/plugins/platforms/libqxcb\.so$'
+            tar -tzf dist/*.tar.gz | grep -E '/RdpBoxQt$|/RdpBoxQt.sh$|/plugins/platforms/libqxcb\.so$|/translations/rdpbox_zh\.qm$'
 
 # PR 上也要跑：这条流水线是 Qt 目标唯一的编译证据（GitHub Actions 的
 # windows.yml 要 vcpkg 全量拉 qtbase，命中缓存才有性价比）。
