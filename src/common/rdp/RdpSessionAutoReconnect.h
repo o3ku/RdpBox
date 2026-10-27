@@ -38,5 +38,5 @@ inline bool shouldStartAutoReconnect(bool autoAttempt, bool stateReachedRunning,
 // automatic attempt that spent its budget is a give-up like any other.
 inline bool shouldReportDisconnectText(bool autoAttempt, std::uint64_t autoAttempts)
 {
-    return !autoAttempt || autoAttempts < kMaxAutoReconnectAttempts;
+    return !autoAttempt || autoAttempts >= kMaxAutoReconnectAttempts;
 }
