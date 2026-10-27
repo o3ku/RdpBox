@@ -8,6 +8,7 @@
 #include "common/rdp/RdpInputModifiers.h"
 #include "common/rdp/RdpKeyboardPhysicalProbing.h"
 #include "common/rdp/RdpReconnectInteraction.h"
+#include "common/rdp/RdpSessionAutoReconnect.h"
 #include "common/rdp/RdpSessionViewBehavior.h"
 
 #include <QEvent>
@@ -195,6 +196,7 @@ void QtRdpSessionWidget::connectToHost()
     m_frameGate.remaining = 0;
     m_frameGeneration = 0;
     m_frame = {};
+    m_stateReachedRunning = false;
     const SizeI size = viewSize();
     updateState(FreeRdpProcess::State::Starting);
     m_process->start(m_profile.host,
@@ -210,6 +212,22 @@ void QtRdpSessionWidget::connectToHost()
 
 void QtRdpSessionWidget::reconnect()
 {
+    restartSession(false);
+}
+
+void QtRdpSessionWidget::restartSession(bool autoAttempt)
+{
+    if (!shouldStartAutoReconnect(autoAttempt, m_stateReachedRunning, m_autoReconnectAttempts)) {
+        // Nothing is retried: settle on the disconnected overlay this pane
+        // would have shown had the attempt not been automatic.
+        stopProcess(true);
+        return;
+    }
+
+    if (autoAttempt)
+        ++m_autoReconnectAttempts;
+
+    m_reconnectInFlight = !m_stateReachedRunning;
     m_reconnecting = true;
     stopProcess();
     m_process = std::make_shared<FreeRdpProcess>();
@@ -223,7 +241,7 @@ void QtRdpSessionWidget::handleHostResume(bool autoReconnect)
         return;
 
     if (autoReconnect) {
-        reconnect();
+        restartSession(true);
         return;
     }
 
@@ -374,7 +392,8 @@ void QtRdpSessionWidget::mousePressEvent(QMouseEvent *event)
                                          isConnected(),
                                          m_process != nullptr,
                                          processFinished,
-                                         m_frameGate.resolutionUpdatePending)) {
+                                         m_frameGate.resolutionUpdatePending)
+            && canAutoReconnect(m_reconnectInFlight, m_stateReachedRunning)) {
             reconnect();
             event->accept();
             return;
@@ -532,8 +551,18 @@ void QtRdpSessionWidget::stopProcess(bool showDisconnectedOverlay)
     // stop() has returned: the session is swapped out and submit()
     // drops input on its own from here, so input forwarding reopens.
     m_inputSuspended = false;
-    if (showDisconnectedOverlay)
-        updateState(FreeRdpProcess::State::Finished);
+    if (showDisconnectedOverlay) {
+        // Nothing is retried past this point, so the overlay shows the truth:
+        // the last error if the session had one, otherwise a plain disconnect.
+        m_state = FreeRdpProcess::State::Finished;
+        m_reconnecting = false;
+        m_reconnectInFlight = false;
+        const std::string error = m_process->lastDisconnectError();
+        m_overlayText = QString::fromStdWString(rdp::session_view::finishedOverlayText(error));
+        update();
+        if (m_stateChanged)
+            m_stateChanged(m_state);
+    }
 }
 
 void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
@@ -541,11 +570,18 @@ void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
     if (state != FreeRdpProcess::State::Starting && m_certPrompt)
         m_certPrompt->close(); // connection moved on: dismiss and reject
     m_state = state;
+    if (state == FreeRdpProcess::State::Running) {
+        m_stateReachedRunning = true;
+        m_reconnectInFlight = false;
+        m_autoReconnectAttempts = 0;
+    }
     m_overlayText = stateText(state, m_reconnecting);
     if (state == FreeRdpProcess::State::Finished && m_process) {
         const std::string error = m_process->lastDisconnectError();
-        if (!error.empty())
+        if (!error.empty()
+            && shouldReportDisconnectText(m_reconnectInFlight, m_autoReconnectAttempts)) {
             m_overlayText = QString::fromStdWString(rdp::session_view::finishedOverlayText(error));
+        }
     }
     if (state == FreeRdpProcess::State::Running) {
         if (m_process && m_frameGate.active) {
@@ -598,6 +634,19 @@ void QtRdpSessionWidget::consumeFrame()
         if (frameDecision.renderFrame)
             m_frame = std::move(nextFrame);
 
+        if (m_reconnectInFlight) {
+            // The retried session is alive: the recovery timer has had its one
+            // chance, and what is on screen is real again.
+            m_reconnectInFlight = false;
+            m_autoReconnectAttempts = 0;
+            m_stateReachedRunning = true;
+            if (m_recoveryTimer)
+                m_recoveryTimer->stop();
+            m_resolutionRecovery.reset();
+            if (!m_frame.empty())
+                m_overlayText.clear();
+        }
+
         if (frameDecision.hideOverlay && !m_frame.empty())
             m_overlayText.clear();
         if (m_resolutionRecovery.active())
@@ -643,8 +692,13 @@ void QtRdpSessionWidget::syncRecoveryTimer()
 
 void QtRdpSessionWidget::handleRecoveryTimer()
 {
-    if (m_resolutionRecovery.onTimeout())
-        reconnect();
+    // The timer outlives the handshake it was started for: firing it into a
+    // reconnect that has not reached Running yet is what turned a dead
+    // endpoint into a reconnect storm.
+    if (m_resolutionRecovery.onTimeout()
+        && canAutoReconnect(m_reconnectInFlight, m_stateReachedRunning)) {
+        restartSession(true);
+    }
     syncRecoveryTimer();
 }
 

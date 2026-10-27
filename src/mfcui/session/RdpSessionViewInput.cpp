@@ -2,6 +2,7 @@
 
 #include "common/rdp/RdpInputModifiers.h"
 #include "common/rdp/RdpReconnectInteraction.h"
+#include "common/rdp/RdpSessionAutoReconnect.h"
 #include "mfcui/ParentResizeForwarder.h"
 
 namespace
@@ -132,7 +133,8 @@ void CRdpSessionView::handleMouseButtonDown(UINT flags, CPoint point, MouseButto
                                         m_connected,
                                         m_process != nullptr,
                                         processFinished,
-                                        m_frameGate.resolutionUpdatePending)) {
+                                        m_frameGate.resolutionUpdatePending)
+        && canAutoReconnect(m_reconnectInFlight, m_stateReachedRunning)) {
         if (m_reconnectRequested)
             m_reconnectRequested();
         return;

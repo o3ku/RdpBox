@@ -359,6 +359,16 @@ target_include_directories(RdpResolutionRecoveryTests PRIVATE
 
 add_test(NAME RdpResolutionRecoveryTests COMMAND RdpResolutionRecoveryTests)
 
+add_executable(RdpSessionAutoReconnectTests
+    rdp/RdpSessionAutoReconnectTests.cpp
+)
+
+target_include_directories(RdpSessionAutoReconnectTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME RdpSessionAutoReconnectTests COMMAND RdpSessionAutoReconnectTests)
+
 add_executable(RdpSessionViewBehaviorTests
     rdp/RdpSessionViewBehaviorTests.cpp
 )
