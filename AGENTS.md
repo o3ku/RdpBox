@@ -1,50 +1,32 @@
-# Repository Guidelines
+# AGENTS.md
 
-## Project Structure & Module Organization
-`src/` contains the Windows desktop client. Keep app shell code in `src/RdpBoxApp.*`, `src/MainWindow.*`, and `src/WinMain.cpp`. Use `src/ui/` for dialogs and list UIs, `src/session/` for tab/session orchestration, `src/profiles/` for profile models and persistence, `src/rdp/` for FreeRDP integration and input/rendering helpers, and `src/common/` for shared native types/utilities. Runtime assets and Windows resources live under `src/resources/`.
+This file provides guidance to the AI agent when working with code in this repository.
 
-`tests/` contains standalone native test executables wired through CMake when `BUILD_TEST=ON`. `build/` is generated output that should not be edited by hand or committed.
+## Build & test (Windows, MSVC + Ninja + vcpkg)
+- Configure from a Visual Studio Developer prompt: `cl` must be on `PATH`, and `CMakePresets.json` points the vcpkg toolchain at `D:/local/vcpkg-latest/...` (the `VCPKG_ROOT` env var is not used by the presets).
+- The shared preset sets `RDPBOX_BUILD_LEGACY=ON`, so `msvc-debug`/`msvc-release` build only the legacy MFC target. Build Qt with `msvc-release-qt`, or add `-DRDPBOX_BUILD_QT=ON -DRDPBOX_BUILD_LEGACY=OFF`.
+- CMake targets: `RdpBox` (Qt, output binary `RdpBoxQt`) and `RdpBoxLegacy` (output `RdpBox.exe`).
+- Tests: `cmake --preset msvc-debug-test`, `cmake --build --preset msvc-debug-test`, `ctest --preset msvc-debug-test --output-on-failure` (`-R <Name>` for a single test). `tests/qt` only builds when Qt is enabled, which `msvc-debug-test` does not do by default.
+- Tests are Windows-only: non-Windows configuration forces `BUILD_TEST=OFF`. Linux CI (`cmake --preset linux-release`, Ubuntu 24.04) compiles and packages only the Qt target via pkg-config `freerdp3`.
+- CI builds both front ends, but the published Windows release asset is the legacy `RdpBox.exe`.
+- The version is duplicated in `CMakeLists.txt` and `src/CMakeLists.txt` (keep both in sync; Linux packaging reads `src/CMakeLists.txt`). A release tag or `-DRDPBOX_VERSION_OVERRIDE=` overrides the display version.
 
-## Architecture Notes
-RdpBox is a Windows-only multi-tab RDP session manager built with native Win32/MFC-style UI plumbing and FreeRDP 3.x. It embeds FreeRDP in-process rather than launching `wfreerdp.exe` as a subprocess.
+## Layout & architecture
+- Shared code lives in `src/common/` (`profiles/`, `rdp/`, `session/`, `ui/`). Front ends are `src/qtui/` (Qt 5) and `src/mfcui/` plus `src/mfcui/session/` (legacy MFC); only the window/session-host layer differs.
+- `FreeRdpProcess` (`src/common/rdp/`) embeds FreeRDP in-process on a worker thread and posts frames/state/cursor updates to the UI thread. The per-session UI is `QtRdpSessionWidget` (Qt) or `CRdpSessionView` (legacy).
+- Add new RDP behavior to focused helpers under `src/common/rdp/` rather than growing `FreeRdpProcess`, `QtRdpSessionWidget`, or `CRdpSessionView`.
+- Large classes are split into same-directory `.cpp` partials (e.g. `MainWindow*`, `RdpSessionView*`, `WindowsClipboardBackend*`); edit the existing partial instead of merging them.
 
-Keep ownership boundaries clear:
-- `SessionManager` owns session lifecycle and tab mapping.
-- `RdpSessionView` owns per-session rendering, focus/input forwarding, and reconnect UX.
-- `FreeRdpProcess` owns the worker-thread FreeRDP connection and publishes frame/state/cursor updates back to the UI thread.
-- `RdpClipboardBridge` and `WindowsClipboardBackend` own clipboard redirection.
+## Tests
+- Each test is its own `add_executable` + `add_test` pair in `tests/CMakeLists.txt`; shared production sources compile once into `rdpbox_test_support`.
+- `tests/profiles/ProfileRepositoryTests.cpp` parses output with cJSON on purpose while production uses `nlohmann_json`; do not drop either dependency.
+- Manual verification still matters for connection flow, tab lifecycle, clipboard sync, input capture, and resize/reconnect; note what you checked.
 
-Prefer adding new RDP behavior in focused helpers under `src/rdp/` rather than growing `RdpSessionView` or `FreeRdpProcess` further.
+## Style
+- C++20, 4-space indentation, Allman braces for functions; PascalCase types, lowerCamelCase methods, `m_` member prefix.
+- Define `WIN32_LEAN_AND_MEAN` and `NOMINMAX` before Windows headers.
+- Conventional Commits (`feat:`, `fix:`), one logical change per commit.
 
-## Build, Test, and Development Commands
-This project uses CMake presets on Windows with MSVC and Ninja.
-
-- `cmake --preset msvc-debug`: configure a Debug build in `build/msvc-debug`.
-- `cmake --build --preset msvc-debug`: build the app executable.
-- `cmake --preset msvc-release`
-- `cmake --build --preset msvc-release`: configure and build the release variant.
-- `cmake --preset msvc-debug-test`: configure with `BUILD_TEST=ON`.
-- `cmake --build --preset msvc-debug-test`: build the test executables.
-- `ctest --preset msvc-debug-test --output-on-failure`: run all registered tests.
-
-If you add a new test, register it in `tests/CMakeLists.txt` with `add_test(...)`.
-
-## Coding Style & Naming Conventions
-Use C++20, 4-space indentation, and braces on the next line for functions. Class names use PascalCase, methods use lowerCamelCase, and member fields use the `m_` prefix. Match nearby include ordering and keep Windows headers guarded with `WIN32_LEAN_AND_MEAN` and `NOMINMAX` before inclusion.
-
-Prefer small helpers with explicit ownership over large cross-cutting classes. Follow the existing Win32 threading and event-delivery patterns instead of inventing a new abstraction layer.
-
-## Testing Guidelines
-Tests already exist under `tests/profiles/` and `tests/rdp/`. Keep new tests near the module they cover and name them after the behavior under test, for example `ProfileRepositoryTests` or `RdpCursorClassifierTests`.
-
-Current test targets are lightweight native executables rather than a single aggregated test binary. For UI-heavy or integration-heavy changes that are hard to automate, include manual verification steps in your change notes, especially for connection flow, tab lifecycle, clipboard sync, input capture, and resize/reconnect behavior.
-
-## Commit & Pull Request Guidelines
-Use Conventional Commits such as `feat:` and `fix:` with short imperative subjects. Keep each commit scoped to one logical change.
-
-Pull requests should summarize user-visible impact, list the Windows build/test commands you ran, and call out any changes to profile storage, clipboard behavior, input handling, or RDP lifecycle. Include screenshots for dialog or session UI changes.
-
-## Security & Configuration Tips
-Profiles are stored in `%AppData%/RdpBox/profiles.json`, and current MVP behavior may persist credentials locally. Do not commit real credentials, exported profile data, or generated build artifacts.
-
-Treat clipboard, keyboard hook, and session credential changes as security-sensitive areas. Minimize logging of secrets and avoid introducing new plaintext persistence without explicit approval.
+## Persistence & security
+- Profiles live in `%AppData%/RdpBox/profiles.json`; passwords use DPAPI/portable `PasswordProtection`. Do not add plaintext persistence or log secrets.
+- Treat clipboard, keyboard-hook, and credential changes as security-sensitive and call them out in PR notes.
