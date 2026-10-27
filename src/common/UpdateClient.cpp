@@ -556,7 +556,12 @@ bool verifyDownloadedAssetSha256(const std::wstring &owner,
     std::istringstream stream(sums);
     std::string line;
     while (std::getline(stream, line)) {
-        const auto sep = line.find_first_of(" \t");
+        // sha256sum-style line: "<hex>  <name>", an optional '*' marker,
+        // and possibly CRLF endings (PowerShell-generated sums files).
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n'
+                                 || line.back() == ' ' || line.back() == '\t'))
+            line.pop_back();
+        const auto sep = line.find_first_of(" \t*");
         if (sep == std::string::npos)
             continue;
         const auto nameStart = line.find_first_not_of(" \t*", sep);
