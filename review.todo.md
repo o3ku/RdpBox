@@ -158,7 +158,7 @@
   - 已做：新增 `msvc-release-qt` preset（`inherits: msvc-base`，Qt ON / Legacy OFF）；
     CI 编译 `RdpBox`，配置阶段加 `CMAKE_AUTOCONFIRM=1`（依赖缺失时失败而不是挂住）。
     （2026-10-24 修正：RdpBox 是 Qt5 应用，依赖实为 `qt5-base qt5-svg`——原 `qtbase` 是 Qt6、
-    从未编译过；CI 现从 kkzi/qt-static 预编译 bundle 取 Qt，不再源码编译。）
+    从未编译过；CI 现从 o3ku/qt-static 预编译 bundle 取 Qt，不再源码编译。）
   - 已验证（2026-10-24）：windows.yml 与 release.yml 多轮全绿，Qt release 目标每次 CI 都编；
     freerdp 头文件已改为无版本前缀 include（3aa9c57），兼容现行 vcpkg 布局。
 
