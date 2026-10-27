@@ -28,9 +28,13 @@ void CRdpSessionView::syncMouseModifiers(UINT mouseFlags)
 
 void CRdpSessionView::flushPendingMouseMove()
 {
-    if (!m_process || m_inputSuspended) {
+    // No window means the timers are gone and currentViewSize() would assert.
+    // This is the destructor path after SessionManager destroyed the HWND.
+    const HWND hwnd = GetSafeHwnd();
+    if (!m_process || m_inputSuspended || !hwnd) {
         if (m_mouseState.pointerMoveTimerActive()) {
-            KillTimer(kMouseMoveTimerId);
+            if (hwnd)
+                KillTimer(kMouseMoveTimerId);
             m_mouseState.setPointerMoveTimerActive(false);
         }
         return;

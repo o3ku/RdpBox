@@ -323,11 +323,16 @@ void CRdpSessionView::startProcess()
 
 void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
 {
-    KillTimer(kResizeTimerId);
-    KillTimer(kResumeRecoveryTimerId);
-    if (m_mouseState.pointerMoveTimerActive()) {
-        KillTimer(kMouseMoveTimerId);
-        m_mouseState.setPointerMoveTimerActive(false);
+    // SessionManager destroys the HWND before the view object goes away, so
+    // the destructor lands here with no window. The timers died with it, and
+    // the MFC KillTimer wrapper asserts on a null HWND in debug builds.
+    if (GetSafeHwnd()) {
+        KillTimer(kResizeTimerId);
+        KillTimer(kResumeRecoveryTimerId);
+        if (m_mouseState.pointerMoveTimerActive()) {
+            KillTimer(kMouseMoveTimerId);
+            m_mouseState.setPointerMoveTimerActive(false);
+        }
     }
 
     if (m_process) {
