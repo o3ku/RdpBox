@@ -37,35 +37,39 @@ main:
 
         - name: build
           # 20 分钟无输出会判定超时，编译期间每 60 秒打一次心跳。
-          # 心跳用 wait 收口：dash 的 wait 会被信号打断并返回非 0，
-          # 而 while 条件里的 kill -0 不会。
+          # 心跳只用 kill -0 轮询：dash 里 `wait <sleep>` 会被任何信号打断，
+          # 60 秒的 sleep 常常等不到，循环就变成忙等。构建退出码单独用
+          # if 收口 —— `wait && ...` 在 set -e 下会被判成条件语境，失败被吞掉。
           script: |
             set -e;
+            FAIL=0;
             cmake --preset linux-release;
             cmake --build --preset linux-release --parallel &
             build_pid=$!;
-            while :; do
-              sleep 60 &
-              hb=$!;
-              code=0; wait "$hb" || code=$?;
-              kill -0 "$build_pid" 2>/dev/null || break;
+            while kill -0 "$build_pid" 2>/dev/null; do
+              sleep 60;
             done;
-            code=0; wait "$build_pid" || code=$?;
-            exit "$code";
+            if wait "$build_pid"; then rc=0; else rc=$?; FAIL=1; fi;
+            echo "build exit code: $rc";
+            if [ "$FAIL" -ne 0 ]; then exit "$rc"; fi;
 
         - name: package
           # 便携包 = 二进制 + 依赖的 Qt5/freerdp/winpr/cjson 共享库 + xcb/svg 插件
           # + translations（CMake 的 POST_BUILD 把 .qm 放在二进制旁，缺了走英文）。
+          # 正则只用字符类表达，不写 `\/`、`\(...\)` 这种转义 —— 实测平台的
+          # 压平会把反斜杠吃掉，历史版本因此打出过没有共享库的包，又因为
+          # while 在管道里让失败不冒泡而"绿"了。现在每一步都显式 test，
+          # 包内容不达标就让阶段红。
           script: |
             set -e;
-            VERSION="$(grep -m1 'project(RdpBox VERSION' src/CMakeLists.txt | awk '{print $3}')";
+            VERSION="$(grep -m1 'project(RdpBox VERSION' src/CMakeLists.txt | tr -s ' ' | cut -d' ' -f4)";
             test -n "$VERSION";
             STAGE="dist/RdpBoxQt-${VERSION}-linux-x64";
             rm -rf "$STAGE";
             mkdir -p "${STAGE}/lib" "${STAGE}/plugins/platforms" "${STAGE}/plugins/imageformats";
             cp build/linux-release/src/RdpBoxQt "${STAGE}/RdpBoxQt";
             cp -r build/linux-release/src/translations "${STAGE}/translations";
-            ldd build/linux-release/src/RdpBoxQt | grep -o '=> /[^ ]*' | cut -d' ' -f2 | sort -u | while read -r lib; do
+            ldd build/linux-release/src/RdpBoxQt | awk '/=> \//{print $3}' | sort -u | while read -r lib; do
               case "${lib}" in
                 */libQt5*|*/libfreerdp*|*/libwinpr*|*/libcjson*|*/libssl*|*/libcrypto*)
                   cp -L "${lib}" "${STAGE}/lib/";;
@@ -74,6 +78,12 @@ main:
             PLUGDIR="$(qtchooser -print/qt5/plugins 2>/dev/null || qmake -qt=5 -query QT_INSTALL_PLUGINS 2>/dev/null || echo /usr/lib/x86_64-linux-gnu/qt5/plugins)";
             cp "${PLUGDIR}/platforms/libqxcb.so" "${STAGE}/plugins/platforms/";
             cp "${PLUGDIR}/imageformats/libqsvg.so" "${STAGE}/plugins/imageformats/" || true;
+            RESOLVED="$(ldd "${STAGE}/RdpBoxQt" | grep -c 'not found' || true)";
+            test "${RESOLVED:-0}" -eq 0;
+            LIBS="$(ls "${STAGE}/lib" | grep -c '^lib')";
+            test "${LIBS:-0}" -gt 0;
+            test -f "${STAGE}/plugins/platforms/libqxcb.so";
+            test -f "${STAGE}/translations/rdpbox_zh.qm";
             L="${STAGE}/RdpBoxQt.sh";
             echo '#!/bin/sh' > "$L";
             echo 'HERE="$(cd "$(dirname "$0")" && pwd)"' >> "$L";
@@ -123,17 +133,16 @@ pr:
         - name: build
           script: |
             set -e;
+            FAIL=0;
             cmake --preset linux-release;
             cmake --build --preset linux-release --parallel &
             build_pid=$!;
-            while :; do
-              sleep 60 &
-              hb=$!;
-              code=0; wait "$hb" || code=$?;
-              kill -0 "$build_pid" 2>/dev/null || break;
+            while kill -0 "$build_pid" 2>/dev/null; do
+              sleep 60;
             done;
-            code=0; wait "$build_pid" || code=$?;
-            exit "$code";
+            if wait "$build_pid"; then rc=0; else rc=$?; FAIL=1; fi;
+            echo "build exit code: $rc";
+            if [ "$FAIL" -ne 0 ]; then exit "$rc"; fi;
 
         - name: smoke-test
           script: |
