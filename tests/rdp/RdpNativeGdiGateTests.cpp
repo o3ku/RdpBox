@@ -1,4 +1,3 @@
-#include <atomic>
 #include <cassert>
 #include <cstdio>
 
@@ -6,85 +5,97 @@
 
 // The P3 side of the gdi lifetime: post_disconnect must free the GDI surface
 // once per session, and post_connect must not re-init over a live one. The gate
-// is what nativefreerdp_post_connect/post_disconnect consult, so it is checked
-// here through the same functions.
+// is `context->gdi` itself, so it is checked here through a mirror of the two
+// callbacks: each Session stands for one freerdp context.
 namespace
 {
-struct GdiUse
+struct Session
 {
+    bool hasGdi = false;
     int inits = 0;
     int frees = 0;
 };
 
-GdiUse g_use;
-// Same three pieces of state nativefreerdp_post_connect/post_disconnect keep.
-bool g_acquired = false;
-std::atomic_bool g_released{false};
-
-// Mirrors the two callbacks without freerdp: the gate logic is the subject.
-void postConnect()
+void postConnect(Session &session)
 {
-    if (!g_acquired) {
-        ++g_use.inits;
-        g_acquired = true;
-        g_released.store(false);
+    if (!session.hasGdi) {
+        ++session.inits;
+        session.hasGdi = true;
     }
 }
 
-void postDisconnect()
+void postDisconnect(Session &session)
 {
-    bool expected = false;
-    if (!g_acquired || !g_released.compare_exchange_strong(expected, true))
+    if (!session.hasGdi)
         return;
 
-    ++g_use.frees;
-    // The surface is gone: the next session initialises its own, otherwise
-    // every session after the first leaks one.
-    g_acquired = false;
+    ++session.frees;
+    // gdi_free clears context->gdi: a second disconnect of this session is a
+    // no-op, and the next session starts from a null surface.
+    session.hasGdi = false;
 }
 }
 
 int main()
 {
     {
-        postDisconnect();
-        assert(g_use.frees == 0); // nothing acquired, nothing freed
+        Session session;
+        postDisconnect(session);
+        assert(session.frees == 0); // nothing acquired, nothing freed
     }
 
     {
-        postConnect();
-        postDisconnect();
-        assert(g_use.inits == 1);
-        assert(g_use.frees == 1);
+        Session session;
+        postConnect(session);
+        postDisconnect(session);
+        assert(session.inits == 1);
+        assert(session.frees == 1);
     }
 
     {
         // Reconnect inside one session: post_connect runs again, post_disconnect
         // runs twice. Neither may duplicate init or free.
-        postConnect();
-        postConnect();
-        assert(g_use.inits == 2);
-        postDisconnect();
-        postDisconnect();
-        assert(g_use.frees == 2);
+        Session session;
+        postConnect(session);
+        postConnect(session);
+        assert(session.inits == 1);
+        postDisconnect(session);
+        postDisconnect(session);
+        assert(session.frees == 1);
+    }
+
+    {
+        // Two sessions open at once each get their own surface: the gate is the
+        // context, not a process-wide flag.
+        Session first;
+        Session second;
+        postConnect(first);
+        postConnect(second);
+        assert(first.inits == 1);
+        assert(second.inits == 1);
+
+        postDisconnect(first);
+        assert(first.frees == 1);
+        assert(second.frees == 0);
+
+        postDisconnect(second);
+        assert(second.frees == 1);
     }
 
     {
         // A fresh session initialises again after the previous one freed.
-        postConnect();
-        assert(g_use.inits == 3);
-        postDisconnect();
-        assert(g_use.frees == 3);
+        Session previous;
+        postConnect(previous);
+        postDisconnect(previous);
+
+        Session next;
+        postConnect(next);
+        assert(next.inits == 1);
+        assert(previous.inits == 1);
+        postDisconnect(next);
+        assert(next.frees == 1);
     }
 
-    {
-        // A third session must still get a surface of its own.
-        postConnect();
-        assert(g_use.inits == 4);
-        postDisconnect();
-        assert(g_use.frees == 4);
-    }
-
-    std::puts("gdi gate: one init, one free per session");
+    std::puts("gdi gate: one init, one free per context");
     return 0;
 }

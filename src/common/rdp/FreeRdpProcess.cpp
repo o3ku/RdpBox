@@ -137,16 +137,19 @@ public:
             owned = std::exchange(m_context, nullptr);
             stopRequested = true;
             appliers.clear();
+
+            // Detach the callbacks before the context unwinds; the worker keeps
+            // its own state from here on. Under the mutex so it cannot race
+            // the owner clearing stop() does on the abandon path.
+            if (owned) {
+                if (NativeRdpContext *nativeContext = toNativeContext(owned))
+                    nativeContext->owner = nullptr;
+            }
         }
 
         if (!owned)
             return;
 
-        // Detach the callbacks before the context unwinds; the worker keeps
-        // its own state from here on.
-        if (NativeRdpContext *nativeContext = toNativeContext(owned)) {
-            nativeContext->owner = nullptr;
-        }
         freerdp_client_stop(owned);
         freerdp_client_context_free(owned);
     }
@@ -272,6 +275,10 @@ void FreeRdpProcess::start(const std::wstring &host,
     }
 
     NativeRdpContext *nativeContext = toNativeContext(context);
+    // `locked` is the callback route's gate: every freerdp callback into this
+    // object takes it, and stop() takes it to cut the route when a worker is
+    // abandoned. Leaving it null makes every callback a silent no-op.
+    nativeContext->locked = std::make_shared<NativeRdpContext::InvokeLock>();
     nativeContext->owner = this;
     nativeContext->ignoreCertificate = ignoreCertificate;
 
@@ -535,6 +542,17 @@ void FreeRdpProcess::stop()
                                  "abandoning this session.\n",
                          static_cast<long long>(kStopGrace / 1ms));
             backend->abandon();
+
+            // Close the last path back: the worker outlives this object, so
+            // its callbacks must stop reaching it before stop() returns. The
+            // context stays alive while the backend mutex is held, and the
+            // lock waits out a callback that is already inside.
+            {
+                std::unique_lock<std::mutex> lock;
+                if (rdpContext *context = backend->lockedContext(lock))
+                    nativefreerdp_detach_owner(toNativeContext(context));
+            }
+
             if (worker.joinable())
                 worker.detach();
         }
@@ -719,10 +737,11 @@ void FreeRdpProcess::submit(std::function<void(void *, FreeRdpBackend &)> apply)
 
     // The queue is drained by the worker between event waits, so an input
     // request never runs freerdp on this thread. Taking the process lock first
-    // and the session lock second keeps that ordering one-way.
+    // and the session lock second keeps that ordering one-way; the context is
+    // read under that same lock, since context() would take it again.
     try {
-        std::scoped_lock lock(backend->mutex);
-        rdpContext *context = backend->context();
+        std::unique_lock<std::mutex> lock;
+        rdpContext *context = backend->lockedContext(lock);
         if (!context || backend->stopRequested)
             return;
         backend->appliers.push_back({context, std::move(apply)});

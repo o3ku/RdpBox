@@ -54,6 +54,11 @@ CursorInfo duplicateCursorInfo(const CursorInfo &cursor);
 PointI clampToDesktop(PointI point, SizeI desktop);
 UINT16 currentToggleState();
 
+// Blocks until no callback is inside the context, then clears its owner for
+// good. Used when stop() gives up on a worker: the worker outlives the
+// process, so the route back has to be severed before stop() returns.
+void nativefreerdp_detach_owner(NativeRdpContext *context);
+
 BOOL nativefreerdp_global_init();
 void nativefreerdp_global_uninit();
 BOOL nativefreerdp_client_new(freerdp *instance, rdpContext *context);

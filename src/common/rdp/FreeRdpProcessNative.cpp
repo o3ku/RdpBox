@@ -30,9 +30,6 @@ constexpr int kOwnerLockSpins = 4096;
 // uninitialised CursorInfo.
 std::atomic<unsigned long long> g_pointerSerial{0};
 
-std::atomic<bool> g_gdiReleased{false};
-bool g_gdiAcquired = false;
-
 bool tryLockOwner(const std::shared_ptr<NativeRdpContext::InvokeLock> &lock)
 {
     if (!lock)
@@ -58,13 +55,18 @@ public:
         : m_context(context)
         , m_lock(context ? context->locked : nullptr)
     {
-        if (tryLockOwner(m_lock))
+        if (tryLockOwner(m_lock)) {
+            m_acquired = true;
             m_owner = m_context->owner;
+        }
     }
 
     ~OwnerCall()
     {
-        if (m_lock && m_lock->locked.load(std::memory_order_relaxed))
+        // A caller that lost the race never owns the lock; releasing it would
+        // hand the callback route to a third caller while the winner is still
+        // using the owner.
+        if (m_acquired)
             m_lock->locked.store(false, std::memory_order_release);
     }
 
@@ -91,6 +93,7 @@ private:
     NativeRdpContext *m_context;
     std::shared_ptr<NativeRdpContext::InvokeLock> m_lock;
     FreeRdpProcess *m_owner = nullptr;
+    bool m_acquired = false;
 };
 
 BOOL nativefreerdp_begin_paint(rdpContext *context)
@@ -461,12 +464,12 @@ BOOL nativefreerdp_post_connect(freerdp *instance)
         return FALSE;
 
     // Once per session: post_connect can run again on reconnect, and gdi_init
-    // over a live primary buffer leaks the previous surface.
-    if (!g_gdiAcquired) {
+    // over a live primary buffer replaces it without freeing the old one.
+    // context->gdi is the gate and it belongs to this context, so a second
+    // session initialises its own surface instead of inheriting this one.
+    if (!instance->context->gdi) {
         if (!gdi_init(instance, PIXEL_FORMAT_BGRX32))
             return FALSE;
-        g_gdiAcquired = true;
-        g_gdiReleased.store(false, std::memory_order_release);
     }
 
     instance->context->update->BeginPaint = nativefreerdp_begin_paint;
@@ -492,18 +495,12 @@ void nativefreerdp_post_disconnect(freerdp *instance)
     PubSub_UnsubscribeChannelConnected(instance->context->pubSub, nativefreerdp_on_channel_connected);
     PubSub_UnsubscribeChannelDisconnected(instance->context->pubSub, nativefreerdp_on_channel_disconnected);
 
-    // Exactly one gdi_free per session: the worker owns the connection and its
-    // Guard runs this on the way out, while freerdp_client_context_free() does
-    // not touch context->gdi. The flag keeps a second post_disconnect (abort,
-    // reconnect, an abandoned teardown) from freeing the same surface again.
-    bool expected = false;
-    if (!g_gdiAcquired || !g_gdiReleased.compare_exchange_strong(expected, true, std::memory_order_acq_rel))
+    // gdi_free clears context->gdi, so a second disconnect of a session is a
+    // no-op and nothing here is shared with another session's surface.
+    if (!instance->context->gdi)
         return;
 
     gdi_free(instance);
-    // Released: the next session initialises its own surface. Freeing without
-    // this would leak every surface after the first one.
-    g_gdiAcquired = false;
 }
 
 BOOL nativefreerdp_authenticate_ex(freerdp *instance, char **username, char **password,
@@ -608,6 +605,27 @@ DWORD nativefreerdp_verify_changed_certificate_ex(freerdp *instance, const char 
     challenge.changed = true;
 
     return call.owner()->challengeCertificate(challenge) ? 2 : 0;
+}
+
+void nativefreerdp_detach_owner(NativeRdpContext *context)
+{
+    if (!context)
+        return;
+
+    const std::shared_ptr<NativeRdpContext::InvokeLock> lock = context->locked;
+    if (!lock) {
+        context->owner = nullptr;
+        return;
+    }
+
+    // Every callback is bounded (frames, cursors, clipboard, and a cert prompt
+    // that stop() has already been let out of), so waiting for the current one
+    // to finish terminates; taking the lock by force would not.
+    while (!lock->locked.exchange(true, std::memory_order_acquire))
+        std::this_thread::yield();
+
+    context->owner = nullptr;
+    lock->locked.store(false, std::memory_order_release);
 }
 
 BOOL nativefreerdp_global_init()
