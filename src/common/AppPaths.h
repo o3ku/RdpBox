@@ -12,6 +12,9 @@ std::wstring executableDirectory();
 std::wstring dataRootPath();
 std::wstring profilesFilePath();
 std::wstring updatesDirectoryPath();
+// Machine-local window geometry file (never inside dataRootPath: a synced
+// portable folder must not be rewritten for per-monitor window state).
+std::wstring windowStateFilePath();
 // Writes the portable flag next to the executable. Returns false when that
 // directory is not writable (Program Files, read-only media); the caller must
 // surface that, because isPortableMode() then silently falls back to APPDATA.

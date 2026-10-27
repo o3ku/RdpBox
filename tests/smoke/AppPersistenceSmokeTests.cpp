@@ -65,6 +65,9 @@ int main()
 
     ScopedPathBackup profilesBackup(profilesPath);
 
+    const std::filesystem::path statePath(AppPaths::windowStateFilePath());
+    ScopedPathBackup stateBackup(statePath);
+
     // Same order as the app entry points: apply --portable, then initialize().
     assert(AppPaths::enablePortableMode());
     assert(PasswordProtectionStartup::initialize());
@@ -113,7 +116,12 @@ int main()
     assert(root.contains("profiles"));
     assert(root["profiles"].is_array());
     assert(root["profiles"].size() == 1);
-    assert(root.contains("windowState"));
+    // Window geometry moved to the machine-local state file; profiles.json
+    // (which a portable install may keep in a synced folder) must not carry it.
+    assert(!root.contains("windowState"));
+    const nlohmann::json stateRoot = nlohmann::json::parse(readTextFile(statePath), nullptr, false);
+    assert(stateRoot.is_object());
+    assert(stateRoot.value("leftRatio", -1.0) == 0.1);
 
     PasswordProtection::setMode(PasswordProtection::Mode::Dpapi);
     return 0;

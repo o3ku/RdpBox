@@ -19,7 +19,7 @@ struct WindowState
 class ProfileRepository
 {
 public:
-    explicit ProfileRepository(std::wstring filePath);
+    explicit ProfileRepository(std::wstring filePath, std::wstring stateFilePath = {});
 
     const std::vector<Profile> &profiles() const;
     Profile profileByName(const std::wstring &name) const;
@@ -48,6 +48,7 @@ private:
     bool containsName(const std::wstring &name, const std::wstring *excludedName = nullptr) const;
 
     std::wstring m_filePath;
+    std::wstring m_stateFilePath;
     std::vector<Profile> m_profiles;
     mutable bool m_lastSaveFailed = false;
     mutable bool m_unpersistedChange = false;

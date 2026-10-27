@@ -182,8 +182,13 @@ int main()
             / wideFromUtf8("RdpBox-ProfileRepositoryPortableTests-" + createGuidString() + ".json");
         std::filesystem::remove(portablePath);
 
+        const std::filesystem::path statePath =
+            std::filesystem::temp_directory_path()
+            / wideFromUtf8("RdpBox-ProfileRepositoryStateTests-" + createGuidString() + ".json");
+        std::filesystem::remove(statePath);
+
         {
-            ProfileRepository repository(portablePath.wstring());
+            ProfileRepository repository(portablePath.wstring(), statePath.wstring());
             Profile profile = Profile::create();
             profile.name = L"portable";
             profile.host = L"10.0.0.20";
@@ -210,12 +215,19 @@ int main()
         assert(profile && cJSON_IsObject(profile));
         assert(cJSON_GetObjectItemCaseSensitive(profile, "passwordPortable"));
         assert(!cJSON_GetObjectItemCaseSensitive(profile, "passwordProtected"));
-        cJSON *windowState = cJSON_GetObjectItemCaseSensitive(root, "windowState");
-        assert(windowState && cJSON_IsObject(windowState));
+        // Window geometry moved to the machine-local state file: profiles.json
+        // (which may sit in a synced folder) must not carry it anymore.
+        assert(!cJSON_GetObjectItemCaseSensitive(root, "windowState"));
         cJSON_Delete(root);
 
+        cJSON *stateRoot = parseJsonFile(statePath);
+        assert(stateRoot && cJSON_IsObject(stateRoot));
+        const cJSON *leftRatio = cJSON_GetObjectItemCaseSensitive(stateRoot, "leftRatio");
+        assert(leftRatio && cJSON_IsNumber(leftRatio) && leftRatio->valuedouble == 0.1);
+        cJSON_Delete(stateRoot);
+
         {
-            ProfileRepository repository(portablePath.wstring());
+            ProfileRepository repository(portablePath.wstring(), statePath.wstring());
             assert(repository.profileByName(L"portable").password == L"portable-secret");
             const WindowState restored = repository.loadWindowState();
             assert(restored.valid);
@@ -223,6 +235,7 @@ int main()
         }
 
         std::filesystem::remove(portablePath);
+        std::filesystem::remove(statePath);
         PasswordProtection::setMode(PasswordProtection::Mode::Dpapi);
     }
 
@@ -253,6 +266,70 @@ int main()
                == L"stored-secret");
     }
 
+
+    {
+        // Legacy layout: windowState inside profiles.json is the fallback
+        // until a machine-local state file exists (first run after upgrade).
+        const std::filesystem::path legacyProfiles =
+            std::filesystem::temp_directory_path()
+            / wideFromUtf8("RdpBox-ProfileRepositoryLegacyWindowStateTests-" + createGuidString() + ".json");
+        const std::filesystem::path missingState =
+            std::filesystem::temp_directory_path()
+            / wideFromUtf8("RdpBox-ProfileRepositoryMissingStateTests-" + createGuidString() + ".json");
+        writeTextFile(legacyProfiles,
+                      "{\"portableMode\":true,\"profiles\":[],\"windowState\":{"
+                      "\"leftRatio\":0.5,\"topRatio\":0.25,\"widthRatio\":0.3,\"heightRatio\":0.4,"
+                      "\"monitorDeviceName\":\"legacy\",\"showCmd\":3}}");
+
+        ProfileRepository repository(legacyProfiles.wstring(), missingState.wstring());
+        const WindowState legacy = repository.loadWindowState();
+        assert(legacy.valid);
+        assert(legacy.leftRatio == 0.5);
+        assert(legacy.showCmd == 3);
+
+        std::filesystem::remove(legacyProfiles);
+    }
+
+    {
+        // Connect-only churn (lastConnectedAt) must not rewrite profiles.json:
+        // a synced portable folder conflicts on every connect otherwise.
+        PasswordProtection::setMode(PasswordProtection::Mode::Portable);
+        assert(PasswordProtection::isReady());
+
+        const std::filesystem::path churnPath =
+            std::filesystem::temp_directory_path()
+            / wideFromUtf8("RdpBox-ProfileRepositoryChurnTests-" + createGuidString() + ".json");
+        std::filesystem::remove(churnPath);
+
+        ProfileRepository repository(churnPath.wstring());
+        Profile profile = Profile::create();
+        profile.name = L"churn";
+        profile.host = L"10.0.0.30";
+        profile.password = L"churn-secret";
+        assert(repository.addProfile(profile));
+
+        const std::string afterAdd = readTextFile(churnPath);
+
+        Profile connected = repository.profileByName(L"churn");
+        connected.lastConnectedAt = "2026-10-27T03:00:00Z";
+        assert(repository.updateProfile(L"churn", connected));
+        assert(readTextFile(churnPath) == afterAdd); // volatile-only change: no rewrite
+
+        Profile edited = repository.profileByName(L"churn");
+        edited.port = 3390;
+        assert(repository.updateProfile(L"churn", edited));
+        const std::string afterEdit = readTextFile(churnPath);
+        assert(afterEdit != afterAdd); // a real edit still lands
+
+        cJSON *root = parseJsonFile(churnPath);
+        cJSON *stored = cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(root, "profiles"), 0);
+        const cJSON *port = cJSON_GetObjectItemCaseSensitive(stored, "port");
+        assert(port && cJSON_IsNumber(port) && port->valueint == 3390);
+        cJSON_Delete(root);
+
+        std::filesystem::remove(churnPath);
+        PasswordProtection::setMode(PasswordProtection::Mode::Dpapi);
+    }
     std::filesystem::remove(filePath);
     return 0;
 }

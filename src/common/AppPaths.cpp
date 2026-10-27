@@ -91,6 +91,15 @@ std::wstring appDataDirectory()
     return std::wstring(pathBuffer) + L"/RdpBox";
 }
 
+std::wstring localStateDirectory()
+{
+    wchar_t pathBuffer[MAX_PATH] = {};
+    if (FAILED(SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA | CSIDL_FLAG_CREATE, nullptr, SHGFP_TYPE_CURRENT, pathBuffer)))
+        return {};
+
+    return std::wstring(pathBuffer) + L"/RdpBox";
+}
+
 void ensureDirectoryExists(const std::wstring &path)
 {
     if (!path.empty())
@@ -163,6 +172,21 @@ std::wstring appDataDirectory()
         if (!home || !*home)
             return {};
         base = std::string(home) + "/.local/share";
+    }
+    return wideFromUtf8(base) + L"/RdpBox";
+}
+
+std::wstring localStateDirectory()
+{
+    const char *xdg = std::getenv("XDG_STATE_HOME");
+    std::string base;
+    if (xdg && *xdg) {
+        base = xdg;
+    } else {
+        const char *home = std::getenv("HOME");
+        if (!home || !*home)
+            return {};
+        base = std::string(home) + "/.local/state";
     }
     return wideFromUtf8(base) + L"/RdpBox";
 }
@@ -300,6 +324,16 @@ std::wstring profilesFilePath()
 {
     const std::wstring root = dataRootPath();
     return root.empty() ? std::wstring() : (root + L"/profiles.json");
+}
+
+std::wstring windowStateFilePath()
+{
+    const std::wstring root = localStateDirectory();
+    if (root.empty())
+        return {};
+
+    ensureDirectoryExists(root);
+    return root + L"/window-state.json";
 }
 
 std::wstring updatesDirectoryPath()

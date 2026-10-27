@@ -201,14 +201,50 @@ std::wstring uniqueProfileName(const std::wstring &preferredName, const std::vec
             return candidate;
     }
 }
+std::vector<Profile> parseProfiles(const nlohmann::json &root)
+{
+    std::vector<Profile> result;
+    const auto it = root.find("profiles");
+    if (it == root.end() || !it->is_array())
+        return result;
+
+    for (const auto &item : *it) {
+        if (!item.is_object())
+            continue;
+        try {
+            result.push_back(item.get<Profile>());
+        } catch (const nlohmann::json::exception &) {
+        }
+    }
+    return result;
 }
 
-ProfileRepository::ProfileRepository(std::wstring filePath)
-    : m_filePath(filePath)
+// Structural equality with volatile fields ignored: lastConnectedAt moves on
+// every connect and re-sealed password ciphertext differs on every write, so
+// neither may decide whether profiles.json gets rewritten.
+bool sameProfilesIgnoringVolatile(const std::vector<Profile> &left, const std::vector<Profile> &right)
+{
+    if (left.size() != right.size())
+        return false;
+
+    for (std::size_t i = 0; i < left.size(); ++i) {
+        const Profile &a = left[i];
+        const Profile &b = right[i];
+        if (a.name != b.name || a.host != b.host || a.port != b.port
+            || a.username != b.username || a.domain != b.domain || a.password != b.password
+            || a.fullScreenOnConnect != b.fullScreenOnConnect)
+            return false;
+    }
+    return true;
+}
+}
+
+ProfileRepository::ProfileRepository(std::wstring filePath, std::wstring stateFilePath)
+    : m_filePath(std::move(filePath))
+    , m_stateFilePath(stateFilePath.empty() ? AppPaths::windowStateFilePath() : std::move(stateFilePath))
 {
     load();
 }
-
 const std::vector<Profile> &ProfileRepository::profiles() const
 {
     return m_profiles;
@@ -340,9 +376,22 @@ void ProfileRepository::load()
 
 bool ProfileRepository::save() const
 {
-    nlohmann::json root = loadRepositoryRoot(m_filePath);
+    const nlohmann::json previous = loadRepositoryRoot(m_filePath);
+    nlohmann::json root = previous;
     root["portableMode"] = PasswordProtection::mode() == PasswordProtection::Mode::Portable;
     root["profiles"] = m_profiles;
+    root.erase("windowState"); // lives in the machine-local state file; strip legacy copies once
+
+    // profiles.json may sit in a synced folder (portable mode on OneDrive):
+    // rewrite only when the profiles really changed, never for volatile churn,
+    // which is what bred a sync-conflict copy on nearly every exit.
+    if (!previous.contains("windowState")
+        && previous.value("portableMode", false) == root["portableMode"].get<bool>()
+        && sameProfilesIgnoringVolatile(parseProfiles(previous), m_profiles)) {
+        m_lastSaveFailed = false;
+        m_unpersistedChange = anyPasswordDropped(m_profiles);
+        return true;
+    }
 
     m_lastSaveFailed = !saveRepositoryRoot(m_filePath, root);
     m_unpersistedChange = m_lastSaveFailed || anyPasswordDropped(m_profiles);
@@ -361,6 +410,18 @@ bool ProfileRepository::persistWarningNeeded() const
 
 WindowState ProfileRepository::loadWindowState() const
 {
+    const std::string contents = AppPaths::readFileContent(m_stateFilePath);
+    if (!contents.empty()) {
+        try {
+            const nlohmann::json state = nlohmann::json::parse(contents, nullptr, false);
+            if (state.is_object())
+                return state.get<WindowState>();
+        } catch (...) {
+        }
+    }
+
+    // Legacy layout kept windowState inside profiles.json; fall back to it so
+    // an upgrade keeps its geometry until the first local save.
     const nlohmann::json root = loadRepositoryRoot(m_filePath);
     if (!root.is_object() || !root.contains("windowState"))
         return {};
@@ -374,9 +435,12 @@ WindowState ProfileRepository::loadWindowState() const
 
 void ProfileRepository::saveWindowState(const WindowState &state) const
 {
-    nlohmann::json root = loadRepositoryRoot(m_filePath);
-    root["windowState"] = state;
-    saveRepositoryRoot(m_filePath, root);
+    // Geometry is per-machine (monitor layout): write the local state file
+    // only, never profiles.json, which may live in a synced folder.
+    if (m_stateFilePath.empty())
+        return;
+
+    AppPaths::writeFileContent(m_stateFilePath, nlohmann::json(state).dump(4));
 }
 
 bool ProfileRepository::containsName(const std::wstring &name, const std::wstring *excludedName) const
