@@ -109,6 +109,7 @@ main:
 
 # PR 上也要跑：这条流水线是 Qt 目标唯一的编译证据（GitHub Actions 的
 # windows.yml 要 vcpkg 全量拉 qtbase，命中缓存才有性价比）。
+
 pr:
   pull_request:
     - name: linux-qt
@@ -144,9 +145,56 @@ pr:
             echo "build exit code: $rc";
             if [ "$FAIL" -ne 0 ]; then exit "$rc"; fi;
 
+        - name: package
+          # 便携包 = 二进制 + 依赖的 Qt5/freerdp/winpr/cjson 共享库 + xcb/svg 插件
+          # + translations（CMake 的 POST_BUILD 把 .qm 放在二进制旁，缺了走英文）。
+          # 正则只用字符类表达，不写 `\/`、`\(...\)` 这种转义 —— 实测平台的
+          # 压平会把反斜杠吃掉，历史版本因此打出过没有共享库的包，又因为
+          # while 在管道里让失败不冒泡而"绿"了。现在每一步都显式 test，
+          # 包内容不达标就让阶段红。
+          script: |
+            set -e;
+            VERSION="$(grep -m1 'project(RdpBox VERSION' src/CMakeLists.txt | tr -s ' ' | cut -d' ' -f4)";
+            test -n "$VERSION";
+            STAGE="dist/RdpBoxQt-${VERSION}-linux-x64";
+            rm -rf "$STAGE";
+            mkdir -p "${STAGE}/lib" "${STAGE}/plugins/platforms" "${STAGE}/plugins/imageformats";
+            cp build/linux-release/src/RdpBoxQt "${STAGE}/RdpBoxQt";
+            cp -r build/linux-release/src/translations "${STAGE}/translations";
+            ldd build/linux-release/src/RdpBoxQt | awk '/=> \//{print $3}' | sort -u | while read -r lib; do
+              case "${lib}" in
+                */libQt5*|*/libfreerdp*|*/libwinpr*|*/libcjson*|*/libssl*|*/libcrypto*)
+                  cp -L "${lib}" "${STAGE}/lib/";;
+              esac;
+            done;
+            PLUGDIR="$(qtchooser -print/qt5/plugins 2>/dev/null || qmake -qt=5 -query QT_INSTALL_PLUGINS 2>/dev/null || echo /usr/lib/x86_64-linux-gnu/qt5/plugins)";
+            cp "${PLUGDIR}/platforms/libqxcb.so" "${STAGE}/plugins/platforms/";
+            cp "${PLUGDIR}/imageformats/libqsvg.so" "${STAGE}/plugins/imageformats/" || true;
+            RESOLVED="$(ldd "${STAGE}/RdpBoxQt" | grep -c 'not found' || true)";
+            test "${RESOLVED:-0}" -eq 0;
+            LIBS="$(ls "${STAGE}/lib" | grep -c '^lib')";
+            test "${LIBS:-0}" -gt 0;
+            test -f "${STAGE}/plugins/platforms/libqxcb.so";
+            test -f "${STAGE}/translations/rdpbox_zh.qm";
+            L="${STAGE}/RdpBoxQt.sh";
+            echo '#!/bin/sh' > "$L";
+            echo 'HERE="$(cd "$(dirname "$0")" && pwd)"' >> "$L";
+            echo 'export LD_LIBRARY_PATH="${HERE}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"' >> "$L";
+            echo 'export QT_PLUGIN_PATH="${HERE}/plugins"' >> "$L";
+            echo 'exec "${HERE}/RdpBoxQt" "$@"' >> "$L";
+            chmod +x "$L";
+            tar -czf "dist/RdpBoxQt-${VERSION}-linux-x64.tar.gz" -C dist "$(basename "$STAGE")";
+
         - name: smoke-test
+          # 无 X11 显示，跑不了 GUI：只验二进制、依赖库能解析、产物齐全。
           script: |
             set -e;
             binary=./build/linux-release/src/RdpBoxQt;
             test -x "$binary";
             ldd "$binary" | grep "not found" && exit 1;
+            ls -l dist/*.tar.gz;
+            tar -tzf dist/*.tar.gz > members.txt;
+            grep -q '/RdpBoxQt$' members.txt;
+            grep -q '/RdpBoxQt.sh$' members.txt;
+            grep -q '/plugins/platforms/libqxcb[.]so$' members.txt;
+            grep -q '/translations/rdpbox_zh[.]qm$' members.txt;
