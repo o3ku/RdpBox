@@ -82,5 +82,13 @@ int main()
     assert(AppPaths::readFileContent(roundTripPath.wstring()) == "portable-overwrite");
     std::filesystem::remove(roundTripPath);
 
+    // The session diagnostics log appends; overwriting it would lose history.
+    const std::filesystem::path appendPath = exeDir / wideFromUtf8("AppPathsTests-append-" + createGuidString() + ".txt");
+    assert(AppPaths::writeFileContent(appendPath.wstring(), "first"));
+    assert(AppPaths::appendFileContent(appendPath.wstring(), "-second"));
+    assert(AppPaths::appendFileContent(appendPath.wstring(), ""));
+    assert(AppPaths::readFileContent(appendPath.wstring()) == "first-second");
+    std::filesystem::remove(appendPath);
+
     return 0;
 }

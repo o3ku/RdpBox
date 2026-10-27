@@ -1,6 +1,7 @@
 #include "FreeRdpProcessNative.h"
 
 #include "common/Win32String.h"
+#include "common/AppPaths.h"
 #include "RdpCursorClassifier.h"
 
 #include <algorithm>
@@ -19,6 +20,7 @@
 #include <freerdp/locale/keyboard.h>
 #include <freerdp/locale/locale.h>
 
+#include <winpr/wlog.h>
 namespace
 {
 // How long a callback keeps spinning when the owner side is in the middle of
@@ -162,8 +164,12 @@ BOOL nativefreerdp_pointer_new(rdpContext *context, rdpPointer *pointer)
     nativePointer->cursorSerial = g_pointerSerial.fetch_add(1, std::memory_order_relaxed) + 1;
     const int width = static_cast<int>(pointer->width);
     const int height = static_cast<int>(pointer->height);
-    if (width <= 0 || height <= 0)
-        return FALSE;
+    if (width <= 0 || height <= 0) {
+        nativePointer->cursorSerial = 0;
+        // Degenerate sizes are legal server input; a failed pointer update is
+        // fatal in freerdp, so drop the cursor and keep the previous one.
+        return TRUE;
+    }
 
     FrameBuffer cursorFrame;
     cursorFrame.width = width;
@@ -175,7 +181,9 @@ BOOL nativefreerdp_pointer_new(rdpContext *context, rdpPointer *pointer)
             cursorFrame.pixels.data(), PIXEL_FORMAT_BGRA32, static_cast<UINT32>(cursorFrame.stride), 0, 0,
             pointer->width, pointer->height, pointer->xorMaskData, pointer->lengthXorMask,
             pointer->andMaskData, pointer->lengthAndMask, pointer->xorBpp, &context->gdi->palette)) {
-        return FALSE;
+        nativePointer->cursorSerial = 0;
+        // An undecodable cursor must not kill the session (same fatality rule).
+        return TRUE;
     }
 
     destroyCursorInfo(nativePointer->cursor);
@@ -209,9 +217,13 @@ BOOL nativefreerdp_pointer_set(rdpContext *context, rdpPointer *pointer)
     // deliver a cursor to an owner that is already being destroyed.
     const OwnerCall call(toNativeContext(context));
     if (!call.owner())
-        return FALSE;
+        return TRUE; // a failed pointer update is fatal in freerdp; drop it
 
-    call.notifyCursor(toNativePointer(pointer)->cursor);
+    NativePointer *nativePointer = toNativePointer(pointer);
+    if (nativePointer->cursorSerial == 0)
+        return TRUE; // pointer_new dropped this cursor
+
+    call.notifyCursor(nativePointer->cursor);
     return TRUE;
 }
 
@@ -219,7 +231,7 @@ BOOL nativefreerdp_pointer_set_null(rdpContext *context)
 {
     const OwnerCall call(toNativeContext(context));
     if (!call.owner())
-        return FALSE;
+        return TRUE; // never fail a pointer update: freerdp treats it as fatal
 
     call.notifyCursor(CursorInfo{CursorKind::Hidden, nullptr, false});
     return TRUE;
@@ -229,8 +241,8 @@ BOOL nativefreerdp_pointer_set_default(rdpContext *context)
 {
     const OwnerCall call(toNativeContext(context));
     if (!call.owner())
-        return FALSE;
-
+    if (!call.owner())
+        return TRUE; // never fail a pointer update: freerdp treats it as fatal
     call.notifyCursorReset();
     return TRUE;
 }

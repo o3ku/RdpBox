@@ -1,10 +1,12 @@
 #include "AppPaths.h"
 
-#include <nlohmann/json.hpp>
-
 #include <atomic>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string>
+
+#include <nlohmann/json.hpp>
 
 #include "common/Win32String.h"
 
@@ -308,6 +310,16 @@ bool writeFileContent(const std::wstring &filePath, const std::string &contents)
     return writeFileAtomically(filePath, contents);
 }
 
+bool appendFileContent(const std::wstring &filePath, const std::string &contents)
+{
+    std::ofstream out(std::filesystem::path(filePath), std::ios::binary | std::ios::app);
+    if (!out)
+        return false;
+
+    return contents.empty()
+        || out.write(contents.data(), static_cast<std::streamsize>(contents.size()));
+}
+
 std::wstring dataRootPath()
 {
     const std::wstring root = isPortableMode()
@@ -334,6 +346,16 @@ std::wstring windowStateFilePath()
 
     ensureDirectoryExists(root);
     return root + L"/window-state.json";
+}
+
+std::wstring sessionLogFilePath()
+{
+    const std::wstring root = localStateDirectory();
+    if (root.empty())
+        return {};
+
+    ensureDirectoryExists(root);
+    return root + L"/rdp-session.log";
 }
 
 std::wstring updatesDirectoryPath()

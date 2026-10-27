@@ -6,6 +6,7 @@
 #include "common/rdp/RdpInputEventUtil.h"
 #include "common/rdp/RdpSessionViewBehavior.h"
 #include "RdpClipboardBridge.h"
+#include "common/AppPaths.h"
 
 #include <algorithm>
 #include <chrono>
@@ -43,6 +44,34 @@
 namespace
 {
 constexpr DWORD kEventWaitTimeoutMs = 10;
+
+// One line per session lifecycle event, machine-local so a synced portable
+// folder never conflicts on it. Silent on failure: diagnostics must not be
+// able to take a session down.
+void sessionLog(const std::string &message)
+{
+    const std::wstring logPath = AppPaths::sessionLogFilePath();
+    if (logPath.empty())
+        return;
+
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t seconds = std::chrono::system_clock::to_time_t(now);
+    std::tm tmValue = {};
+#ifdef _WIN32
+    localtime_s(&tmValue, &seconds);
+#else
+    localtime_r(&seconds, &tmValue);
+#endif
+    const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  now.time_since_epoch()).count() % 1000;
+
+    char line[640] = {};
+    std::snprintf(line, sizeof(line), "%04d-%02d-%02d %02d:%02d:%02d.%03d %s\n",
+                  tmValue.tm_year + 1900, tmValue.tm_mon + 1, tmValue.tm_mday,
+                  tmValue.tm_hour, tmValue.tm_min, tmValue.tm_sec,
+                  static_cast<int>(milliseconds), message.c_str());
+    AppPaths::appendFileContent(logPath, line);
+}
 
 // FreeRDP resolves the host twice before connecting (a resolvability pre-check
 // plus the real resolve) and aborts the whole connection on a single
@@ -357,6 +386,14 @@ void FreeRdpProcess::start(const std::wstring &host,
         m_d->worker = std::move(worker);
     }
     updateStateFromBackend(State::Starting);
+
+    {
+        char summary[256] = {};
+        std::snprintf(summary, sizeof(summary), "session start %s:%u desktop=%ux%u",
+                      hostUtf8.c_str(), static_cast<unsigned>(serverPort),
+                      static_cast<unsigned>(desktopWidth), static_cast<unsigned>(desktopHeight));
+        sessionLog(summary);
+    }
 }
 
 void FreeRdpProcess::runWorker(std::shared_ptr<FreeRdpBackend> backend)
@@ -423,6 +460,10 @@ void FreeRdpProcess::runWorker(std::shared_ptr<FreeRdpBackend> backend)
 
     const BOOL connected = freerdp_connect(instance);
 
+    // Every path out of the loop names itself here; the generic freerdp
+    // "connection was cancelled" text hides which of these fired.
+    const char *breakReason = connected ? "" : "connect-failed";
+
     if (connected) {
         for (;;) {
             bool stopRequested = false;
@@ -430,23 +471,35 @@ void FreeRdpProcess::runWorker(std::shared_ptr<FreeRdpBackend> backend)
                 std::scoped_lock lock(backend->mutex);
                 stopRequested = backend->stopRequested;
             }
-            if (stopRequested || freerdp_shall_disconnect_context(context))
+            if (stopRequested) {
+                breakReason = "stop-requested";
                 break;
+            }
+            if (freerdp_shall_disconnect_context(context)) {
+                breakReason = "server-requested-disconnect";
+                break;
+            }
 
             HANDLE handles[MAXIMUM_WAIT_OBJECTS] = {};
             const DWORD handleCount = freerdp_get_event_handles(context, handles, MAXIMUM_WAIT_OBJECTS);
-            if (handleCount == 0)
+            if (handleCount == 0) {
+                breakReason = "get-event-handles-empty";
                 break;
+            }
 
             const DWORD waitResult = WaitForMultipleObjects(handleCount, handles, FALSE, kEventWaitTimeoutMs);
             if (waitResult == WAIT_TIMEOUT) {
                 applyPendingRequests(backend);
                 continue;
             }
-            if (waitResult == WAIT_FAILED)
+            if (waitResult == WAIT_FAILED) {
+                breakReason = "wait-failed";
                 break;
-            if (!freerdp_check_event_handles(context))
+            }
+            if (!freerdp_check_event_handles(context)) {
+                breakReason = "check-event-handles-false";
                 break;
+            }
 
             applyPendingRequests(backend);
         }
@@ -461,6 +514,22 @@ void FreeRdpProcess::runWorker(std::shared_ptr<FreeRdpBackend> backend)
         const char *errorStr = freerdp_get_last_error_string(lastError);
         if (errorStr && *errorStr)
             lastErrorText = errorStr;
+    }
+#ifdef _WIN32
+    const unsigned long wsaError = static_cast<unsigned long>(::WSAGetLastError());
+    const unsigned long lastSystemError = static_cast<unsigned long>(::GetLastError());
+#else
+    const unsigned long wsaError = 0;
+    const unsigned long lastSystemError = 0;
+#endif
+    {
+        char summary[512] = {};
+        std::snprintf(summary, sizeof(summary),
+                      "session end %s:%u reason=%s lastError=0x%08X wsagle=%lu gle=%lu text=%.200s",
+                      host ? host : "?", static_cast<unsigned>(port), breakReason,
+                      static_cast<unsigned>(lastError), wsaError, lastSystemError,
+                      lastErrorText.c_str());
+        sessionLog(summary);
     }
     FreeRdpProcess::publishFromWorkerBackend(*backend, FreeRdpProcess::State::Finished, lastErrorText);
 }
