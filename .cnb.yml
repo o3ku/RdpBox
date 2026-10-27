@@ -4,7 +4,12 @@
 #
 # 脚本由 CNB 的脚本外壳直接执行，运行的是 `sh` 而不是 bash：不要写
 # `set -euo pipefail`（pipefail 在 dash 里不存在），也避免 bash 专有语法
-# （数组、`[[ ]]`、heredoc）。
+# （数组、`[[ ]]`）。
+#
+# 更关键的是：CNB 会把 script 块的每一行粘成**一行**再交给 sh。所以每个
+# stage 的首行必须是一条自己就完整的命令（实证：`set -eu` 打头时，后续行
+# 会被粘成 `set -eu cmake --preset ...`）。多行结构一律塞进 heredoc，
+# 首行写 `/bin/sh <<'X'`，末行写定界符 X —— heredoc 内容会原样保留换行。
 main:
   push:
     - name: linux-qt
@@ -13,6 +18,7 @@ main:
       stages:
         - name: install-deps
           script: |
+            /bin/sh <<'DEPS'
             set -eu
             apt-get update
             DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -21,32 +27,30 @@ main:
               nlohmann-json3-dev libcjson-dev \
               freerdp3-dev libwinpr3-dev
             pkg-config --modversion freerdp3 freerdp-client3 winpr3 libcjson
+            DEPS
 
         - name: build
-          # 20 分钟无输出会判定超时，编译过程按期输出心跳。
-          # 心跳用 `wait` 收口：dash 的 wait 会被任意信号打断（非 0 即退出循环），
-          # 而 while 条件里的 kill -0 不被信号打断，不会自己让出。
+          # CNB 会把 script 的每一行粘成一行再交给 sh，多行结构（while/if/heredoc）
+          # 只有塞进 heredoc 才能原样到达 sh —— 首行必须是完整的单个命令，
+          # 否则后续行会被粘到它后面（`set -eu cmake --preset ...` 就是这么死的）。
           script: |
+            /bin/sh <<'BUILD'
             set -eu
             cmake --preset linux-release
             cmake --build --preset linux-release --parallel &
             build_pid=$!
-            while :; do
-              sleep 60 &
-              hb=$!
-              code=0
-              wait "$hb" || code=$?
-              [ "$code" -eq 0 ] || break
-              kill -0 "$build_pid" 2>/dev/null || break
+            while kill -0 "$build_pid" 2>/dev/null; do
+              sleep 60
+              echo "still building: $(date -u +%H:%M:%S)"
             done
-            code=0
-            wait "$build_pid" || code=$?
-            exit "$code"
+            wait "$build_pid"
+            BUILD
 
         - name: package
           # 便携包 = 二进制 + 依赖的 Qt5/freerdp/winpr/cjson 共享库 + xcb/svg 插件
           # + translations（CMake 的 POST_BUILD 把 .qm 放在二进制旁，缺了就走英文）。
           script: |
+            /bin/sh <<'PACKAGE'
             set -eu
             VERSION="$(sed -n 's/^ *project(RdpBox VERSION \([0-9][0-9.]*\).*/\1/p' src/CMakeLists.txt | head -1)"
             test -n "$VERSION"
@@ -68,17 +72,22 @@ main:
             cp "${PLUGDIR}/platforms/libqxcb.so" "${STAGE}/plugins/platforms/"
             cp "${PLUGDIR}/imageformats/libqsvg.so" "${STAGE}/plugins/imageformats/" || true
 
-            # 启动脚本用 printf 生成：YAML 块标量里写不出顶格的 heredoc 定界符
-            # （会提前结束块标量），缩进化的 `<<'EOS'` 又会让定界符失效。
-            printf '#!/bin/sh\nHERE="$(cd "$(dirname "$0")" && pwd)"\nexport LD_LIBRARY_PATH="${HERE}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"\nexport QT_PLUGIN_PATH="${HERE}/plugins"\nexec "${HERE}/RdpBoxQt" "$@"\n' \
-              > "${STAGE}/RdpBoxQt.sh"
+            cat > "${STAGE}/RdpBoxQt.sh" <<'LAUNCHER'
+            #!/bin/sh
+            HERE="$(cd "$(dirname "$0")" && pwd)"
+            export LD_LIBRARY_PATH="${HERE}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+            export QT_PLUGIN_PATH="${HERE}/plugins"
+            exec "${HERE}/RdpBoxQt" "$@"
+            LAUNCHER
             chmod +x "${STAGE}/RdpBoxQt.sh"
 
             tar -czf "dist/RdpBoxQt-${VERSION}-linux-x64.tar.gz" -C dist "$(basename "$STAGE")"
+            PACKAGE
 
         - name: smoke-test
           # 无 X11 显示，跑不了 GUI：只验二进制存在、依赖库全部可解析、产物齐全。
           script: |
+            /bin/sh <<'SMOKE'
             set -eu
             binary=./build/linux-release/src/RdpBoxQt
             test -x "$binary"
@@ -88,6 +97,7 @@ main:
             fi
             ls -l dist/*.tar.gz
             tar -tzf dist/*.tar.gz | grep -E '/RdpBoxQt$|/RdpBoxQt.sh$|/plugins/platforms/libqxcb\.so$|/translations/rdpbox_zh\.qm$'
+            SMOKE
 
 # PR 上也要跑：这条流水线是 Qt 目标唯一的编译证据（GitHub Actions 的
 # windows.yml 要 vcpkg 全量拉 qtbase，命中缓存才有性价比）。
@@ -99,6 +109,7 @@ pr:
       stages:
         - name: install-deps
           script: |
+            /bin/sh <<'DEPS'
             set -eu
             apt-get update
             DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -107,27 +118,26 @@ pr:
               nlohmann-json3-dev libcjson-dev \
               freerdp3-dev libwinpr3-dev
             pkg-config --modversion freerdp3 freerdp-client3 winpr3 libcjson
+            DEPS
 
         - name: build
+          # 同 main：多行脚本靠 heredoc 保住换行。
           script: |
+            /bin/sh <<'BUILD'
             set -eu
             cmake --preset linux-release
             cmake --build --preset linux-release --parallel &
             build_pid=$!
-            while :; do
-              sleep 60 &
-              hb=$!
-              code=0
-              wait "$hb" || code=$?
-              [ "$code" -eq 0 ] || break
-              kill -0 "$build_pid" 2>/dev/null || break
+            while kill -0 "$build_pid" 2>/dev/null; do
+              sleep 60
+              echo "still building: $(date -u +%H:%M:%S)"
             done
-            code=0
-            wait "$build_pid" || code=$?
-            exit "$code"
+            wait "$build_pid"
+            BUILD
 
         - name: smoke-test
           script: |
+            /bin/sh <<'SMOKE'
             set -eu
             binary=./build/linux-release/src/RdpBoxQt
             test -x "$binary"
@@ -135,3 +145,4 @@ pr:
               echo "unresolved shared libraries" >&2
               exit 1
             fi
+            SMOKE
