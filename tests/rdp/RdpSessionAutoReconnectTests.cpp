@@ -26,11 +26,14 @@ int main()
     assert(canAutoReconnect(true));
 
     // Only a give-up shows the server's own error text; an attempt that will
-    // be retried says "Reconnecting...".
+    // be retried says "Reconnecting...". A manual attempt shows the reason it
+    // failed (the user asked for it), and an automatic one that spent its
+    // budget is a give-up like any other.
     assert(shouldReportDisconnectText(false, 0));
-    assert(shouldReportDisconnectText(true, 0));
-    assert(shouldReportDisconnectText(true, 2));
-    assert(!shouldReportDisconnectText(true, 3));
+    assert(shouldReportDisconnectText(false, 3));
+    assert(!shouldReportDisconnectText(true, 0));
+    assert(!shouldReportDisconnectText(true, 2));
+    assert(shouldReportDisconnectText(true, 3));
 
     return 0;
 }
