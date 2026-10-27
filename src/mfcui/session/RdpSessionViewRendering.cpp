@@ -1,6 +1,7 @@
 #include "RdpSessionView.h"
 
 #include "common/rdp/FrameBufferMemory.h"
+#include "common/rdp/RdpSessionAutoReconnect.h"
 #include "common/rdp/RdpSessionViewBehavior.h"
 #include <algorithm>
 #include <utility>
@@ -63,6 +64,15 @@ void CRdpSessionView::OnPaint()
             if (m_resumeRecovery.awaitingFrame()) {
                 m_resumeRecovery.onFrameArrived();
                 if (m_overlayText == L"Resuming session...")
+                    hideOverlayAfterFramePresent = true;
+            } else if (m_reconnectInFlight) {
+                // The retried session is alive: the resume/recovery timer has
+                // had its one chance, and what is on screen is real again.
+                m_reconnectInFlight = false;
+                m_autoReconnectInFlight = false;
+                m_autoReconnectAttempts = 0;
+                KillTimer(kResumeRecoveryTimerId);
+                if (m_overlayText == rdp::session_view::startOverlayText(true).c_str())
                     hideOverlayAfterFramePresent = true;
             }
 

@@ -13,6 +13,7 @@
 #include <QWidget>
 #include <QPointer>
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -71,6 +72,7 @@ private:
     void bindProcessCallbacks();
     void clearProcessCallbacks();
     void stopProcess(bool showDisconnectedOverlay = false);
+    void restartSession(bool autoAttempt);
     void updateState(FreeRdpProcess::State state);
     void consumeFrame();
     void updateCursor();
@@ -113,6 +115,18 @@ private:
     QTimer *m_recoveryTimer = nullptr;
     QPointer<QMessageBox> m_certPrompt;
     bool m_reconnecting = false;
+    // A reconnect this widget started before the previous attempt reached
+    // Running. Only a manual one may start while it is set (see
+    // RdpSessionAutoReconnect.h): the Ended state of the attempt it replaced is
+    // already queued and must not start a second one.
+    bool m_reconnectInFlight = false;
+    // The reconnect in flight was started automatically. Only then does the
+    // overlay hide the server's error text: the user asked for this one.
+    bool m_autoReconnectInFlight = false;
+    // Automatic attempts since the session last reached Running, and whether
+    // the attempt in flight got there at all.
+    std::uint64_t m_autoReconnectAttempts = 0;
+    bool m_stateReachedRunning = false;
     // Input forwarding is closed while the process is being stopped: the
     // stop path can pump messages (clipboard/OLE teardown), and an input
     // event delivered in that window must not reach the half-torn-down

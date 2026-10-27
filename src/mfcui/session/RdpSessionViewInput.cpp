@@ -2,6 +2,7 @@
 
 #include "common/rdp/RdpInputModifiers.h"
 #include "common/rdp/RdpReconnectInteraction.h"
+#include "common/rdp/RdpSessionAutoReconnect.h"
 #include "mfcui/ParentResizeForwarder.h"
 
 namespace
@@ -127,6 +128,8 @@ void CRdpSessionView::OnMButtonDblClk(UINT flags, CPoint point)
 void CRdpSessionView::handleMouseButtonDown(UINT flags, CPoint point, MouseButton button, bool allowReconnect)
 {
     const bool processFinished = m_process && m_process->state() == FreeRdpProcess::State::Finished;
+    // A click is always honoured, including while an automatic reconnect this
+    // view started is still in flight.
     if (allowReconnect
         && shouldReconnectOnPointerDown(m_profile.isValid(),
                                         m_connected,

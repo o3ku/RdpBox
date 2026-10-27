@@ -116,6 +116,7 @@ private:
     void showOverlay(const CString &text);
     void clearOverlay();
     void beginResolutionUpdate();
+    void restartSession(bool autoAttempt);
     void beginResumeRecovery();
     void requestDeferredResumeRefreshIfNeeded();
     void syncRecoveryTimer();
@@ -150,6 +151,21 @@ private:
     CString m_overlayText;
     CFont m_overlayFont;
     bool m_reconnecting = false;
+    // A reconnect this view started before the previous attempt reached
+    // Running. Only a manual one may start while it is set (see
+    // RdpSessionAutoReconnect.h): the Ended event of the attempt it replaced is
+    // already queued and must not start a second one.
+    bool m_reconnectInFlight = false;
+    // The reconnect in flight was started automatically. Only then does the
+    // overlay hide the server's error text: the user asked for this one.
+    bool m_autoReconnectInFlight = false;
+    // Automatic attempts since the session last reached Running, and whether
+    // the attempt in flight got there at all.
+    std::uint64_t m_autoReconnectAttempts = 0;
+    bool m_stateReachedRunning = false;
+    // Last error reported by the process. It has to outlive the process: a
+    // give-up shows it after the session has already been torn down.
+    std::string m_lastDisconnectError;
     rdp::session_view::FrameGateState m_frameGate;
     uint64_t m_cachedFrameGeneration = 0;
     FrameBuffer m_cachedFrame;
