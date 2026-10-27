@@ -1,6 +1,25 @@
-# CNB 流水线：Windows 侧代码在这里没有构建节点可用，能落地的是
-# 「Linux + Qt 目标」的全量编译与打包 —— 与 .github/workflows/linux.yml 等价，
-# 并把 Qt UI 源码真正编一遍（MFC legacy 目标依赖 afxwin.h，只能在 Windows 上编）。
+# CNB 流水线：Windows 侧没有构建节点，能落地的是「Linux + Qt 目标」的
+# 全量编译与打包 —— 与 .github/workflows/linux.yml 等价，并把 Qt UI 源码
+# 真正编一遍（MFC legacy 目标依赖 afxwin.h，只能在 Windows 上编）。
+#
+# 三条硬约束，都是被平台打脸打出来的：
+#
+# 1) 跑的是 sh（dash），不是 bash。不要写 set -euo pipefail，pipefail 在
+#    dash 里不存在。
+#
+# 2) CNB 会把 script 的每一行**压成一行**再交给 sh —— 换行会变成空格。
+#    所以这里每一行都必须以分号结尾，行内不能出现注释（`#` 会把压平后
+#    同一行剩下的命令全部吃掉，曾经让 apt-get install 从来没执行过、
+#    阶段却因为末尾还剩一条命令而"绿"）。while/if 一律不用，需要循环的
+#    地方用显式收口的 test 校验代替。
+#
+# 3) 正则里不要写反斜杠转义：平台的压平会吃掉反斜杠，`\/` 退化成 `/`，
+#    awk 直接语法报错；而它正好在 while 管道尾部，失败不冒泡，历史上
+#    因此打出过没有共享库的包还判了成功。今天所有正则只用字符类
+#    （`[/]`、`[.]`），校验全部改成 `test`。
+#
+# 两条流水线（push 与 pull_request）的 stage 完全同文，改一边记得改另一边。
+
 main:
   push:
     - name: linux-qt
@@ -9,41 +28,74 @@ main:
       stages:
         - name: install-deps
           script: |
-            set -euo pipefail
-            apt-get update
-            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-              build-essential cmake ninja-build pkg-config git ca-certificates \
-              qtbase5-dev libqt5svg5-dev qtbase5-dev-tools \
-              nlohmann-json3-dev libcjson-dev \
-              freerdp3-dev libwinpr3-dev
-            pkg-config --modversion freerdp3 freerdp-client3 winpr3 libcjson
-
+            set -e;
+            export DEBIAN_FRONTEND=noninteractive;
+            export TZ=UTC;
+            apt-get update;
+            PKGS="build-essential cmake ninja-build pkg-config git ca-certificates";
+            PKGS="$PKGS qtbase5-dev libqt5svg5-dev qtbase5-dev-tools";
+            PKGS="$PKGS nlohmann-json3-dev libcjson-dev freerdp3-dev libwinpr3-dev";
+            apt-get install -y --no-install-recommends $PKGS || true;
+            dpkg --configure -a >/dev/null 2>&1 || true;
+            test -x /usr/bin/cmake;
+            pkg-config --exists freerdp3;
+            pkg-config --modversion freerdp3 freerdp-client3 winpr3 libcjson;
         - name: build
-          # 20 分钟无输出会判定超时，编译过程按期输出心跳。
           script: |
-            set -euo pipefail
-            cmake --preset linux-release
-            cmake --build --preset linux-release --parallel &
-            build_pid=$!
-            while kill -0 "$build_pid" 2>/dev/null; do
-              sleep 60
-              echo "still building: $(date -u +%H:%M:%S)"
-            done
-            wait "$build_pid"
-
+            set -e;
+            cmake --preset linux-release;
+            timeout 1500 cmake --build --preset linux-release --parallel;
+        - name: package
+          script: |
+            set -e;
+            VERSION="$(grep -m1 "project(RdpBox VERSION" src/CMakeLists.txt | tr -s " " | cut -d" " -f4)";
+            test -n "$VERSION";
+            STAGE="dist/RdpBoxQt-${VERSION}-linux-x64";
+            rm -rf "$STAGE";
+            mkdir -p "${STAGE}/lib" "${STAGE}/plugins/platforms" "${STAGE}/plugins/imageformats";
+            cp build/linux-release/src/RdpBoxQt "${STAGE}/RdpBoxQt";
+            cp -r build/linux-release/src/translations "${STAGE}/translations";
+            ldd build/linux-release/src/RdpBoxQt | awk '$2=="=>"{print $3}' | sort -u | while read -r lib; do
+            case "${lib}" in
+            */libQt5*|*/libfreerdp*|*/libwinpr*|*/libcjson*|*/libssl*|*/libcrypto*)
+            cp -L "${lib}" "${STAGE}/lib/";;
+            esac;
+            done;
+            PLUGDIR="$(qmake -qt=5 -query QT_INSTALL_PLUGINS 2>/dev/null || echo /usr/lib/x86_64-linux-gnu/qt5/plugins)";
+            cp "${PLUGDIR}/platforms/libqxcb.so" "${STAGE}/plugins/platforms/";
+            cp "${PLUGDIR}/imageformats/libqsvg.so" "${STAGE}/plugins/imageformats/";
+            RESOLVED="$(ldd "${STAGE}/RdpBoxQt" | grep -c "not found" || true)";
+            test "${RESOLVED:-1}" -eq 0;
+            LIBS="$(ls "${STAGE}/lib" | grep -c "^lib" || true)";
+            test "${LIBS:-0}" -gt 0;
+            test -f "${STAGE}/plugins/platforms/libqxcb.so";
+            test -f "${STAGE}/translations/rdpbox_zh.qm";
+            L="${STAGE}/RdpBoxQt.sh";
+            echo '#!/bin/sh' > "$L";
+            echo 'HERE=$(cd "$(dirname "$0")" && pwd)' >> "$L";
+            echo 'export LD_LIBRARY_PATH="$HERE/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"' >> "$L";
+            echo 'export QT_PLUGIN_PATH="$HERE/plugins"' >> "$L";
+            echo 'exec "$HERE/RdpBoxQt" "$@"' >> "$L";
+            chmod +x "$L";
+            sh -n "$L";
+            tar -czf "dist/RdpBoxQt-${VERSION}-linux-x64.tar.gz" -C dist "$(basename "$STAGE")";
         - name: smoke-test
-          # 无 X11 显示，跑不了 GUI：只验二进制存在且依赖库全部可解析。
           script: |
-            set -euo pipefail
-            binary=./build/linux-release/src/RdpBoxQt
-            test -x "$binary"
-            if ldd "$binary" | grep "not found"; then
-              echo "unresolved shared libraries" >&2
-              exit 1
-            fi
+            set -e;
+            binary=./build/linux-release/src/RdpBoxQt;
+            test -x "$binary";
+            test -z "$(ldd "$binary" | grep "not found")";
+            ls -l dist/RdpBoxQt-*-linux-x64.tar.gz;
+            tar -tzf dist/RdpBoxQt-*-linux-x64.tar.gz > members.txt;
+            grep -q "/RdpBoxQt$" members.txt;
+            grep -q "/RdpBoxQt.sh$" members.txt;
+            grep -q "/plugins/platforms/libqxcb[.]so$" members.txt;
+            grep -q "/translations/rdpbox_zh[.]qm$" members.txt;
+            grep -q "/lib/libQt5Core[.]so" members.txt;
 
 # PR 上也要跑：这条流水线是 Qt 目标唯一的编译证据（GitHub Actions 的
 # windows.yml 要 vcpkg 全量拉 qtbase，命中缓存才有性价比）。
+
 pr:
   pull_request:
     - name: linux-qt
@@ -52,33 +104,67 @@ pr:
       stages:
         - name: install-deps
           script: |
-            set -euo pipefail
-            apt-get update
-            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-              build-essential cmake ninja-build pkg-config git ca-certificates \
-              qtbase5-dev libqt5svg5-dev qtbase5-dev-tools \
-              nlohmann-json3-dev libcjson-dev \
-              freerdp3-dev libwinpr3-dev
-            pkg-config --modversion freerdp3 freerdp-client3 winpr3 libcjson
-
+            set -e;
+            export DEBIAN_FRONTEND=noninteractive;
+            export TZ=UTC;
+            apt-get update;
+            PKGS="build-essential cmake ninja-build pkg-config git ca-certificates";
+            PKGS="$PKGS qtbase5-dev libqt5svg5-dev qtbase5-dev-tools";
+            PKGS="$PKGS nlohmann-json3-dev libcjson-dev freerdp3-dev libwinpr3-dev";
+            apt-get install -y --no-install-recommends $PKGS || true;
+            dpkg --configure -a >/dev/null 2>&1 || true;
+            test -x /usr/bin/cmake;
+            pkg-config --exists freerdp3;
+            pkg-config --modversion freerdp3 freerdp-client3 winpr3 libcjson;
         - name: build
           script: |
-            set -euo pipefail
-            cmake --preset linux-release
-            cmake --build --preset linux-release --parallel &
-            build_pid=$!
-            while kill -0 "$build_pid" 2>/dev/null; do
-              sleep 60
-              echo "still building: $(date -u +%H:%M:%S)"
-            done
-            wait "$build_pid"
-
+            set -e;
+            cmake --preset linux-release;
+            timeout 1500 cmake --build --preset linux-release --parallel;
+        - name: package
+          script: |
+            set -e;
+            VERSION="$(grep -m1 "project(RdpBox VERSION" src/CMakeLists.txt | tr -s " " | cut -d" " -f4)";
+            test -n "$VERSION";
+            STAGE="dist/RdpBoxQt-${VERSION}-linux-x64";
+            rm -rf "$STAGE";
+            mkdir -p "${STAGE}/lib" "${STAGE}/plugins/platforms" "${STAGE}/plugins/imageformats";
+            cp build/linux-release/src/RdpBoxQt "${STAGE}/RdpBoxQt";
+            cp -r build/linux-release/src/translations "${STAGE}/translations";
+            ldd build/linux-release/src/RdpBoxQt | awk '$2=="=>"{print $3}' | sort -u | while read -r lib; do
+            case "${lib}" in
+            */libQt5*|*/libfreerdp*|*/libwinpr*|*/libcjson*|*/libssl*|*/libcrypto*)
+            cp -L "${lib}" "${STAGE}/lib/";;
+            esac;
+            done;
+            PLUGDIR="$(qmake -qt=5 -query QT_INSTALL_PLUGINS 2>/dev/null || echo /usr/lib/x86_64-linux-gnu/qt5/plugins)";
+            cp "${PLUGDIR}/platforms/libqxcb.so" "${STAGE}/plugins/platforms/";
+            cp "${PLUGDIR}/imageformats/libqsvg.so" "${STAGE}/plugins/imageformats/";
+            RESOLVED="$(ldd "${STAGE}/RdpBoxQt" | grep -c "not found" || true)";
+            test "${RESOLVED:-1}" -eq 0;
+            LIBS="$(ls "${STAGE}/lib" | grep -c "^lib" || true)";
+            test "${LIBS:-0}" -gt 0;
+            test -f "${STAGE}/plugins/platforms/libqxcb.so";
+            test -f "${STAGE}/translations/rdpbox_zh.qm";
+            L="${STAGE}/RdpBoxQt.sh";
+            echo '#!/bin/sh' > "$L";
+            echo 'HERE=$(cd "$(dirname "$0")" && pwd)' >> "$L";
+            echo 'export LD_LIBRARY_PATH="$HERE/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"' >> "$L";
+            echo 'export QT_PLUGIN_PATH="$HERE/plugins"' >> "$L";
+            echo 'exec "$HERE/RdpBoxQt" "$@"' >> "$L";
+            chmod +x "$L";
+            sh -n "$L";
+            tar -czf "dist/RdpBoxQt-${VERSION}-linux-x64.tar.gz" -C dist "$(basename "$STAGE")";
         - name: smoke-test
           script: |
-            set -euo pipefail
-            binary=./build/linux-release/src/RdpBoxQt
-            test -x "$binary"
-            if ldd "$binary" | grep "not found"; then
-              echo "unresolved shared libraries" >&2
-              exit 1
-            fi
+            set -e;
+            binary=./build/linux-release/src/RdpBoxQt;
+            test -x "$binary";
+            test -z "$(ldd "$binary" | grep "not found")";
+            ls -l dist/RdpBoxQt-*-linux-x64.tar.gz;
+            tar -tzf dist/RdpBoxQt-*-linux-x64.tar.gz > members.txt;
+            grep -q "/RdpBoxQt$" members.txt;
+            grep -q "/RdpBoxQt.sh$" members.txt;
+            grep -q "/plugins/platforms/libqxcb[.]so$" members.txt;
+            grep -q "/translations/rdpbox_zh[.]qm$" members.txt;
+            grep -q "/lib/libQt5Core[.]so" members.txt;
