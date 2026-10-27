@@ -158,7 +158,11 @@ void CRdpSessionView::restartSession(bool autoAttempt)
     if (autoAttempt)
         ++m_autoReconnectAttempts;
 
+    // Two independent facts: this view started a reconnect before the previous
+    // attempt reached Running, and this view started that one automatically.
+    // Only the latter is a reason to suppress the server's error text.
     m_reconnectInFlight = !m_stateReachedRunning;
+    m_autoReconnectInFlight = m_reconnectInFlight && autoAttempt;
     m_reconnecting = true;
     connectToHost(m_profile);
 }
@@ -371,6 +375,9 @@ void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
         // stop() has returned: the session is swapped out and submit()
         // drops input on its own from here, so input forwarding reopens.
         m_inputSuspended = false;
+        // Read it before the process goes: the overlay that follows a give-up
+        // has to name the error the session actually ended with.
+        m_lastDisconnectError = m_process->lastDisconnectError();
         m_process.reset();
     }
 
@@ -392,8 +399,8 @@ void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
     if (showDisconnectedOverlay) {
         // Nothing is retried past this point, so the user gets the truth: the
         // last error if the session had one, otherwise a plain disconnect.
-        const std::string error = m_process ? m_process->lastDisconnectError() : std::string();
-        showOverlay(rdp::session_view::finishedOverlayText(error).c_str());
+        m_autoReconnectAttempts = 0;
+        showOverlay(rdp::session_view::finishedOverlayText(m_lastDisconnectError).c_str());
     }
     releaseCursorHandle();
 }
@@ -404,6 +411,7 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
     case FreeRdpProcess::State::Running: {
         m_stateReachedRunning = true;
         m_reconnectInFlight = false;
+        m_autoReconnectInFlight = false;
         m_autoReconnectAttempts = 0;
         m_connected = true;
         if (m_process && m_frameGate.active) {
@@ -438,19 +446,20 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
         m_resolutionRecovery.reset();
         m_resumeRecovery.reset();
         {
-            // An attempt that will be retried says so, rather than flashing
-            // the server's error on its way to the next handshake.
-            CString overlayText = L"Disconnected";
-            if (m_process) {
-                std::string error = m_process->lastDisconnectError();
-                if (!error.empty()
-                    && shouldReportDisconnectText(m_reconnectInFlight, m_autoReconnectAttempts)) {
-                    overlayText = rdp::session_view::finishedOverlayText(error).c_str();
-                } else if (m_reconnectInFlight) {
-                    overlayText = rdp::session_view::startOverlayText(true).c_str();
-                }
+            // Retrying is a decision of its own (the recovery timer may already
+            // have given up), so it is not read off m_reconnecting. An attempt
+            // that will be retried says so rather than flashing the server's
+            // error on its way to the next handshake.
+            const bool willRetry = canAutoReconnect(m_stateReachedRunning)
+                && shouldStartAutoReconnect(true, m_stateReachedRunning, m_autoReconnectAttempts);
+            if (willRetry) {
+                showOverlay(rdp::session_view::startOverlayText(true).c_str());
+            } else {
+                const std::string error = m_process ? m_process->lastDisconnectError() : std::string();
+                const bool reportError = !error.empty()
+                    && shouldReportDisconnectText(m_autoReconnectInFlight, m_autoReconnectAttempts);
+                showOverlay(rdp::session_view::finishedOverlayText(reportError ? error : std::string()).c_str());
             }
-            showOverlay(overlayText);
         }
         releaseCursorHandle();
         Invalidate(FALSE);
@@ -630,7 +639,7 @@ void CRdpSessionView::OnTimer(UINT_PTR timerId)
         // endpoint into a reconnect storm.
         const bool recoveryTimedOut = m_resolutionRecovery.onTimeout()
             || m_resumeRecovery.onTimeout() == RdpResumeRecovery::Action::Reconnect;
-        if (recoveryTimedOut && canAutoReconnect(m_reconnectInFlight, m_stateReachedRunning))
+        if (recoveryTimedOut && canAutoReconnect(m_stateReachedRunning))
             restartSession(true);
         return;
     }

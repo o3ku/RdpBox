@@ -4,9 +4,11 @@
 
 int main()
 {
-    // A manual reconnect is always honoured.
+    // A manual reconnect is always honoured: the user asking again, even while
+    // a stale automatic attempt is still in flight or the retry budget is out.
     assert(shouldStartAutoReconnect(false, false, 0));
     assert(shouldStartAutoReconnect(false, false, 42));
+    assert(shouldStartAutoReconnect(false, true, 42));
 
     // An automatic one has to see a live session first: this is the case that
     // turns a dead endpoint into a reconnect storm.
@@ -18,11 +20,10 @@ int main()
     // Backstop for a session that reaches Running but never delivers content.
     assert(!shouldStartAutoReconnect(true, true, 3));
 
-    // Stale state callbacks may not trigger anything while a manual reconnect
-    // is still in flight.
-    assert(!canAutoReconnect(true, true));
-    assert(!canAutoReconnect(false, false));
-    assert(canAutoReconnect(false, true));
+    // Nothing automatic starts while the last handshake has not reached Running,
+    // whether or not this view started it.
+    assert(!canAutoReconnect(false));
+    assert(canAutoReconnect(true));
 
     // Only a give-up shows the server's own error text; an attempt that will
     // be retried says "Reconnecting...".

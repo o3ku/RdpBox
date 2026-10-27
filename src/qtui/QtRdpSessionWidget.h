@@ -120,6 +120,9 @@ private:
     // RdpSessionAutoReconnect.h): the Ended state of the attempt it replaced is
     // already queued and must not start a second one.
     bool m_reconnectInFlight = false;
+    // The reconnect in flight was started automatically. Only then does the
+    // overlay hide the server's error text: the user asked for this one.
+    bool m_autoReconnectInFlight = false;
     // Automatic attempts since the session last reached Running, and whether
     // the attempt in flight got there at all.
     std::uint64_t m_autoReconnectAttempts = 0;

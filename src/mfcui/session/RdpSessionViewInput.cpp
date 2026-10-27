@@ -128,13 +128,14 @@ void CRdpSessionView::OnMButtonDblClk(UINT flags, CPoint point)
 void CRdpSessionView::handleMouseButtonDown(UINT flags, CPoint point, MouseButton button, bool allowReconnect)
 {
     const bool processFinished = m_process && m_process->state() == FreeRdpProcess::State::Finished;
+    // A click is always honoured, including while an automatic reconnect this
+    // view started is still in flight.
     if (allowReconnect
         && shouldReconnectOnPointerDown(m_profile.isValid(),
                                         m_connected,
                                         m_process != nullptr,
                                         processFinished,
-                                        m_frameGate.resolutionUpdatePending)
-        && canAutoReconnect(m_reconnectInFlight, m_stateReachedRunning)) {
+                                        m_frameGate.resolutionUpdatePending)) {
         if (m_reconnectRequested)
             m_reconnectRequested();
         return;

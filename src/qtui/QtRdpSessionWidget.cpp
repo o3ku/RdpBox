@@ -227,7 +227,11 @@ void QtRdpSessionWidget::restartSession(bool autoAttempt)
     if (autoAttempt)
         ++m_autoReconnectAttempts;
 
+    // Two independent facts: this view started a reconnect before the previous
+    // attempt reached Running, and this view started that one automatically.
+    // Only the latter is a reason to suppress the server's error text.
     m_reconnectInFlight = !m_stateReachedRunning;
+    m_autoReconnectInFlight = m_reconnectInFlight && autoAttempt;
     m_reconnecting = true;
     stopProcess();
     m_process = std::make_shared<FreeRdpProcess>();
@@ -388,12 +392,13 @@ void QtRdpSessionWidget::mousePressEvent(QMouseEvent *event)
     if (event && event->button() == Qt::LeftButton) {
         const bool processFinished = m_process
             && m_process->state() == FreeRdpProcess::State::Finished;
+        // A click is always honoured, including while an automatic reconnect
+        // this pane started is still in flight.
         if (shouldReconnectOnPointerDown(m_profile.isValid(),
                                          isConnected(),
                                          m_process != nullptr,
                                          processFinished,
-                                         m_frameGate.resolutionUpdatePending)
-            && canAutoReconnect(m_reconnectInFlight, m_stateReachedRunning)) {
+                                         m_frameGate.resolutionUpdatePending)) {
             reconnect();
             event->accept();
             return;
@@ -554,14 +559,8 @@ void QtRdpSessionWidget::stopProcess(bool showDisconnectedOverlay)
     if (showDisconnectedOverlay) {
         // Nothing is retried past this point, so the overlay shows the truth:
         // the last error if the session had one, otherwise a plain disconnect.
-        m_state = FreeRdpProcess::State::Finished;
-        m_reconnecting = false;
-        m_reconnectInFlight = false;
-        const std::string error = m_process->lastDisconnectError();
-        m_overlayText = QString::fromStdWString(rdp::session_view::finishedOverlayText(error));
-        update();
-        if (m_stateChanged)
-            m_stateChanged(m_state);
+        m_autoReconnectAttempts = 0;
+        updateState(FreeRdpProcess::State::Finished);
     }
 }
 
@@ -573,14 +572,23 @@ void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
     if (state == FreeRdpProcess::State::Running) {
         m_stateReachedRunning = true;
         m_reconnectInFlight = false;
+        m_autoReconnectInFlight = false;
         m_autoReconnectAttempts = 0;
     }
     m_overlayText = stateText(state, m_reconnecting);
-    if (state == FreeRdpProcess::State::Finished && m_process) {
-        const std::string error = m_process->lastDisconnectError();
-        if (!error.empty()
-            && shouldReportDisconnectText(m_reconnectInFlight, m_autoReconnectAttempts)) {
-            m_overlayText = QString::fromStdWString(rdp::session_view::finishedOverlayText(error));
+    if (state == FreeRdpProcess::State::Finished) {
+        // Retrying is a decision of its own (the recovery timer may already
+        // have given up), so it is not read off m_reconnecting. An attempt that
+        // will be retried says so instead of flashing the server's error on its
+        // way to the next handshake.
+        const bool willRetry = canAutoReconnect(m_stateReachedRunning)
+            && shouldStartAutoReconnect(true, m_stateReachedRunning, m_autoReconnectAttempts);
+        if (willRetry) {
+            m_overlayText = QString::fromStdWString(rdp::session_view::startOverlayText(true));
+        } else {
+            const std::string error = m_process ? m_process->lastDisconnectError() : std::string();
+            if (!error.empty() && shouldReportDisconnectText(m_autoReconnectInFlight, m_autoReconnectAttempts))
+                m_overlayText = QString::fromStdWString(rdp::session_view::finishedOverlayText(error));
         }
     }
     if (state == FreeRdpProcess::State::Running) {
@@ -638,6 +646,7 @@ void QtRdpSessionWidget::consumeFrame()
             // The retried session is alive: the recovery timer has had its one
             // chance, and what is on screen is real again.
             m_reconnectInFlight = false;
+            m_autoReconnectInFlight = false;
             m_autoReconnectAttempts = 0;
             m_stateReachedRunning = true;
             if (m_recoveryTimer)
@@ -696,7 +705,7 @@ void QtRdpSessionWidget::handleRecoveryTimer()
     // reconnect that has not reached Running yet is what turned a dead
     // endpoint into a reconnect storm.
     if (m_resolutionRecovery.onTimeout()
-        && canAutoReconnect(m_reconnectInFlight, m_stateReachedRunning)) {
+        && canAutoReconnect(m_stateReachedRunning)) {
         restartSession(true);
     }
     syncRecoveryTimer();
