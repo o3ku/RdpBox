@@ -1,6 +1,9 @@
-# CNB 流水线：Windows 侧代码在这里没有构建节点可用，能落地的是
-# 「Linux + Qt 目标」的全量编译与打包 —— 与 .github/workflows/linux.yml 等价，
-# 并把 Qt UI 源码真正编一遍（MFC legacy 目标依赖 afxwin.h，只能在 Windows 上编）。
+# CNB 流水线：Windows 侧没有构建节点，能落地的是「Linux + Qt 目标」的
+# 全量编译与打包 —— 与 .github/workflows/linux.yml 等价，并把 Qt UI 源码
+# 真正编一遍（MFC legacy 目标依赖 afxwin.h，只能在 Windows 上编）。
+#
+# 脚本由 CNB 的脚本外壳直接执行，运行的是 `sh` 而不是 bash：不要写
+# `set -euo pipefail`（pipefail 在 dash 里不存在），也避免数组/`[[ ]]`。
 main:
   push:
     - name: linux-qt
@@ -9,7 +12,7 @@ main:
       stages:
         - name: install-deps
           script: |
-            set -euo pipefail
+            set -eu
             apt-get update
             DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
               build-essential cmake ninja-build pkg-config git ca-certificates \
@@ -21,7 +24,7 @@ main:
         - name: build
           # 20 分钟无输出会判定超时，编译过程按期输出心跳。
           script: |
-            set -euo pipefail
+            set -eu
             cmake --preset linux-release
             cmake --build --preset linux-release --parallel &
             build_pid=$!
@@ -31,16 +34,49 @@ main:
             done
             wait "$build_pid"
 
-        - name: smoke-test
-          # 无 X11 显示，跑不了 GUI：只验二进制存在且依赖库全部可解析。
+        - name: package
+          # 便携包 = 二进制 + 依赖的 Qt5/freerdp/winpr/cjson 共享库 + xcb/svg 插件。
           script: |
-            set -euo pipefail
+            set -eu
+            VERSION="$(sed -n 's/^ *project(RdpBox VERSION \([0-9][0-9.]*\).*/\1/p' src/CMakeLists.txt | head -1)"
+            test -n "$VERSION"
+            STAGE="dist/RdpBoxQt-${VERSION}-linux-x64"
+            rm -rf "$STAGE"
+            mkdir -p "${STAGE}/lib" "${STAGE}/plugins/platforms" "${STAGE}/plugins/imageformats"
+
+            cp build/linux-release/src/RdpBoxQt "${STAGE}/RdpBoxQt"
+
+            ldd build/linux-release/src/RdpBoxQt | awk '/=> \/|^\//{print $3}' | sort -u | while read -r lib; do
+              case "${lib}" in
+                */libQt5*|*/libfreerdp*|*/libwinpr*|*/libcjson*|*/libssl*|*/libcrypto*)
+                  cp -L "${lib}" "${STAGE}/lib/" ;;
+              esac
+            done
+
+            PLUGDIR="$(qtchooser -print/qt5/plugins 2>/dev/null || qmake -qt=5 -query QT_INSTALL_PLUGINS 2>/dev/null || echo /usr/lib/x86_64-linux-gnu/qt5/plugins)"
+            cp "${PLUGDIR}/platforms/libqxcb.so" "${STAGE}/plugins/platforms/"
+            cp "${PLUGDIR}/imageformats/libqsvg.so" "${STAGE}/plugins/imageformats/" || true
+
+            # 启动脚本用 printf 生成：YAML 块标量里写不出顶格的 heredoc 定界符
+            # （会提前结束块标量），缩进化的 `<<'EOS'` 又会让定界符失效。
+            printf '#!/bin/sh\nHERE="$(cd "$(dirname "$0")" && pwd)"\nexport LD_LIBRARY_PATH="${HERE}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"\nexport QT_PLUGIN_PATH="${HERE}/plugins"\nexec "${HERE}/RdpBoxQt" "$@"\n' \
+              > "${STAGE}/RdpBoxQt.sh"
+            chmod +x "${STAGE}/RdpBoxQt.sh"
+
+            tar -czf "dist/RdpBoxQt-${VERSION}-linux-x64.tar.gz" -C dist "$(basename "$STAGE")"
+
+        - name: smoke-test
+          # 无 X11 显示，跑不了 GUI：只验二进制存在、依赖库全部可解析、产物齐全。
+          script: |
+            set -eu
             binary=./build/linux-release/src/RdpBoxQt
             test -x "$binary"
             if ldd "$binary" | grep "not found"; then
               echo "unresolved shared libraries" >&2
               exit 1
             fi
+            ls -l dist/*.tar.gz
+            tar -tzf dist/*.tar.gz | grep -E '/RdpBoxQt$|/RdpBoxQt.sh$|/plugins/platforms/libqxcb\.so$'
 
 # PR 上也要跑：这条流水线是 Qt 目标唯一的编译证据（GitHub Actions 的
 # windows.yml 要 vcpkg 全量拉 qtbase，命中缓存才有性价比）。
@@ -52,7 +88,7 @@ pr:
       stages:
         - name: install-deps
           script: |
-            set -euo pipefail
+            set -eu
             apt-get update
             DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
               build-essential cmake ninja-build pkg-config git ca-certificates \
@@ -63,7 +99,7 @@ pr:
 
         - name: build
           script: |
-            set -euo pipefail
+            set -eu
             cmake --preset linux-release
             cmake --build --preset linux-release --parallel &
             build_pid=$!
@@ -75,7 +111,7 @@ pr:
 
         - name: smoke-test
           script: |
-            set -euo pipefail
+            set -eu
             binary=./build/linux-release/src/RdpBoxQt
             test -x "$binary"
             if ldd "$binary" | grep "not found"; then
