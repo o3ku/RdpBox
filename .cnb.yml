@@ -24,16 +24,24 @@ main:
 
         - name: build
           # 20 分钟无输出会判定超时，编译过程按期输出心跳。
+          # 心跳用 `wait` 收口：dash 的 wait 会被任意信号打断（非 0 即退出循环），
+          # 而 while 条件里的 kill -0 不被信号打断，不会自己让出。
           script: |
             set -eu
             cmake --preset linux-release
             cmake --build --preset linux-release --parallel &
             build_pid=$!
-            while kill -0 "$build_pid" 2>/dev/null; do
-              sleep 60
-              echo "still building: $(date -u +%H:%M:%S)"
+            while :; do
+              sleep 60 &
+              hb=$!
+              code=0
+              wait "$hb" || code=$?
+              [ "$code" -eq 0 ] || break
+              kill -0 "$build_pid" 2>/dev/null || break
             done
-            wait "$build_pid"
+            code=0
+            wait "$build_pid" || code=$?
+            exit "$code"
 
         - name: package
           # 便携包 = 二进制 + 依赖的 Qt5/freerdp/winpr/cjson 共享库 + xcb/svg 插件
@@ -106,11 +114,17 @@ pr:
             cmake --preset linux-release
             cmake --build --preset linux-release --parallel &
             build_pid=$!
-            while kill -0 "$build_pid" 2>/dev/null; do
-              sleep 60
-              echo "still building: $(date -u +%H:%M:%S)"
+            while :; do
+              sleep 60 &
+              hb=$!
+              code=0
+              wait "$hb" || code=$?
+              [ "$code" -eq 0 ] || break
+              kill -0 "$build_pid" 2>/dev/null || break
             done
-            wait "$build_pid"
+            code=0
+            wait "$build_pid" || code=$?
+            exit "$code"
 
         - name: smoke-test
           script: |
