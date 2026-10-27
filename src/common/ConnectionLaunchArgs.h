@@ -10,6 +10,7 @@ bool tryParseConnectionsArgument(const std::wstring &argument,
 std::vector<std::wstring> parseConnectionsArgumentValue(const std::wstring &value);
 std::wstring buildConnectionsArgumentValue(const std::vector<std::wstring> &connectionNames);
 std::wstring powerShellSingleQuotedLiteral(const std::wstring &value);
+std::wstring buildPowerShellScriptCommandLine(const std::wstring &scriptPath);
 std::string updateScriptUtf8(const std::wstring &script);
 std::wstring buildUpdateApplyScript(const std::wstring &downloadedPath,
                                     const std::wstring &currentExePath,

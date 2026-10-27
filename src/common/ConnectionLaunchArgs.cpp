@@ -90,6 +90,18 @@ std::wstring powerShellSingleQuotedLiteral(const std::wstring &value)
     return quoted;
 }
 
+std::wstring buildPowerShellScriptCommandLine(const std::wstring &scriptPath)
+{
+    // powershell.exe parses -File with CommandLineToArgvW rules, so single
+    // quotes are passed through literally and the path is rejected as invalid
+    // ("The given path's format is not supported"). Double quotes are stripped.
+    std::wstring commandLine =
+        L"powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"";
+    commandLine += scriptPath;
+    commandLine += L'"';
+    return commandLine;
+}
+
 std::string updateScriptUtf8(const std::wstring &script)
 {
     // UTF-8 BOM: powershell.exe 5.1 reads BOM-less .ps1 as ANSI and corrupts

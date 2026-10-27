@@ -51,6 +51,17 @@ int main()
     }
 
     {
+        // -File must receive a double-quoted path: powershell.exe treats single
+        // quotes as ordinary characters and rejects the whole script path.
+        const std::wstring commandLine = launch::buildPowerShellScriptCommandLine(
+            L"C:\\Users\\A B\\AppData\\Roaming\\RdpBox\\updates\\apply-update-42.ps1");
+        assert(commandLine.rfind(L"powershell.exe ", 0) == 0);
+        assert(commandLine.find(L"-File \"C:\\Users\\A B\\AppData\\Roaming\\RdpBox\\updates\\apply-update-42.ps1\"")
+               != std::wstring::npos);
+        assert(commandLine.find(L"-File '") == std::wstring::npos);
+    }
+
+    {
         const std::string script = launch::updateScriptUtf8(L"$s = '\u6d4b\u8bd5\u673a204'\n");
         assert(script.size() >= 3);
         assert(static_cast<unsigned char>(script[0]) == 0xEF);

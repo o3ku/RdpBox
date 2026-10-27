@@ -305,9 +305,7 @@ bool applyDownloadedUpdate(const std::wstring &downloadedPath,
     if (!AppPaths::writeFileContent(scriptPath, launch::updateScriptUtf8(script)))
         return false;
 
-    std::wstring commandLine =
-        L"powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "
-        + launch::powerShellSingleQuotedLiteral(scriptPath);
+    std::wstring commandLine = launch::buildPowerShellScriptCommandLine(scriptPath);
     STARTUPINFOW startupInfo = {};
     startupInfo.cb = sizeof(startupInfo);
     PROCESS_INFORMATION processInfo = {};
