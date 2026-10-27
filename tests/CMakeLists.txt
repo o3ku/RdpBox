@@ -369,16 +369,6 @@ target_include_directories(RdpSessionAutoReconnectTests PRIVATE
 
 add_test(NAME RdpSessionAutoReconnectTests COMMAND RdpSessionAutoReconnectTests)
 
-add_executable(FreeRdpStopGraceTests
-    rdp/FreeRdpStopGraceTests.cpp
-)
-
-target_include_directories(FreeRdpStopGraceTests PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-)
-
-add_test(NAME FreeRdpStopGraceTests COMMAND FreeRdpStopGraceTests)
-
 add_executable(RdpSessionViewBehaviorTests
     rdp/RdpSessionViewBehaviorTests.cpp
 )

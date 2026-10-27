@@ -36,8 +36,6 @@ namespace
 constexpr int kMouseMoveTimerIntervalMs = 16;
 constexpr int kResizeTimerIntervalMs = 200;
 constexpr int kRecoveryTimerIntervalMs = 2500;
-// This one the user asked for: no budget, no suppression of the error text.
-constexpr bool kManualReconnect = false;
 
 rdp::certificate_prompt::Challenge promptChallengeFromProcessChallenge(
     const FreeRdpProcess::CertificateChallenge &challenge)
@@ -198,9 +196,7 @@ void QtRdpSessionWidget::connectToHost()
     m_frameGate.remaining = 0;
     m_frameGeneration = 0;
     m_frame = {};
-    // A new session starts with nothing proven and a full retry budget.
-    m_stateReachedRunning = false;
-    m_autoReconnectAttempts = 0;
+    // A new session starts with nothing proven.
     m_reconnectInFlight = false;
     const SizeI size = viewSize();
     updateState(FreeRdpProcess::State::Starting);
@@ -217,29 +213,9 @@ void QtRdpSessionWidget::connectToHost()
 
 void QtRdpSessionWidget::reconnect()
 {
-    // The user is asking directly, so the retry budget does not apply: a manual
-    // reconnect is also how a session gets out of a dead retry cycle.
-    restartSession(kManualReconnect);
-}
-
-void QtRdpSessionWidget::restartSession(bool autoAttempt)
-{
-    if (autoAttempt
-        && !shouldStartAutoReconnect(true, m_stateReachedRunning, m_autoReconnectAttempts)) {
-        // Nothing is retried: settle on the disconnected overlay this pane
-        // would have shown had the attempt not been automatic.
-        stopProcess(true);
-        return;
-    }
-
-    if (autoAttempt)
-        ++m_autoReconnectAttempts;
-
-    // Two independent facts: this pane started a reconnect, and this pane
-    // started it automatically. Only the latter is a reason to suppress the
-    // server's error text.
-    m_reconnectInFlight = true;
-    m_autoReconnectInFlight = autoAttempt;
+    // Nothing reconnects on its own any more (see RdpSessionAutoReconnect.h),
+    // so every attempt that gets here was driven by the user - a click, or a
+    // resume. There is nothing to count, and nothing to suppress.
     m_reconnecting = true;
     stopProcess();
     m_process = std::make_shared<FreeRdpProcess>();
@@ -253,7 +229,13 @@ void QtRdpSessionWidget::handleHostResume(bool autoReconnect)
         return;
 
     if (autoReconnect) {
-        restartSession(true);
+        // A resume brings a session back, so it starts a handshake - but not
+        // over one that is still on its way, which is what made a single
+        // outage roll into a loop.
+        if (shouldAutoReconnect(true, m_process != nullptr, isConnected())) {
+            m_reconnectInFlight = true;
+            reconnect();
+        }
         return;
     }
 
@@ -564,12 +546,8 @@ void QtRdpSessionWidget::stopProcess(bool showDisconnectedOverlay)
     // stop() has returned: the session is swapped out and submit()
     // drops input on its own from here, so input forwarding reopens.
     m_inputSuspended = false;
-    if (showDisconnectedOverlay) {
-        // Nothing is retried past this point, so the overlay shows the truth:
-        // the last error if the session had one, otherwise a plain disconnect.
-        m_autoReconnectAttempts = 0;
+    if (showDisconnectedOverlay)
         updateState(FreeRdpProcess::State::Finished);
-    }
 }
 
 void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
@@ -577,36 +555,18 @@ void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
     if (state != FreeRdpProcess::State::Starting && m_certPrompt)
         m_certPrompt->close(); // connection moved on: dismiss and reject
     m_state = state;
-    if (state == FreeRdpProcess::State::Running) {
-        m_stateReachedRunning = true;
+    if (state == FreeRdpProcess::State::Running
+        || state == FreeRdpProcess::State::Finished)
         m_reconnectInFlight = false;
-        m_autoReconnectInFlight = false;
-        m_autoReconnectAttempts = 0;
-    }
-    if (state == FreeRdpProcess::State::Starting) {
-        // The user asked again: that attempt gets a full budget, so a session
-        // stuck after a dead retry cycle is one click away from coming back.
-        m_autoReconnectAttempts = 0;
-    }
     m_overlayText = stateText(state, m_reconnecting);
-    if (state == FreeRdpProcess::State::Finished) {
-        // Retrying is a decision of its own (nothing may be in flight yet), so
-        // it is not read off m_reconnecting. An attempt that will be retried
-        // says so instead of flashing the server's error on its way to the next
-        // handshake.
-        const bool willRetry = canAutoReconnect(m_stateReachedRunning)
-            && shouldStartAutoReconnect(true, m_stateReachedRunning, m_autoReconnectAttempts);
-        if (willRetry) {
-            m_overlayText = QString::fromStdWString(rdp::session_view::startOverlayText(true));
-        } else {
-            // A manual reconnect shows the error it ended with: the user asked
-            // for this attempt and deserves the reason it failed.
-            const std::string error = m_process ? m_process->lastDisconnectError() : std::string();
-            if (!error.empty()
-                && shouldReportDisconnectText(m_autoReconnectInFlight, m_autoReconnectAttempts)) {
-                m_overlayText = QString::fromStdWString(rdp::session_view::finishedOverlayText(error));
-            }
-        }
+    if (state == FreeRdpProcess::State::Finished && m_process) {
+        // Nothing retries itself any more (see RdpSessionAutoReconnect.h), so
+        // the overlay always carries the truth: the reason the session ended,
+        // once, instead of a server error flashing on the way to a handshake
+        // nobody asked for.
+        const std::string error = m_process->lastDisconnectError();
+        if (!error.empty())
+            m_overlayText = QString::fromStdWString(rdp::session_view::finishedOverlayText(error));
     }
     if (state == FreeRdpProcess::State::Running) {
         if (m_process && m_frameGate.active) {
@@ -660,17 +620,10 @@ void QtRdpSessionWidget::consumeFrame()
             m_frame = std::move(nextFrame);
 
         if (m_reconnectInFlight) {
-            // The retried session is alive: the recovery timer has had its one
-            // chance, and what is on screen is real again. A pane that is
-            // hidden in a background tab reaches Running without a visible
-            // surface, so content is what proves the session survived.
+            // The re-established session is alive and what is on screen is
+            // real again. A pane hidden in a background tab reaches Running
+            // without a visible surface, so content is what proves it survived.
             m_reconnectInFlight = false;
-            m_autoReconnectInFlight = false;
-            m_autoReconnectAttempts = 0;
-            m_stateReachedRunning = true;
-            if (m_recoveryTimer)
-                m_recoveryTimer->stop();
-            m_resolutionRecovery.reset();
             if (!m_frame.empty())
                 m_overlayText.clear();
         }
@@ -720,13 +673,13 @@ void QtRdpSessionWidget::syncRecoveryTimer()
 
 void QtRdpSessionWidget::handleRecoveryTimer()
 {
-    // The timer outlives the handshake it was started for: firing it into a
-    // reconnect that has not reached Running yet is what turned a dead endpoint
-    // into a reconnect storm. A resize that produced no frame is not a lost
-    // connection either - the remote desktop is alive, it only refused the new
-    // size, and reconnecting tears down a working session for nothing.
-    if (m_resolutionRecovery.onTimeout())
-        m_resizeBurstTracker.reset();
+    // The timer outlives the handshake it was started for, and both things that
+    // arm it belong to a live session: a resume, and a resize the remote
+    // desktop refused. Neither is a lost connection - what the session reports
+    // ends it - so a deadline that passes here must not handshake again. The
+    // way back from a session that really died is the pointer-down path, which
+    // the user drives.
+    m_resolutionRecovery.reset();
     syncRecoveryTimer();
 }
 

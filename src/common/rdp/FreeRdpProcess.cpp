@@ -3,13 +3,13 @@
 #include "common/Win32String.h"
 #include "common/rdp/FrameBufferMemory.h"
 #include "common/rdp/FreeRdpProcessNative.h"
-#include "common/rdp/FreeRdpStopGrace.h"
 #include "common/rdp/RdpInputEventUtil.h"
 #include "common/rdp/RdpSessionViewBehavior.h"
 #include "RdpClipboardBridge.h"
 #include "common/AppPaths.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -192,15 +192,10 @@ public:
     // Guarded by `mutex`: read and set together with the context while the
     // worker is still applying queued requests through it.
     bool stopRequested = false;
-    // Whether this attempt has published anything yet, and whether it ever got
-    // a handshake through. stop() uses both to tell an attempt that already
-    // failed (give up in two seconds, say nothing) from one that holds a real
-    // session and is refusing to be released (wait, then say so).
-    std::atomic_bool idle{true};
+    // Whether this attempt ever got a handshake through. stop() waits for such
+    // a session: it holds a real connection that has to be torn down properly,
+    // not an attempt that already failed.
     std::atomic_bool everConnected{false};
-    // Set once a give-up has been printed, so the worker and stop() do not both
-    // report the same one.
-    std::atomic_bool giveUpReported{false};
     // Cleared by the worker once it has released everything it holds.
     std::shared_ptr<FreeRdpProcess::Abandoned> alive;
 
@@ -420,9 +415,6 @@ void FreeRdpProcess::runWorker(std::shared_ptr<FreeRdpBackend> backend)
 
         ~Guard()
         {
-            // Only stop() reports a give-up; a worker that unwinds afterwards
-            // must not say it twice.
-            backend->giveUpReported.store(true);
             // Stop the channels before the context goes: they are torn down
             // here, on the worker thread, not from a stop() that gave up.
             if (rdpContext *owned = backend->context()) {
@@ -473,8 +465,8 @@ void FreeRdpProcess::runWorker(std::shared_ptr<FreeRdpBackend> backend)
 
     const BOOL connected = freerdp_connect(instance);
     // A handshake that got this far has a session worth waiting for, whether or
-    // not it ever publishes a frame: stop() uses this to tell a session that
-    // failed (give up quickly, quietly) from one that has to be torn down.
+    // not it ever publishes a frame: stop() uses this to tell a session that has
+    // to be torn down from an attempt that failed and has nothing to release.
     if (connected)
         backend->everConnected.store(true);
 
@@ -602,14 +594,16 @@ void FreeRdpProcess::stop()
         // stop() runs on the UI thread (destructors, tab switches, resume
         // handling) and waiting for it there would freeze the whole window.
         //
-        // A session that never came up is released quietly and briefly: it is
-        // the common case for a refused handshake, and the overlay already
-        // reports what freerdp said.
+        // A session that came up gets the full grace: it holds a connection
+        // that has to be given back properly, and abandoning it leaks the
+        // context. An attempt that never handshook has nothing to give back,
+        // so it is let go at once - the wait exists for the session, not for
+        // the thread.
         using namespace std::chrono_literals;
+        constexpr auto kStopGrace = 20s;
+        constexpr auto kNoSessionGrace = 100ms;
         constexpr auto kPollInterval = 10ms;
-        const auto releasePlan =
-            rdp::stop_grace::plan(!backend->idle.load(), backend->everConnected.load());
-        const auto grace = rdp::stop_grace::pollBudget(releasePlan);
+        const auto grace = backend->everConnected.load() ? kStopGrace : kNoSessionGrace;
         const auto deadline = std::chrono::steady_clock::now() + grace;
         while (!backend->alive->released.load() && std::chrono::steady_clock::now() < deadline)
             std::this_thread::sleep_for(kPollInterval);
@@ -631,14 +625,10 @@ void FreeRdpProcess::stop()
             // keeps publishing into its own object and releases the freerdp
             // context when it finally unwinds. Leaking one dead session beats
             // freezing the window or freeing memory a live thread still uses.
-            if (rdp::stop_grace::report(releasePlan) && !backend->giveUpReported.exchange(true)) {
-                // A quiet give-up is no news, but a session that was working
-                // and will not let go is: it is the one thing on this path a
-                // user can act on.
-                std::fprintf(stderr, "RdpBox: FreeRDP worker still running after %lldms grace; "
-                                     "abandoning this session.\n",
-                             static_cast<long long>(grace / 1ms));
-            }
+            sessionLog("session teardown: worker still running after its grace; abandoning it");
+            std::fprintf(stderr, "RdpBox: FreeRDP worker still running after %lldms grace; "
+                                 "abandoning this session.\n",
+                         static_cast<long long>(grace / 1ms));
             backend->abandon();
 
             // Close the last path back: the worker outlives this object, so
@@ -699,8 +689,6 @@ void FreeRdpProcess::publishFromWorkerBackend(FreeRdpBackend &backend,
 
 void FreeRdpProcess::publishFromWorker(FreeRdpBackend &backend, State state, const std::string &lastError)
 {
-    // Reaching any state means this attempt is not a silent one.
-    backend.idle.store(false);
     if (state == State::Running)
         backend.everConnected.store(true);
     std::function<void(State)> callback;

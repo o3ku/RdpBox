@@ -241,7 +241,6 @@ BOOL nativefreerdp_pointer_set_default(rdpContext *context)
 {
     const OwnerCall call(toNativeContext(context));
     if (!call.owner())
-    if (!call.owner())
         return TRUE; // never fail a pointer update: freerdp treats it as fatal
     call.notifyCursorReset();
     return TRUE;

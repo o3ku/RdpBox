@@ -66,12 +66,10 @@ void CRdpSessionView::OnPaint()
                 if (m_overlayText == L"Resuming session...")
                     hideOverlayAfterFramePresent = true;
             } else if (m_reconnectInFlight) {
-                // The retried session is alive: the resume/recovery timer has
-                // had its one chance, and what is on screen is real again.
+                // The re-established session is alive and what is on screen is
+                // real again, even when the view had no visible surface while
+                // it was being set up.
                 m_reconnectInFlight = false;
-                m_autoReconnectInFlight = false;
-                m_autoReconnectAttempts = 0;
-                KillTimer(kResumeRecoveryTimerId);
                 if (m_overlayText == rdp::session_view::startOverlayText(true).c_str())
                     hideOverlayAfterFramePresent = true;
             }

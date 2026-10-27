@@ -10,7 +10,6 @@
 #include "common/rdp/RdpSessionViewBehavior.h"
 #include "mfcui/Win10Theme.h"
 
-#include <cstdint>
 #include <imm.h>
 #include <utility>
 
@@ -141,32 +140,12 @@ void CRdpSessionView::connectToHost(const Profile &profile)
 
 void CRdpSessionView::reconnect()
 {
-    // The user is asking directly, so the retry budget does not apply: a manual
-    // reconnect is also how a session gets out of a dead retry cycle.
-    restartSession(false);
-}
-
-void CRdpSessionView::restartSession(bool autoAttempt)
-{
+    // Nothing reconnects on its own any more (see RdpSessionAutoReconnect.h),
+    // so every attempt that gets here was driven by the user - a click, or a
+    // resume. There is nothing to count, and nothing to suppress.
     if (!m_profile.isValid())
         return;
 
-    if (autoAttempt
-        && !shouldStartAutoReconnect(true, m_stateReachedRunning, m_autoReconnectAttempts)) {
-        // Nothing is retried: settle on the disconnected overlay this view
-        // would have shown had the attempt not been automatic.
-        stopProcess(true);
-        return;
-    }
-
-    if (autoAttempt)
-        ++m_autoReconnectAttempts;
-
-    // Two independent facts: this view started a reconnect, and this view
-    // started it automatically. Only the latter is a reason to suppress the
-    // server's error text.
-    m_reconnectInFlight = true;
-    m_autoReconnectInFlight = autoAttempt;
     m_reconnecting = true;
     connectToHost(m_profile);
 }
@@ -226,7 +205,13 @@ void CRdpSessionView::handleHostResume(bool autoReconnect)
         return;
 
     if (autoReconnect) {
-        restartSession(true);
+        // A resume brings a session back, so it starts a handshake - but not
+        // over one that is still on its way, which is what made a single
+        // outage roll into a loop.
+        if (shouldAutoReconnect(true, m_process != nullptr, m_connected)) {
+            m_reconnectInFlight = true;
+            reconnect();
+        }
         return;
     }
 
@@ -328,9 +313,7 @@ void CRdpSessionView::startProcess()
     m_frameGate.active = true;
     m_frameGate.remaining = 0;
     m_resizeBurstTracker.reset();
-    // A new session starts with nothing proven and a full retry budget.
-    m_stateReachedRunning = false;
-    m_autoReconnectAttempts = 0;
+    // A new session starts with nothing proven.
     m_reconnectInFlight = false;
     if (m_mouseState.pointerMoveTimerActive()) {
         KillTimer(kMouseMoveTimerId);
@@ -341,7 +324,6 @@ void CRdpSessionView::startProcess()
     m_resolutionRecovery.reset();
     showOverlay(rdp::session_view::startOverlayText(m_reconnecting).c_str());
     m_reconnecting = false;
-    m_stateReachedRunning = false;
 
     const SizeI viewSize = currentViewSize();
     m_process->start(m_profile.host, m_profile.port,
@@ -404,29 +386,16 @@ void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
     m_mouseState.reset();
     m_resolutionRecovery.reset();
     m_resumeRecovery.reset();
-    if (showDisconnectedOverlay) {
-        // Nothing is retried past this point, so the user gets the truth: the
-        // last error if the session had one, otherwise a plain disconnect.
-        m_autoReconnectAttempts = 0;
+    if (showDisconnectedOverlay)
         showOverlay(rdp::session_view::finishedOverlayText(m_lastDisconnectError).c_str());
-    }
     releaseCursorHandle();
 }
 
 void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
 {
     switch (state) {
-    case FreeRdpProcess::State::Starting:
-        // The user asked again (or a deferred reconnect ran): that attempt gets
-        // a full budget, so a session stuck after a dead retry cycle is one
-        // click away from coming back.
-        m_autoReconnectAttempts = 0;
-        break;
     case FreeRdpProcess::State::Running: {
-        m_stateReachedRunning = true;
         m_reconnectInFlight = false;
-        m_autoReconnectInFlight = false;
-        m_autoReconnectAttempts = 0;
         m_connected = true;
         if (m_process && m_frameGate.active) {
             auto info = m_process->connectionInfo();
@@ -451,6 +420,9 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
     }
     case FreeRdpProcess::State::Finished:
         m_connected = false;
+        // Nothing starts another attempt on its own any more, so the state the
+        // reconnect waits for is settled here.
+        m_reconnectInFlight = false;
         m_frameGate.resolutionUpdatePending = false;
         m_frameGate.waitingForFirstContentFrame = false;
         m_frameGate.active = false;
@@ -459,25 +431,12 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
         KillTimer(kResumeRecoveryTimerId);
         m_resolutionRecovery.reset();
         m_resumeRecovery.reset();
-        {
-            // Retrying is a decision of its own (nothing may be in flight yet),
-            // so it is not read off m_reconnecting. An attempt that will be
-            // retried says so rather than flashing the server's error on its way
-            // to the next handshake.
-            const bool willRetry = canAutoReconnect(m_stateReachedRunning)
-                && shouldStartAutoReconnect(true, m_stateReachedRunning, m_autoReconnectAttempts);
-            if (willRetry) {
-                showOverlay(rdp::session_view::startOverlayText(true).c_str());
-            } else {
-                // The error survives the process: stopProcess(true) resets it
-                // after the give-up overlay has been shown.
-                const bool reportError = !m_lastDisconnectError.empty()
-                    && shouldReportDisconnectText(m_autoReconnectInFlight, m_autoReconnectAttempts);
-                showOverlay(rdp::session_view::finishedOverlayText(
-                                reportError ? m_lastDisconnectError : std::string())
-                                .c_str());
-            }
-        }
+        // Nothing retries itself any more (see RdpSessionAutoReconnect.h), so
+        // the overlay always carries the truth: the reason the session ended,
+        // once, instead of a server error flashing on the way to a handshake
+        // nobody asked for. The error outlives the process: a give-up shows it
+        // after the session has been torn down.
+        showOverlay(rdp::session_view::finishedOverlayText(m_lastDisconnectError).c_str());
         releaseCursorHandle();
         Invalidate(FALSE);
         break;
@@ -651,17 +610,15 @@ void CRdpSessionView::OnTimer(UINT_PTR timerId)
 
     if (timerId == kResumeRecoveryTimerId) {
         KillTimer(kResumeRecoveryTimerId);
-        // The timer outlives the handshake it was started for, so a deadline
-        // that passes while a reconnect is still in flight may not start
-        // another one: that is the storm. A resize that produced no frame is
-        // not a lost connection either - the remote desktop is alive, it only
-        // refused the new size, and reconnecting tears down a working session
-        // for nothing.
-        if (m_resolutionRecovery.onTimeout())
-            m_resizeBurstTracker.reset();
-        if (m_resumeRecovery.onTimeout() == RdpResumeRecovery::Action::Reconnect
-            && canAutoReconnect(m_stateReachedRunning))
-            restartSession(true);
+        // The timer outlives the handshake it was started for, and both things
+        // that arm it belong to a live session: a resume, and a resize the
+        // remote desktop refused. Neither is a lost connection - what the
+        // session reports ends it - so a deadline that passes here must not
+        // handshake again. The way back from a session that really died is the
+        // click path, which the user drives.
+        m_resolutionRecovery.reset();
+        m_resumeRecovery.onTimeout();
+        syncRecoveryTimer();
         return;
     }
 
