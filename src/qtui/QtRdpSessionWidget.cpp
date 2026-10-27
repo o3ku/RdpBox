@@ -749,10 +749,10 @@ void QtRdpSessionWidget::handleResizeTimer()
         return;
     }
 
-    const SizeI size = reportedViewSize();
-    if (m_resizeBurstTracker.onTimeout(size)) {
+    SizeI requested{};
+    if (m_resizeBurstTracker.onTimeout(reportedViewSize(), requested)) {
         beginResolutionUpdate();
-        m_process->requestResize(size);
+        m_process->requestResize(requested);
         return;
     }
 

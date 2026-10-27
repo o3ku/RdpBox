@@ -676,10 +676,10 @@ void CRdpSessionView::OnTimer(UINT_PTR timerId)
         return;
     }
 
-    const SizeI size = currentViewSize();
-    if (m_resizeBurstTracker.onTimeout(size)) {
+    SizeI requested{};
+    if (m_resizeBurstTracker.onTimeout(currentViewSize(), requested)) {
         beginResolutionUpdate();
-        m_process->requestResize(size);
+        m_process->requestResize(requested);
         return;
     }
 
