@@ -117,7 +117,7 @@ jobs:
       - name: Fetch Qt bundle
         # Prebuilt vcpkg install root (x64-windows-static-md, windows-2022
         # image): vcpkg below sees the shipped vcpkg/status and skips Qt.
-        uses: o3ku/qt-static@main
+        uses: o3ku/qt-static@v1
         with:
           tag: qt5-win2022-20261024-0121
           dest: ${{ env.VCPKG_INSTALLED_DIR }}

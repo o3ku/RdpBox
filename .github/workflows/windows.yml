@@ -83,7 +83,7 @@ jobs:
         # Prebuilt vcpkg install root (x64-windows-static-md, windows-2022
         # image): vcpkg below sees the shipped vcpkg/status and skips Qt
         # entirely. Anonymous download - fork PRs work without any secrets.
-        uses: o3ku/qt-static@main
+        uses: o3ku/qt-static@v1
         with:
           tag: qt5-win2022-20261024-0121
           dest: ${{ env.VCPKG_INSTALLED_DIR }}
