@@ -3,3 +3,4 @@ build/
 .claude/
 .vcpkg-cache/
 vcpkg_installed/
+.qoder/
