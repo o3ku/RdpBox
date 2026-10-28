@@ -2,7 +2,6 @@
 
 #include "common/rdp/RdpInputModifiers.h"
 #include "common/rdp/RdpReconnectInteraction.h"
-#include "common/rdp/RdpSessionAutoReconnect.h"
 #include "mfcui/ParentResizeForwarder.h"
 
 namespace

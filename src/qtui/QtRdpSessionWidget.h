@@ -114,8 +114,8 @@ private:
     QPointer<QMessageBox> m_certPrompt;
     bool m_reconnecting = false;
     // A reconnect this widget started before the previous attempt reached
-    // Running. It only settles the overlay: nothing starts another attempt
-    // while it is set (see RdpSessionAutoReconnect.h).
+    // Running. It only settles the overlay; whether a resume may start
+    // another attempt is shouldAutoReconnect()'s to say (see RdpSessionAutoReconnect.h).
     bool m_reconnectInFlight = false;
     // Input forwarding is closed while the process is being stopped: the
     // stop path can pump messages (clipboard/OLE teardown), and an input

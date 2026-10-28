@@ -140,9 +140,8 @@ void CRdpSessionView::connectToHost(const Profile &profile)
 
 void CRdpSessionView::reconnect()
 {
-    // Nothing reconnects on its own any more (see RdpSessionAutoReconnect.h),
-    // so every attempt that gets here was driven by the user - a click, or a
-    // resume. There is nothing to count, and nothing to suppress.
+    // Nothing reconnects on its own any more (see RdpSessionAutoReconnect.h):
+    // every attempt that gets here was driven by the user - a click, or a resume.
     if (!m_profile.isValid())
         return;
 
@@ -313,7 +312,6 @@ void CRdpSessionView::startProcess()
     m_frameGate.active = true;
     m_frameGate.remaining = 0;
     m_resizeBurstTracker.reset();
-    // A new session starts with nothing proven.
     m_reconnectInFlight = false;
     if (m_mouseState.pointerMoveTimerActive()) {
         KillTimer(kMouseMoveTimerId);
@@ -420,8 +418,8 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
     }
     case FreeRdpProcess::State::Finished:
         m_connected = false;
-        // Nothing starts another attempt on its own any more, so the state the
-        // reconnect waits for is settled here.
+        // The attempt is over and nothing retries it on its own, so the
+        // reconnect marker comes down here.
         m_reconnectInFlight = false;
         m_frameGate.resolutionUpdatePending = false;
         m_frameGate.waitingForFirstContentFrame = false;
@@ -432,10 +430,8 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
         m_resolutionRecovery.reset();
         m_resumeRecovery.reset();
         // Nothing retries itself any more (see RdpSessionAutoReconnect.h), so
-        // the overlay always carries the truth: the reason the session ended,
-        // once, instead of a server error flashing on the way to a handshake
-        // nobody asked for. The error outlives the process: a give-up shows it
-        // after the session has been torn down.
+        // the overlay always names the reason the session ended. The error
+        // outlives the process: it is shown after the session has been torn down.
         showOverlay(rdp::session_view::finishedOverlayText(m_lastDisconnectError).c_str());
         releaseCursorHandle();
         Invalidate(FALSE);

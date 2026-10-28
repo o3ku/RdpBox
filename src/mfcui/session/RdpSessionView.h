@@ -151,8 +151,8 @@ private:
     CFont m_overlayFont;
     bool m_reconnecting = false;
     // A reconnect this view started before the previous attempt reached
-    // Running. It only settles the overlay: nothing starts another attempt
-    // while it is set (see RdpSessionAutoReconnect.h).
+    // Running. It only settles the overlay; whether a resume may start
+    // another attempt is shouldAutoReconnect()'s to say (see RdpSessionAutoReconnect.h).
     bool m_reconnectInFlight = false;
     // Last error reported by the process. It has to outlive the process: a
     // give-up shows it after the session has already been torn down.

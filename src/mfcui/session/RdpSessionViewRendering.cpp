@@ -1,7 +1,6 @@
 #include "RdpSessionView.h"
 
 #include "common/rdp/FrameBufferMemory.h"
-#include "common/rdp/RdpSessionAutoReconnect.h"
 #include "common/rdp/RdpSessionViewBehavior.h"
 #include <algorithm>
 #include <utility>

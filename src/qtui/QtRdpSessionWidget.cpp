@@ -196,7 +196,6 @@ void QtRdpSessionWidget::connectToHost()
     m_frameGate.remaining = 0;
     m_frameGeneration = 0;
     m_frame = {};
-    // A new session starts with nothing proven.
     m_reconnectInFlight = false;
     const SizeI size = viewSize();
     updateState(FreeRdpProcess::State::Starting);
@@ -213,9 +212,8 @@ void QtRdpSessionWidget::connectToHost()
 
 void QtRdpSessionWidget::reconnect()
 {
-    // Nothing reconnects on its own any more (see RdpSessionAutoReconnect.h),
-    // so every attempt that gets here was driven by the user - a click, or a
-    // resume. There is nothing to count, and nothing to suppress.
+    // Nothing reconnects on its own any more (see RdpSessionAutoReconnect.h):
+    // every attempt that gets here was driven by the user - a click, or a resume.
     m_reconnecting = true;
     stopProcess();
     m_process = std::make_shared<FreeRdpProcess>();
@@ -561,9 +559,7 @@ void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
     m_overlayText = stateText(state, m_reconnecting);
     if (state == FreeRdpProcess::State::Finished && m_process) {
         // Nothing retries itself any more (see RdpSessionAutoReconnect.h), so
-        // the overlay always carries the truth: the reason the session ended,
-        // once, instead of a server error flashing on the way to a handshake
-        // nobody asked for.
+        // the overlay always names the reason the session ended.
         const std::string error = m_process->lastDisconnectError();
         if (!error.empty())
             m_overlayText = QString::fromStdWString(rdp::session_view::finishedOverlayText(error));
