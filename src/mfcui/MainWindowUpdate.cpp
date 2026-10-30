@@ -284,8 +284,18 @@ LRESULT MainWindow::OnUpdateCheckCompleted(WPARAM, LPARAM lParam)
     if (!result || result->generation != m_updateCheckGeneration)
         return 0;
 
-    if (!result->success)
+    // The Logo-menu command wants the outcome reported, not only the button.
+    const bool manualCheck = m_manualUpdateCheckPending;
+    m_manualUpdateCheckPending = false;
+
+    if (!result->success) {
+        if (manualCheck)
+            centeredMessageBox(GetSafeHwnd(),
+                               result->errorMessage.c_str(),
+                               L"Update Check Failed",
+                               MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
         return 0;
+    }
 
     if (!result->hasUpdate) {
         m_updateButtonState = UpdateButtonState::Hidden;
@@ -294,6 +304,14 @@ LRESULT MainWindow::OnUpdateCheckCompleted(WPARAM, LPARAM lParam)
         updateCaptionTooltip();
         layoutChildren();
         invalidateCaptionButtons();
+        if (manualCheck) {
+            CString upToDate;
+            upToDate.Format(L"You are running the latest version (%s).", RDPBOX_VERSION);
+            centeredMessageBox(GetSafeHwnd(),
+                               upToDate,
+                               L"Up to Date",
+                               MB_OK | MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND);
+        }
         return 0;
     }
 
@@ -306,6 +324,20 @@ LRESULT MainWindow::OnUpdateCheckCompleted(WPARAM, LPARAM lParam)
     updateCaptionTooltip();
     layoutChildren();
     invalidateCaptionButtons();
+    if (manualCheck) {
+        if (m_updateButtonState == UpdateButtonState::Downloaded) {
+            confirmLaunchDownloadedUpdate();
+        } else {
+            CString available;
+            available.Format(L"A new version (%s) is available. Download it now?",
+                             m_updateRelease.tagName.c_str());
+            if (centeredMessageBox(GetSafeHwnd(),
+                                   available,
+                                   L"Update Available",
+                                   MB_YESNO | MB_ICONQUESTION | MB_TOPMOST | MB_SETFOREGROUND) == IDYES)
+                startBackgroundUpdateDownload();
+        }
+    }
     return 0;
 }
 

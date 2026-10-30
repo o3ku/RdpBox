@@ -34,6 +34,7 @@ BEGIN_MESSAGE_MAP(MainWindow, CFrameWnd)
     ON_COMMAND(ID_MAIN_CONNECTIONS, &MainWindow::OnOpenConnections)
     ON_COMMAND(ID_MAIN_SHORTCUTS, &MainWindow::OnMainShortcuts)
     ON_COMMAND(ID_MAIN_ABOUT, &MainWindow::OnMainAbout)
+    ON_COMMAND(ID_MAIN_CHECK_UPDATE, &MainWindow::OnMainCheckUpdate)
     ON_MESSAGE(WM_NCCALCSIZE, &MainWindow::OnNcCalcSize)
     ON_MESSAGE(WM_NCLBUTTONDOWN, &MainWindow::OnNcLButtonDown)
     ON_MESSAGE(WM_NCHITTEST, &MainWindow::OnNcHitTest)
@@ -132,6 +133,19 @@ void MainWindow::OnMainAbout()
 {
     AboutDialog dialog(this);
     dialog.DoModal();
+}
+
+void MainWindow::OnMainCheckUpdate()
+{
+    // The download button is already past the check stage; a completion
+    // message would only describe progress the title bar already shows.
+    if (m_updateDownloadInFlight)
+        return;
+
+    // If a check is already running, startBackgroundUpdateCheck() is a no-op
+    // and the pending flag routes that check's completion to a message box.
+    m_manualUpdateCheckPending = true;
+    startBackgroundUpdateCheck();
 }
 
 void MainWindow::OnMainShortcuts()

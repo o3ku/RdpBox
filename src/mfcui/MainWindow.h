@@ -50,6 +50,7 @@ protected:
     afx_msg void OnMainNew();
     afx_msg void OnMainAbout();
     afx_msg void OnMainShortcuts();
+    afx_msg void OnMainCheckUpdate();
     afx_msg void OnContextMenu(CWnd *window, CPoint point);
     afx_msg BOOL OnEraseBkgnd(CDC *dc);
     afx_msg BOOL OnNcActivate(BOOL active);
@@ -139,6 +140,9 @@ private:
     UpdateButtonState m_updateButtonState = UpdateButtonState::Hidden;
     updater::ReleaseAsset m_updateRelease;
     bool m_updateCheckInFlight = false;
+    // Set by the Logo-menu command so the next completion of a check (this
+    // one or already in flight) reports to the user instead of only the button.
+    bool m_manualUpdateCheckPending = false;
     bool m_updateDownloadInFlight = false;
     int m_updateDownloadProgress = -1;
     std::uint64_t m_updateCheckGeneration = 0;
