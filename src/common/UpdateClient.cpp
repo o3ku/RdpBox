@@ -202,7 +202,10 @@ bool winhttp_detail::sendHttpRequest(const std::wstring &url,
     // direct GitHub is the fallback; the API keeps two direct attempts.
     std::vector<std::wstring> candidates;
     if (url.rfind(L"https://github.com/", 0) == 0) {
+        // ghfast.top / gh-proxy.com: one gh-proxy service, two domains; hedges
+        // domain-level DNS/CDN failure. ghproxy.net/cc/gh.llkk.cc died 2026-10.
         candidates.push_back(L"https://ghfast.top/" + url);
+        candidates.push_back(L"https://gh-proxy.com/" + url);
         candidates.push_back(url);
     } else {
         candidates.push_back(url);
