@@ -197,15 +197,24 @@ bool winhttp_detail::sendHttpRequest(const std::wstring &url,
                      std::wstring &errorMessage,
                      const updater::DownloadProgressCallback &progressCallback)
 {
-    // One retry: GitHub connectivity from CN networks resets connections at
-    // random; a single dropped socket should not fail the whole update flow.
-    for (int attempt = 0;; ++attempt) {
-        if (sendHttpRequestOnce(url, acceptTypes, responseBytes, errorMessage, progressCallback))
-            return true;
-        if (attempt >= 1)
-            return false;
-        ::Sleep(1000);
+    // CN networks reset GitHub connections at random. Release downloads go
+    // through the ghfast.top mirror first (api.github.com cannot be mirrored),
+    // direct GitHub is the fallback; the API keeps two direct attempts.
+    std::vector<std::wstring> candidates;
+    if (url.rfind(L"https://github.com/", 0) == 0) {
+        candidates.push_back(L"https://ghfast.top/" + url);
+        candidates.push_back(url);
+    } else {
+        candidates.push_back(url);
+        candidates.push_back(url);
     }
+    for (std::size_t i = 0; i < candidates.size(); ++i) {
+        if (sendHttpRequestOnce(candidates[i], acceptTypes, responseBytes, errorMessage, progressCallback))
+            return true;
+        if (i + 1 < candidates.size())
+            ::Sleep(1000);
+    }
+    return false;
 }
 bool winhttp_detail::sendHttpRequestOnce(const std::wstring &url,
                      const wchar_t *acceptTypes[],
