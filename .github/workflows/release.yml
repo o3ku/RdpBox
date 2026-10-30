@@ -315,4 +315,73 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+
           gh release upload "$RELEASE_TAG" dist/*.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
+
+  release-macos:
+    name: Publish Qt macOS bundle (arm64)
+    runs-on: macos-15
+    # Same contract as release-linux: the Windows job creates the release.
+    needs: release
+
+    steps:
+      - name: Resolve tag
+        id: resolve-tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="${{ github.ref_name }}"
+          fi
+          if ! echo "$tag" | grep -Eq '^v[0-9]+(\.[0-9]+)*([-.][0-9A-Za-z.-]+)?$'; then
+            echo "Release tag '$tag' must start with a version-like v tag, for example v1.12.0." >&2
+            exit 1
+          fi
+          echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.resolve-tag.outputs.tag }}
+
+      - name: Install dependencies
+        run: |
+          brew install qt@5 freerdp nlohmann-json cjson dylibbundler
+
+      - name: Verify pkg-config modules
+        run: |
+          pkg-config --modversion freerdp3 freerdp-client3 winpr3 libcjson
+
+      - name: Configure
+        run: cmake --preset macos-release
+
+      - name: Build
+        run: cmake --build --preset macos-release --parallel
+
+      # Same bundle as the macOS CI artifact, named after the release tag.
+      - name: Package app bundle
+        run: |
+          set -euo pipefail
+          VERSION="${RELEASE_TAG#v}"
+          ARCH="$(uname -m)"
+          APP="dist/RdpBoxQt.app"
+          mkdir -p "${APP}/Contents/MacOS"
+
+          cp build/macos-release/src/RdpBoxQt "${APP}/Contents/MacOS/RdpBoxQt"
+
+          "${HOMEBREW_PREFIX}/opt/qt@5/bin/macdeployqt" "${APP}" -always-overwrite
+          dylibbundler -od -b \
+            -x "${APP}/Contents/MacOS/RdpBoxQt" \
+            -d "${APP}/Contents/Frameworks" \
+            -p '@executable_path/../Frameworks/'
+
+          ditto -c -k --sequesterRsrc --keepParent \
+            "${APP}" "dist/RdpBoxQt-${VERSION}-macos-${ARCH}.zip"
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$RELEASE_TAG" dist/*.zip --repo "$GITHUB_REPOSITORY" --clobber

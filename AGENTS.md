@@ -8,7 +8,7 @@ This file provides guidance to the AI agent when working with code in this repos
 - CMake targets: `RdpBox` (Qt, output binary `RdpBoxQt`) and `RdpBoxLegacy` (output `RdpBox.exe`).
 - Tests: `cmake --preset msvc-debug-test`, `cmake --build --preset msvc-debug-test`, `ctest --preset msvc-debug-test --output-on-failure` (`-R <Name>` for a single test). `tests/qt` only builds when Qt is enabled, which `msvc-debug-test` does not do by default.
 - Tests are Windows-only: non-Windows configuration forces `BUILD_TEST=OFF`. Linux CI (`cmake --preset linux-release`, Ubuntu 24.04) compiles and packages only the Qt target via pkg-config `freerdp3`.
-- CI builds both front ends; releases publish `RdpBox.exe` (legacy) and `RdpBoxQt.exe` (static Qt, Windows) plus the Qt Linux portable bundle `RdpBoxQt-<version>-linux-x64.tar.gz`.
+- CI builds both front ends; releases publish `RdpBox.exe` (legacy) and `RdpBoxQt.exe` (static Qt, Windows) plus the Qt Linux portable bundle `RdpBoxQt-<version>-linux-x64.tar.gz` and macOS app bundle `RdpBoxQt-<version>-macos-<arch>.zip`. macOS CI (`cmake --preset macos-release`, brew `qt@5`/`freerdp3`) builds and packages only the Qt target.
 - The version is duplicated in `CMakeLists.txt` and `src/CMakeLists.txt` (keep both in sync; Linux packaging reads `src/CMakeLists.txt`). A release tag or `-DRDPBOX_VERSION_OVERRIDE=` overrides the display version.
 
 ## Layout & architecture

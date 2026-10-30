@@ -1,0 +1,69 @@
+name: macOS CI (Qt)
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: macos-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and package (macOS arm64)
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install qt@5 freerdp nlohmann-json cjson dylibbundler
+
+      - name: Verify pkg-config modules
+        run: |
+          pkg-config --modversion freerdp3 freerdp-client3 winpr3 libcjson
+
+      - name: Configure
+        run: cmake --preset macos-release
+
+      - name: Build
+        run: cmake --build --preset macos-release --parallel
+
+      # A self-contained .app: macdeployqt bundles the Qt frameworks and
+      # plugins, dylibbundler the remaining Homebrew dylibs (freerdp / winpr /
+      # cjson / openssl) with their install names rewritten.
+      - name: Package app bundle
+        run: |
+          set -euo pipefail
+          VERSION="$(grep -oE 'project\(RdpBox VERSION [0-9.]+' src/CMakeLists.txt | grep -oE '[0-9.]+$' | head -1)"
+          ARCH="$(uname -m)"
+          APP="dist/RdpBoxQt.app"
+          mkdir -p "${APP}/Contents/MacOS"
+
+          cp build/macos-release/src/RdpBoxQt "${APP}/Contents/MacOS/RdpBoxQt"
+
+          "${HOMEBREW_PREFIX}/opt/qt@5/bin/macdeployqt" "${APP}" -always-overwrite
+          dylibbundler -od -b \
+            -x "${APP}/Contents/MacOS/RdpBoxQt" \
+            -d "${APP}/Contents/Frameworks" \
+            -p '@executable_path/../Frameworks/'
+
+          ditto -c -k --sequesterRsrc --keepParent \
+            "${APP}" "dist/RdpBoxQt-${VERSION}-macos-${ARCH}.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RdpBoxQt-macos-arm64
+          path: dist/*.zip
+          if-no-files-found: error
