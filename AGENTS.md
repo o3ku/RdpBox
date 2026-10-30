@@ -30,3 +30,11 @@ This file provides guidance to the AI agent when working with code in this repos
 ## Persistence & security
 - Profiles live in `%AppData%/RdpBox/profiles.json`; passwords use DPAPI/portable `PasswordProtection`. Do not add plaintext persistence or log secrets.
 - Treat clipboard, keyboard-hook, and credential changes as security-sensitive and call them out in PR notes.
+
+## 发布与推送（2026-10-30 定案）
+
+- **推送**：git 走 SSH 需 `GIT_SSH_COMMAND="ssh -i ~/.ssh/orzeus_id_ecdsa -o IdentitiesOnly=yes"`；cnb 远端 https 凭据直推。gh CLI（kkzi）在本仓库有写权限：`gh release delete/create` 可用。
+- **发布机制**：push tag `v*` 触发 release.yml（Windows job 建 release + 传产物；release-linux / release-macos `needs: release` 后 `gh release upload --clobber`）。重发 = `gh release delete <tag>` + 两远端删 tag + 移 tag 重推。
+- **版本号**：CMakeLists.txt 与 src/CMakeLists.txt 两处同步，bump 提交格式 "chore: bump version to X.Y.Z"。
+- **产物**：RdpBox.exe（legacy）、RdpBoxQt.exe（静态 Qt 单文件）、linux tar.gz、macos arm64 zip（macdeployqt+dylibbundler 自包含 .app）、SHA256SUMS（仅 Windows 资产）。
+- **macOS**：brew qt@5（已 deprecated，2027-05-19 禁用，远期迁 Qt6）+ freerdp3；macos-release preset 在 CMakePresets.json。
