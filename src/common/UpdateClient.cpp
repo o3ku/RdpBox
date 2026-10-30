@@ -80,6 +80,24 @@ struct WinHttpHandleCloser
 };
 
 using UniqueWinHttpHandle = std::unique_ptr<void, WinHttpHandleCloser>;
+// winhttp.dll messages resolve the 12000-range codes (12002 timeout,
+// 12029 cannot-connect); the bare number stays in the message either way.
+void setWinHttpError(std::wstring &errorMessage, const wchar_t *text)
+{
+    const DWORD error = ::GetLastError();
+    wchar_t reason[256] = {};
+    const HMODULE module = ::GetModuleHandleW(L"winhttp.dll");
+    if (module)
+        ::FormatMessageW(FORMAT_MESSAGE_FROM_HMODULE | FORMAT_MESSAGE_IGNORE_INSERTS,
+                         module, error, 0, reason, static_cast<DWORD>(std::size(reason)), nullptr);
+    std::wstring message = std::wstring(text) + L" (error " + std::to_wstring(error) + L")";
+    while (*reason && (reason[wcslen(reason) - 1] == L'\r' || reason[wcslen(reason) - 1] == L'\n'
+                       || reason[wcslen(reason) - 1] == L' '))
+        reason[wcslen(reason) - 1] = L'\0';
+    if (*reason)
+        message += std::wstring(L": ") + reason;
+    errorMessage = std::move(message);
+}
 
 struct ParsedUrl
 {
@@ -114,8 +132,13 @@ bool readResponseBody(HINTERNET request,
                       std::vector<std::uint8_t> &bytes,
                       std::wstring &errorMessage,
                       const updater::DownloadProgressCallback &progressCallback);
-
 bool sendHttpRequest(const std::wstring &url,
+                     const wchar_t *acceptTypes[],
+                     std::vector<std::uint8_t> &responseBytes,
+                     std::wstring &errorMessage,
+                     const updater::DownloadProgressCallback &progressCallback = {});
+
+bool sendHttpRequestOnce(const std::wstring &url,
                      const wchar_t *acceptTypes[],
                      std::vector<std::uint8_t> &responseBytes,
                      std::wstring &errorMessage,
@@ -145,7 +168,7 @@ bool winhttp_detail::readResponseBody(HINTERNET request,
     for (;;) {
         DWORD available = 0;
         if (!::WinHttpQueryDataAvailable(request, &available)) {
-            errorMessage = L"Failed to query update response size.";
+            setWinHttpError(errorMessage, L"Failed to query update response size.");
             return false;
         }
         if (available == 0)
@@ -155,7 +178,7 @@ bool winhttp_detail::readResponseBody(HINTERNET request,
         bytes.resize(start + available);
         DWORD read = 0;
         if (!::WinHttpReadData(request, bytes.data() + start, available, &read)) {
-            errorMessage = L"Failed to read update response.";
+            setWinHttpError(errorMessage, L"Failed to read update response.");
             return false;
         }
         bytes.resize(start + read);
@@ -167,7 +190,24 @@ bool winhttp_detail::readResponseBody(HINTERNET request,
     }
 }
 
+
 bool winhttp_detail::sendHttpRequest(const std::wstring &url,
+                     const wchar_t *acceptTypes[],
+                     std::vector<std::uint8_t> &responseBytes,
+                     std::wstring &errorMessage,
+                     const updater::DownloadProgressCallback &progressCallback)
+{
+    // One retry: GitHub connectivity from CN networks resets connections at
+    // random; a single dropped socket should not fail the whole update flow.
+    for (int attempt = 0;; ++attempt) {
+        if (sendHttpRequestOnce(url, acceptTypes, responseBytes, errorMessage, progressCallback))
+            return true;
+        if (attempt >= 1)
+            return false;
+        ::Sleep(1000);
+    }
+}
+bool winhttp_detail::sendHttpRequestOnce(const std::wstring &url,
                      const wchar_t *acceptTypes[],
                      std::vector<std::uint8_t> &responseBytes,
                      std::wstring &errorMessage,
@@ -185,7 +225,7 @@ bool winhttp_detail::sendHttpRequest(const std::wstring &url,
                                               WINHTTP_NO_PROXY_BYPASS,
                                               0));
     if (!session) {
-        errorMessage = L"Failed to open HTTP session.";
+        setWinHttpError(errorMessage, L"Failed to open HTTP session.");
         return false;
     }
 
@@ -200,7 +240,7 @@ bool winhttp_detail::sendHttpRequest(const std::wstring &url,
                                                     parsed.port,
                                                     0));
     if (!connection) {
-        errorMessage = L"Failed to connect to update server.";
+        setWinHttpError(errorMessage, L"Failed to connect to update server.");
         return false;
     }
 
@@ -213,7 +253,7 @@ bool winhttp_detail::sendHttpRequest(const std::wstring &url,
                                                      acceptTypes,
                                                      flags));
     if (!request) {
-        errorMessage = L"Failed to create update request.";
+        setWinHttpError(errorMessage, L"Failed to create update request.");
         return false;
     }
 
@@ -234,12 +274,12 @@ bool winhttp_detail::sendHttpRequest(const std::wstring &url,
                               0,
                               0,
                               0)) {
-        errorMessage = L"Failed to send update request.";
+        setWinHttpError(errorMessage, L"Failed to send update request.");
         return false;
     }
 
     if (!::WinHttpReceiveResponse(static_cast<HINTERNET>(request.get()), nullptr)) {
-        errorMessage = L"Failed to receive update response.";
+        setWinHttpError(errorMessage, L"Failed to receive update response.");
         return false;
     }
 
@@ -251,7 +291,7 @@ bool winhttp_detail::sendHttpRequest(const std::wstring &url,
                                &statusCode,
                                &size,
                                WINHTTP_NO_HEADER_INDEX)) {
-        errorMessage = L"Failed to read update status code.";
+        setWinHttpError(errorMessage, L"Failed to read update status code.");
         return false;
     }
 
