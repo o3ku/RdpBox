@@ -195,6 +195,14 @@ jobs:
           Copy-Item -LiteralPath $sourceExe -Destination (Join-Path $artifactDir "RdpBox.exe")
           Copy-Item -LiteralPath $sourceExe -Destination (Join-Path $artifactDir "RdpBox-$env:RELEASE_TAG.exe")
 
+          $sourceQtExe = Join-Path $env:GITHUB_WORKSPACE "build\msvc-release-qt\src\RdpBoxQt.exe"
+          if (-not (Test-Path $sourceQtExe)) {
+            throw "Qt release executable was not found at $sourceQtExe."
+          }
+
+          Copy-Item -LiteralPath $sourceQtExe -Destination (Join-Path $artifactDir "RdpBoxQt.exe")
+          Copy-Item -LiteralPath $sourceQtExe -Destination (Join-Path $artifactDir "RdpBoxQt-$env:RELEASE_TAG.exe")
+
           Push-Location $artifactDir
           # LF-only lines: sha256sum -c and the in-app updater (which
           # compares the file name without a trailing CR) both need it.
@@ -213,8 +221,98 @@ jobs:
           gh release create "$env:RELEASE_TAG" `
             "release-artifacts\RdpBox.exe" `
             "release-artifacts\RdpBox-$env:RELEASE_TAG.exe" `
+            "release-artifacts\RdpBoxQt.exe" `
+            "release-artifacts\RdpBoxQt-$env:RELEASE_TAG.exe" `
             "release-artifacts\SHA256SUMS.txt" `
             --repo "$env:GITHUB_REPOSITORY" `
             --verify-tag `
             --title "$env:RELEASE_TAG" `
             --notes "RdpBox $env:RELEASE_TAG"
+
+  release-linux:
+    name: Publish Qt Linux bundle (Ubuntu 24.04)
+    runs-on: ubuntu-24.04
+    # The Windows job creates the release; this only attaches assets to it.
+    needs: release
+
+    steps:
+      - name: Resolve tag
+        id: resolve-tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="${{ github.ref_name }}"
+          fi
+          if ! echo "$tag" | grep -Eq '^v[0-9]+(\.[0-9]+)*([-.][0-9A-Za-z.-]+)?$'; then
+            echo "Release tag '$tag' must start with a version-like v tag, for example v1.12.0." >&2
+            exit 1
+          fi
+          echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.resolve-tag.outputs.tag }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config \
+            qtbase5-dev libqt5svg5-dev \
+            nlohmann-json3-dev libcjson-dev \
+            freerdp3-dev libwinpr3-dev
+
+      - name: Verify pkg-config modules
+        run: |
+          pkg-config --modversion freerdp3 freerdp-client3 winpr3 libcjson
+
+      - name: Configure
+        run: cmake --preset linux-release
+
+      - name: Build
+        run: cmake --build --preset linux-release --parallel
+
+      # Same bundle as the Linux CI artifact, named after the release tag so a
+      # re-dispatched old tag still produces a matching asset name.
+      - name: Package portable bundle
+        run: |
+          set -euo pipefail
+          VERSION="${RELEASE_TAG#v}"
+          STAGE="dist/RdpBoxQt-${VERSION}-linux-x64"
+          mkdir -p "${STAGE}/lib" "${STAGE}/plugins/platforms" "${STAGE}/plugins/imageformats"
+
+          cp build/linux-release/src/RdpBoxQt "${STAGE}/RdpBoxQt"
+
+          # Bundle the exe's non-base shared objects (Qt5 / freerdp / winpr / cjson).
+          ldd build/linux-release/src/RdpBoxQt | awk '/=> \/|^\//{print $3}' | sort -u | while read -r lib; do
+            case "${lib}" in
+              */libQt5*|*/libfreerdp*|*/libwinpr*|*/libcjson*|*/libssl*|*/libcrypto*)
+                cp -L "${lib}" "${STAGE}/lib/" ;;
+            esac
+          done
+
+          PLUGDIR="$(qtchooser -print/qt5/plugins 2>/dev/null || qmake -qt=5 -query QT_INSTALL_PLUGINS 2>/dev/null || echo /usr/lib/x86_64-linux-gnu/qt5/plugins)"
+          cp "${PLUGDIR}/platforms/libqxcb.so" "${STAGE}/plugins/platforms/"
+          cp "${PLUGDIR}/imageformats/libqsvg.so" "${STAGE}/plugins/imageformats/" || true
+
+          cat > "${STAGE}/RdpBoxQt.sh" <<'EOS'
+          #!/bin/sh
+          HERE="$(cd "$(dirname "$0")" && pwd)"
+          export LD_LIBRARY_PATH="${HERE}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+          export QT_PLUGIN_PATH="${HERE}/plugins"
+          exec "${HERE}/RdpBoxQt" "$@"
+          EOS
+          sed -i 's/^          //' "${STAGE}/RdpBoxQt.sh"
+          chmod +x "${STAGE}/RdpBoxQt.sh"
+
+          tar -czf "dist/RdpBoxQt-${VERSION}-linux-x64.tar.gz" -C dist "RdpBoxQt-${VERSION}-linux-x64"
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$RELEASE_TAG" dist/*.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
