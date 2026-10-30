@@ -78,8 +78,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "RDPBOX_BUILD_QT": "ON",
-        "CMAKE_PREFIX_PATH": "${env:HOMEBREW_PREFIX}/opt/qt@5",
-        "OPENSSL_ROOT_DIR": "${env:HOMEBREW_PREFIX}/opt/openssl@3"
+        "CMAKE_PREFIX_PATH": "$env{HOMEBREW_PREFIX}/opt/qt@5",
+        "OPENSSL_ROOT_DIR": "$env{HOMEBREW_PREFIX}/opt/openssl@3"
       },
       "condition": {
         "type": "equals",
