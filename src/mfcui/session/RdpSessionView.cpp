@@ -450,23 +450,16 @@ void CRdpSessionView::updateCursorFromProcess()
 
     CursorInfo cursorInfo = m_process->cursor();
 
-    // Seeing the same cursor again (a reconnect, a refresh, focus coming back)
-    // must not destroy the handle that is on the window right now: replacing
-    // it with a copy of itself makes the pointer flicker, and leaves the old
-    // one alive if the copy fails. The window cursor is untouched, so only the
-    // pending flag can be stale - and that one focus may have just cleared.
-    if (cursorInfo.handle && cursorInfo.handle == m_cursorHandle) {
-        m_remoteCursor.noteApplied();
-        destroyCursorInfo(cursorInfo);
-        return;
-    }
-
     // The handle leaves the member before the session cursor is adopted, so a
     // releaseCursorHandle() in between (WM_SETCURSOR, a repaint) cannot take the
     // pending state with it: what the session cursor is outlives one handle.
     // Whoever dropped it destroys it.
     releaseCursorHandle();
 
+    // cursor() hands out a fresh CopyCursor duplicate on every call (never the
+    // stored handle), so re-reported cursors cannot be recognized by handle:
+    // the view adopts this copy (m_ownsCursorHandle) and releaseCursorHandle()
+    // destroys it - destroying cursorInfo here would take the adopted handle.
     m_cursorHandle = RdpCursorClassifier::cursorHandleFromInfo(cursorInfo);
     m_ownsCursorHandle = cursorInfo.ownsHandle;
 
@@ -481,7 +474,6 @@ void CRdpSessionView::updateCursorFromProcess()
         ::SetCursor(m_cursorHandle);
 
     m_remoteCursor.adopt(RdpCursorClassifier::cursorInfoForState(cursorInfo), canApply);
-    destroyCursorInfo(cursorInfo);
 }
 
 void CRdpSessionView::applyRemoteCursor()

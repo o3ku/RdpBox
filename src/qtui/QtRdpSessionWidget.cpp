@@ -663,16 +663,14 @@ void QtRdpSessionWidget::updateCursor()
     CursorInfo cursor = m_process->cursor();
     // Setting a widget cursor is also what makes Qt re-assert it, so a cursor
     // that is only remembered (hidden or unfocused pane) stays unset: the
-    // re-assert would put it on whatever window the pointer is over.
+    // re-assert would put it on whatever window the pointer is over. What is
+    // set while the pane owns the input is every shape the session asks for,
+    // hidden included; the remembered ones come back through applyRemoteCursor().
     const bool applied = sessionOwnsWindowFocus();
+    if (applied)
+        setCursor(cursorShapeFromKind(cursor.kind));
     m_remoteCursor.adopt(RdpCursorClassifier::cursorInfoForState(cursor), applied);
     destroyCursorInfo(cursor);
-
-    // Reported before the hand-off, adopted first: a new cursor is exactly the
-    // case where what is on screen has to change, so it is never "already
-    // applied" just because it is the one being adopted.
-    if (applied)
-        applyRemoteCursor();
 }
 
 void QtRdpSessionWidget::applyRemoteCursor()
