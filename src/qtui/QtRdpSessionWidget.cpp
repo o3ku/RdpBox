@@ -243,6 +243,8 @@ void QtRdpSessionWidget::handleHostResume(bool autoReconnect)
 void QtRdpSessionWidget::handleBecameVisible()
 {
     setFocus(Qt::OtherFocusReason);
+    // This pane is the one on screen again, so the window cursor is its own.
+    applyRemoteCursor();
     if (m_process && m_process->state() == FreeRdpProcess::State::Running)
         updateCursor();
 }
@@ -278,6 +280,14 @@ bool QtRdpSessionWidget::event(QEvent *event)
         case QEvent::WindowDeactivate:
         case QEvent::Hide:
             releasePressedMouseButtons();
+            // Another window (or no window at all) shows the cursor now, so
+            // this pane's session cursor has to be put back when it is its own
+            // again. A grab release is not a focus change though: Qt hands it
+            // over after the pointer already came home, and it must not take a
+            // pending state the focus that just came back has cleared.
+            if (event->type() != QEvent::UngrabMouse
+                || !sessionOwnsWindowFocus())
+                m_remoteCursor.noteReleased();
             break;
         default:
             break;
@@ -363,6 +373,10 @@ void QtRdpSessionWidget::mouseMoveEvent(QMouseEvent *event)
     const unsigned int mouseFlags = mouseFlagsFromEvent(event);
     if (rdp::shouldSynchronizeModifiersForMouseMove(mouseFlags))
         syncMouseModifiers(mouseFlags);
+    // A session cursor that something else overwrote while the pointer was
+    // away comes back on the first movement, not only on the next cursor
+    // update the server happens to send.
+    applyRemoteCursor();
     if (!m_process || m_inputSuspended || !shouldForwardMouseMove())
         return;
 
@@ -444,6 +458,9 @@ void QtRdpSessionWidget::focusInEvent(QFocusEvent *event)
     if (m_process && !m_inputSuspended)
         m_process->sendFocusIn();
     releaseAllPressedKeys();
+    // Focus coming home is the cursor coming back, and re-reading the session is
+    // how it comes back: the session is the source, not whatever was left over.
+    updateCursor();
 }
 
 void QtRdpSessionWidget::focusOutEvent(QFocusEvent *event)
@@ -453,6 +470,10 @@ void QtRdpSessionWidget::focusOutEvent(QFocusEvent *event)
     releasePressedMouseButtons();
     flushPendingMouseMove();
     releaseAllPressedKeys();
+    // Whatever shows the cursor now is not this pane: the session cursor has
+    // to be put back when focus comes home. UngrabMouse can come after the
+    // deactivation, which would take a state this call just set back off.
+    m_remoteCursor.noteReleased();
 }
 
 void QtRdpSessionWidget::bindProcessCallbacks()
@@ -536,6 +557,7 @@ void QtRdpSessionWidget::stopProcess(bool showDisconnectedOverlay)
     m_frameGate.active = false;
     m_frameGate.remaining = 0;
     m_keyboardRouter.reset();
+    m_remoteCursor.reset();
     // Close input forwarding before the teardown that can pump messages:
     // an input event delivered through that pump must not reach the session
     // behind this point.
@@ -639,8 +661,54 @@ void QtRdpSessionWidget::updateCursor()
         return;
 
     CursorInfo cursor = m_process->cursor();
-    setCursor(cursorShapeFromKind(cursor.kind));
+    // Setting a widget cursor is also what makes Qt re-assert it, so a cursor
+    // that is only remembered (hidden or unfocused pane) stays unset: the
+    // re-assert would put it on whatever window the pointer is over.
+    const bool applied = sessionOwnsWindowFocus();
+    m_remoteCursor.adopt(RdpCursorClassifier::cursorInfoForState(cursor), applied);
     destroyCursorInfo(cursor);
+
+    // Reported before the hand-off, adopted first: a new cursor is exactly the
+    // case where what is on screen has to change, so it is never "already
+    // applied" just because it is the one being adopted.
+    if (applied)
+        applyRemoteCursor();
+}
+
+void QtRdpSessionWidget::applyRemoteCursor()
+{
+    // Whatever ended the session normally clears the state on its way out;
+    // this covers an abandoned one, where no state message ever arrives.
+    if (!m_process || m_process->state() != FreeRdpProcess::State::Running)
+        return;
+
+    // A pane in a background tab is not what the pointer is over: leave the
+    // cursor alone and put it back once it is on screen again.
+    if (!sessionOwnsWindowFocus())
+        return;
+
+    CursorInfo cursor;
+    if (!m_remoteCursor.needsApply() || !m_remoteCursor.cursorToApply(cursor))
+        return;
+
+    setCursor(cursorShapeFromKind(cursor.kind));
+    m_remoteCursor.noteApplied();
+}
+
+bool QtRdpSessionWidget::sessionOwnsWindowFocus() const
+{
+    // Hover drives the remote pointer only for the pane that owns the input. It
+    // is also the way back in after the pointer was released (another
+    // application took the grab, the window was deactivated), which does not
+    // always arrive as QEvent::UngrabMouse - and it is what tells a background
+    // tab apart from the visible one: a hidden pane keeps whatever focus state
+    // it remembers.
+    //
+    // A pane inside its own window owns the input as soon as the click landed
+    // in it: Windows hands the focus over before the event travels, but a
+    // frameless child widget does not always see that as focus yet, and
+    // dropping the hover there leaves the remote pointer stuck.
+    return hasFocus() || (isActiveWindow() && underMouse());
 }
 
 void QtRdpSessionWidget::beginResolutionUpdate()
@@ -853,17 +921,10 @@ void QtRdpSessionWidget::sendMouseButton(QMouseEvent *event, bool down)
 
 bool QtRdpSessionWidget::shouldForwardMouseMove() const
 {
-    // Hover only drives the remote cursor for the session that owns the input.
-    // It is also the way back in after the pointer was released (another
-    // application took the grab, the window was deactivated), which does not
-    // always arrive as QEvent::UngrabMouse. An unfocused pane would otherwise
-    // keep pushing moves the user meant for another window.
-    //
-    // A pane inside its own window owns the input as soon as the click landed
-    // in it: Windows hands the focus over before the event travels, but a
-    // frameless child widget does not always see that as focus yet, and
-    // dropping the hover there leaves the remote cursor stuck.
-    return hasFocus() || (isActiveWindow() && underMouse());
+    // Hover only drives the remote pointer for the session that owns the input
+    // (see sessionOwnsWindowFocus) - the same rule the remote cursor follows,
+    // so what the user sees and what the session receives cannot disagree.
+    return sessionOwnsWindowFocus();
 }
 
 bool QtRdpSessionWidget::canCaptureSystemKeys() const

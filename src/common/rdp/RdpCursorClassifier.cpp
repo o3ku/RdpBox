@@ -134,6 +134,11 @@ CursorInfo createCursor(const FrameBuffer &remoteImage, PointI hotspot)
     return CursorInfo{CursorKind::Custom, cursorHandle, cursorHandle != nullptr};
 }
 
+CursorInfo cursorInfoForState(const CursorInfo &cursorInfo)
+{
+    return CursorInfo{cursorInfo.kind, nullptr, false};
+}
+
 HCURSOR cursorHandleFromInfo(const CursorInfo &cursorInfo)
 {
     if (cursorInfo.kind == CursorKind::Hidden)
@@ -152,6 +157,11 @@ CursorInfo createCursor(const FrameBuffer &remoteImage, PointI hotspot)
     static_cast<void>(remoteImage);
     static_cast<void>(hotspot);
     return CursorInfo{CursorKind::Arrow, nullptr, true};
+}
+
+CursorInfo cursorInfoForState(const CursorInfo &cursorInfo)
+{
+    return CursorInfo{cursorInfo.kind, nullptr, false};
 }
 
 HCURSOR cursorHandleFromInfo(const CursorInfo &)

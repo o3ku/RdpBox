@@ -392,6 +392,17 @@ target_include_directories(RdpSessionMouseStateTests PRIVATE
 
 add_test(NAME RdpSessionMouseStateTests COMMAND RdpSessionMouseStateTests)
 
+add_executable(RdpRemoteCursorStateTests
+    rdp/RdpRemoteCursorStateTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpRemoteCursorState.cpp
+)
+
+target_include_directories(RdpRemoteCursorStateTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME RdpRemoteCursorStateTests COMMAND RdpRemoteCursorStateTests)
+
 add_executable(RdpReservedShortcutTrackerTests
     rdp/RdpReservedShortcutTrackerTests.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpReservedShortcutTracker.cpp

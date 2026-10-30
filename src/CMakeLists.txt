@@ -112,6 +112,8 @@ set(RDPBOX_COMMON_SOURCES
     common/rdp/RdpKeyboardPhysicalProbing.cpp
     common/rdp/RdpMouseMoveCoalescer.h
     common/rdp/RdpMouseMoveCoalescer.cpp
+    common/rdp/RdpRemoteCursorState.h
+    common/rdp/RdpRemoteCursorState.cpp
     common/rdp/RdpModifierSyncTracker.h
     common/rdp/RdpModifierSyncTracker.cpp
     common/rdp/RdpReconnectInteraction.h

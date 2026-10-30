@@ -165,6 +165,10 @@ LRESULT CRdpSessionView::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
     }
 
     if (message == WM_SETCURSOR && LOWORD(lParam) == HTCLIENT) {
+        // Applying the session cursor here is what makes a stale one
+        // self-correcting: the pointer is re-established on the next movement
+        // instead of waiting for the server to announce a new cursor.
+        applyRemoteCursor();
         if (m_process && m_process->state() == FreeRdpProcess::State::Running) {
             ::SetCursor(m_cursorHandle);
             return TRUE;

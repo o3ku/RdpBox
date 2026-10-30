@@ -56,6 +56,10 @@ void CRdpSessionView::OnMouseMove(UINT flags, CPoint point)
     m_mouseState.notePointerPosition(pointer);
     if (rdp::shouldSynchronizeModifiersForMouseMove(flags))
         syncMouseModifiers(flags);
+    // A session cursor that something else overwrote while the pointer was
+    // away (another tab, the window frame) comes back on the first movement,
+    // not only when WM_SETCURSOR runs.
+    applyRemoteCursor();
     if (!m_process || m_inputSuspended)
         return;
 

@@ -12,6 +12,7 @@
 
 #include "common/profiles/Profile.h"
 #include "common/rdp/FreeRdpProcess.h"
+#include "common/rdp/RdpRemoteCursorState.h"
 #include "common/rdp/RdpResolutionRecovery.h"
 #include "common/rdp/RdpSessionKeyboardState.h"
 #include "common/rdp/RdpSessionMouseState.h"
@@ -112,6 +113,8 @@ private:
     void stopProcess(bool showDisconnectedOverlay = true);
     void onStateChanged(FreeRdpProcess::State state);
     void updateCursorFromProcess();
+    void applyRemoteCursor();
+    void releaseDeferredCursorHandles();
     void setFocusToFreeRdp();
     void showOverlay(const CString &text);
     void clearOverlay();
@@ -162,6 +165,11 @@ private:
     FrameBuffer m_cachedFrame;
     HCURSOR m_cursorHandle = nullptr;
     bool m_ownsCursorHandle = false;
+    // Set while a call that legitimately runs the window procedure re-entrantly
+    // (SetFocus) may swap the cursor under it; see releaseCursorHandle.
+    bool m_deferCursorHandleRelease = false;
+    std::vector<HCURSOR> m_deferredCursorHandles;
+    RdpRemoteCursorState m_remoteCursor;
     bool m_connected = false;
     // Input forwarding is closed while the session process is being stopped:
     // the stop path can pump messages (clipboard/OLE teardown), and an input

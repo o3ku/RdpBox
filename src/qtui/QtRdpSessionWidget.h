@@ -8,6 +8,7 @@
 #include "common/rdp/RdpSessionMouseState.h"
 #include "common/rdp/RdpSessionViewBehavior.h"
 #include "common/rdp/RdpResizeBurstTracker.h"
+#include "common/rdp/RdpRemoteCursorState.h"
 #include "common/rdp/RdpResolutionRecovery.h"
 
 #include <QWidget>
@@ -74,6 +75,8 @@ private:
     void updateState(FreeRdpProcess::State state);
     void consumeFrame();
     void updateCursor();
+    void applyRemoteCursor();
+    bool sessionOwnsWindowFocus() const;
     void beginResolutionUpdate();
     void syncRecoveryTimer();
     void handleRecoveryTimer();
@@ -123,4 +126,5 @@ private:
     // session. Reopened by the next connectToHost().
     bool m_inputSuspended = false;
     rdp::session_view::FrameGateState m_frameGate;
+    RdpRemoteCursorState m_remoteCursor;
 };

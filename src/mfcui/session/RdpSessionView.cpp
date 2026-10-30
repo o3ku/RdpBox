@@ -219,6 +219,8 @@ void CRdpSessionView::handleHostResume(bool autoReconnect)
 
 void CRdpSessionView::handleBecameVisible()
 {
+    // This view is the one on screen again, so the window cursor is it.
+    applyRemoteCursor();
     requestDeferredResumeRefreshIfNeeded();
     if (m_connected)
         updateCursorFromProcess();
@@ -446,16 +448,67 @@ void CRdpSessionView::updateCursorFromProcess()
     if (!m_process)
         return;
 
+    CursorInfo cursorInfo = m_process->cursor();
+
+    // Seeing the same cursor again (a reconnect, a refresh, focus coming back)
+    // must not destroy the handle that is on the window right now: replacing
+    // it with a copy of itself makes the pointer flicker, and leaves the old
+    // one alive if the copy fails. The window cursor is untouched, so only the
+    // pending flag can be stale - and that one focus may have just cleared.
+    if (cursorInfo.handle && cursorInfo.handle == m_cursorHandle) {
+        m_remoteCursor.noteApplied();
+        destroyCursorInfo(cursorInfo);
+        return;
+    }
+
+    // The handle leaves the member before the session cursor is adopted, so a
+    // releaseCursorHandle() in between (WM_SETCURSOR, a repaint) cannot take the
+    // pending state with it: what the session cursor is outlives one handle.
+    // Whoever dropped it destroys it.
     releaseCursorHandle();
 
-    const CursorInfo cursorInfo = m_process->cursor();
     m_cursorHandle = RdpCursorClassifier::cursorHandleFromInfo(cursorInfo);
     m_ownsCursorHandle = cursorInfo.ownsHandle;
 
-    if (GetSafeHwnd()
+    // SetCursor only sticks while the view is visible and focused (Windows
+    // re-applies the class cursor of whatever window the pointer is over);
+    // otherwise the cursor is remembered and applyRemoteCursor() puts it back.
+    const bool canApply = GetSafeHwnd()
         && IsWindowVisible()
-        && m_process->state() == FreeRdpProcess::State::Running)
+        && ::GetFocus() == GetSafeHwnd()
+        && m_process->state() == FreeRdpProcess::State::Running;
+    if (canApply)
         ::SetCursor(m_cursorHandle);
+
+    m_remoteCursor.adopt(RdpCursorClassifier::cursorInfoForState(cursorInfo), canApply);
+    destroyCursorInfo(cursorInfo);
+}
+
+void CRdpSessionView::applyRemoteCursor()
+{
+    if (!GetSafeHwnd() || !IsWindowVisible())
+        return; // still nothing on screen to own the cursor; stays pending
+
+    // Whatever ended the session normally clears the state on its way out;
+    // this covers an abandoned one, where no state message ever arrives.
+    if (!m_process || m_process->state() != FreeRdpProcess::State::Running)
+        return;
+
+    // A custom cursor whose handle went away (a reconnect dropped the session
+    // that created it) has nothing Win32 can put back: leave the cursor alone
+    // rather than fall back to an arrow that is not this session's either.
+    // The state itself stays pending, so the re-read on the way back in wins.
+    if (m_remoteCursor.cursor().kind == CursorKind::Custom && !m_cursorHandle)
+        return;
+
+    CursorInfo cursor;
+    if (!m_remoteCursor.needsApply() || !m_remoteCursor.cursorToApply(cursor))
+        return;
+
+    // SetCursor to what is already set is a no-op, so with the view focused
+    // the window cursor is the session cursor again: nothing stays pending.
+    ::SetCursor(RdpCursorClassifier::cursorHandleFromInfo(cursor));
+    m_remoteCursor.noteApplied();
 }
 
 RdpKeyboardPhysicalState CRdpSessionView::currentKeyboardPhysicalState() const
@@ -473,8 +526,16 @@ void CRdpSessionView::setFocusToFreeRdp()
 
     rdp::session_view_input::setKeyboardTarget(this);
 
-    if (!hadWindowFocus)
+    if (!hadWindowFocus) {
+        // SetFocus runs the window procedure re-entrantly, and that can swap
+        // the cursor (WM_SETCURSOR -> updateCursorFromProcess). The handle is
+        // what the view puts on the window, so it stays alive until the call
+        // that took it out is done with it.
+        m_deferCursorHandleRelease = true;
         SetFocus();
+        m_deferCursorHandleRelease = false;
+        releaseDeferredCursorHandles();
+    }
 
     if (rdp::shouldSendFocusIn(hadWindowFocus,
                                hadSystemKeyTarget,
@@ -553,11 +614,32 @@ SizeI CRdpSessionView::currentViewSize() const
 
 void CRdpSessionView::releaseCursorHandle()
 {
-    if (m_cursorHandle && m_ownsCursorHandle)
-        DestroyCursor(m_cursorHandle);
+    // Only the handle goes. What the session cursor is belongs to
+    // m_remoteCursor: this runs on every cursor update and on every control the
+    // frame hands the window cursor to, and clearing the pending state here is
+    // what kept the cursor from ever being put back.
+    const HCURSOR handle = std::exchange(m_cursorHandle, nullptr);
+    if (!handle)
+        return;
 
-    m_cursorHandle = nullptr;
+    // See setFocusToFreeRdp: the handle may be in use by a message this call is
+    // running inside of, so it is parked instead of destroyed under it.
+    if (m_deferCursorHandleRelease && m_ownsCursorHandle) {
+        m_deferredCursorHandles.push_back(handle);
+        m_ownsCursorHandle = false;
+    } else if (m_ownsCursorHandle) {
+        DestroyCursor(handle);
+    }
+
     m_ownsCursorHandle = false;
+}
+
+void CRdpSessionView::releaseDeferredCursorHandles()
+{
+    // Ownership is recorded per handle: the member describes the current one,
+    // so the deferred list is only ever filled with handles this view created.
+    for (const HCURSOR handle : std::exchange(m_deferredCursorHandles, {}))
+        DestroyCursor(handle);
 }
 
 void CRdpSessionView::OnSize(UINT type, int cx, int cy)
@@ -645,6 +727,8 @@ void CRdpSessionView::OnSetFocus(CWnd *oldWnd)
     disableLocalIme();
     setFocusToFreeRdp();
     releaseAllPressedKeys();
+    // Focus coming home is the cursor coming back, and re-reading it is what
+    // puts it back: the session is the source, not whatever was left over.
     if (m_connected)
         updateCursorFromProcess();
 }
@@ -656,6 +740,9 @@ void CRdpSessionView::OnKillFocus(CWnd *newWnd)
     releasePressedMouseButtons();
     releaseAllPressedKeys();
     rdp::session_view_input::clearKeyboardTarget(this);
+    // Whatever owns the window cursor now is not this view, so the session
+    // cursor has to be put back when focus (or the visible tab) comes home.
+    m_remoteCursor.noteReleased();
 }
 
 void CRdpSessionView::noteConsumedLocalShortcutKey(unsigned int virtualKey)

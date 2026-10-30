@@ -1,6 +1,7 @@
 #include "RdpSessionView.h"
 
 #include "common/rdp/FrameBufferMemory.h"
+#include "common/rdp/RdpCursorClassifier.h"
 #include "common/rdp/RdpSessionViewBehavior.h"
 #include <algorithm>
 #include <utility>
@@ -107,6 +108,26 @@ void CRdpSessionView::OnPaint()
 
     if (!m_overlayText.IsEmpty())
         drawOverlay(dc, rect);
+
+    // A repaint is a snapshot of the session, cursor included: the remote
+    // pointer is only right if nothing overwrote it while the view was away.
+    // When it is over this view - the case the user notices - put it back.
+    CursorInfo cursor;
+    if (!m_remoteCursor.needsApply() || !m_remoteCursor.cursorToApply(cursor))
+        return;
+
+    POINT position = {};
+    if (!::GetCursorPos(&position))
+        return;
+
+    ::ScreenToClient(GetSafeHwnd(), &position);
+    if (!rect.PtInRect(CPoint(position.x, position.y)))
+        return;
+
+    if (const HCURSOR handle = RdpCursorClassifier::cursorHandleFromInfo(cursor)) {
+        ::SetCursor(handle);
+        m_remoteCursor.noteApplied();
+    }
 }
 
 void CRdpSessionView::drawOverlay(CDC &dc, const CRect &rect)
