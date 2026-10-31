@@ -169,6 +169,9 @@ private:
     rdp::session_view::FrameGateState m_frameGate;
     uint64_t m_cachedFrameGeneration = 0;
     FrameBuffer m_cachedFrame;
+    // Hand-back slot for consumeFrameIfNewer: holds the buffer the worker
+    // reuses, so frame delivery stops allocating per frame.
+    FrameBuffer m_frameScratch;
     HCURSOR m_cursorHandle = nullptr;
     bool m_ownsCursorHandle = false;
     // Set while a call that legitimately runs the window procedure re-entrantly

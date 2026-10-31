@@ -104,6 +104,9 @@ private:
     std::shared_ptr<FreeRdpProcess> m_process;
     FreeRdpProcess::State m_state = FreeRdpProcess::State::Idle;
     FrameBuffer m_frame;
+    // Hand-back slot for consumeFrameIfNewer: holds the buffer the worker
+    // reuses, so frame delivery stops allocating per frame.
+    FrameBuffer m_frameScratch;
     uint64_t m_frameGeneration = 0;
     QString m_overlayText;
     std::function<void(FreeRdpProcess::State)> m_stateChanged;

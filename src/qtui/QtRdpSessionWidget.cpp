@@ -196,6 +196,7 @@ void QtRdpSessionWidget::connectToHost()
     m_frameGate.remaining = 0;
     m_frameGeneration = 0;
     m_frame = {};
+    m_frameScratch = {};
     m_reconnectInFlight = false;
     const SizeI size = viewSize();
     updateState(FreeRdpProcess::State::Starting);
@@ -628,14 +629,15 @@ void QtRdpSessionWidget::consumeFrame()
     if (!m_process)
         return;
 
-    FrameBuffer nextFrame;
-    if (m_process->consumeFrameIfNewer(m_frameGeneration, nextFrame)) {
+    if (m_process->consumeFrameIfNewer(m_frameGeneration, m_frameScratch)) {
         const rdp::session_view::FrameArrivalDecision frameDecision =
             rdp::session_view::frameArrivalDecision(m_frameGate);
         m_frameGate = frameDecision.state;
 
+        // Swap keeps the retired display buffer in the scratch slot, which the
+        // next consume hands back to the worker (see consumeFrameIfNewer).
         if (frameDecision.renderFrame)
-            m_frame = std::move(nextFrame);
+            std::swap(m_frame, m_frameScratch);
 
         if (m_reconnectInFlight) {
             // The re-established session is alive and what is on screen is

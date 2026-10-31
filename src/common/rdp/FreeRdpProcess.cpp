@@ -744,7 +744,10 @@ bool FreeRdpProcess::consumeFrameIfNewer(uint64_t &lastSeenGeneration, FrameBuff
         return false;
 
     lastSeenGeneration = m_d->frameGeneration;
-    target = std::move(m_d->frame);
+    // Swap, not move: the caller's buffer rides back to the worker, so
+    // steady-state frame delivery reuses two allocations instead of paying a
+    // full-desktop-sized vector per frame.
+    std::swap(target, m_d->frame);
     return true;
 }
 

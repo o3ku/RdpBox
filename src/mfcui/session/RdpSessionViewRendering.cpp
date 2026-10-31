@@ -62,8 +62,7 @@ void CRdpSessionView::OnPaint()
     bool hideOverlayAfterFramePresent = false;
 
     if (m_process) {
-        FrameBuffer nextFrame;
-        if (m_process->consumeFrameIfNewer(m_cachedFrameGeneration, nextFrame)) {
+        if (m_process->consumeFrameIfNewer(m_cachedFrameGeneration, m_frameScratch)) {
             if (m_resumeRecovery.awaitingFrame()) {
                 m_resumeRecovery.onFrameArrived();
                 if (m_overlayText == L"Resuming session...")
@@ -77,15 +76,15 @@ void CRdpSessionView::OnPaint()
                     hideOverlayAfterFramePresent = true;
             }
 
-            const FrameBuffer &frame = nextFrame;
-
             const rdp::session_view::FrameArrivalDecision frameDecision =
                 rdp::session_view::frameArrivalDecision(m_frameGate);
             m_frameGate = frameDecision.state;
             hideOverlayAfterFramePresent = hideOverlayAfterFramePresent || frameDecision.hideOverlay;
 
             if (frameDecision.renderFrame) {
-                m_cachedFrame = std::move(nextFrame);
+                // Swap keeps the retired display buffer in the scratch slot,
+                // which the next consume hands back to the worker.
+                std::swap(m_cachedFrame, m_frameScratch);
             }
 
             if (m_resolutionRecovery.active())
