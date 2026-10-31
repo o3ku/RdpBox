@@ -853,3 +853,46 @@ void WindowsClipboardBackend::detach()
 
     m_d->clipboard.reset();
 }
+
+void WindowsClipboardBackend::park()
+{
+    if (!m_d->clipboard)
+        return;
+
+    auto &clipboard = m_d->clipboard;
+
+    // Same first half as detach(): cut every route the freerdp side has into
+    // this context and stop the clipboard window thread. Everything else
+    // stays allocated: this backend served a session whose worker was
+    // abandoned mid-teardown and may still be running these callbacks, so
+    // freeing here is a use-after-free. One parked context per abandoned
+    // session, next to the freerdp context that session leaks anyway.
+    if (clipboard->context) {
+        clipboard->context->MonitorReady = nullptr;
+        clipboard->context->ServerCapabilities = nullptr;
+        clipboard->context->ServerFormatList = nullptr;
+        clipboard->context->ServerFormatListResponse = nullptr;
+        clipboard->context->ServerLockClipboardData = nullptr;
+        clipboard->context->ServerUnlockClipboardData = nullptr;
+        clipboard->context->ServerFormatDataRequest = nullptr;
+        clipboard->context->ServerFormatDataResponse = nullptr;
+        clipboard->context->ServerFileContentsRequest = nullptr;
+        clipboard->context->ServerFileContentsResponse = nullptr;
+        clipboard->context->custom = nullptr;
+    }
+
+    if (clipboard->abortEvent)
+        SetEvent(clipboard->abortEvent);
+
+    if (clipboard->hwnd)
+        PostMessage(clipboard->hwnd, WM_QUIT, 0, 0);
+    else if (clipboard->threadId != 0)
+        PostThreadMessage(clipboard->threadId, WM_QUIT, 0, 0);
+
+    if (clipboard->thread) {
+        WaitForSingleObject(clipboard->thread, INFINITE);
+        CloseHandle(clipboard->thread);
+    }
+
+    static_cast<void>(m_d->clipboard.release()); // the deliberate leak
+}

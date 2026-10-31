@@ -570,6 +570,7 @@ void FreeRdpProcess::stop()
 {
     std::shared_ptr<FreeRdpBackend> backend;
     std::thread worker;
+    bool sessionAbandoned = false;
     {
         std::scoped_lock lock(m_d->mutex);
         backend = std::exchange(m_d->backend, nullptr);
@@ -648,6 +649,11 @@ void FreeRdpProcess::stop()
 
             if (worker.joinable())
                 worker.detach();
+
+            // The clipboard context stays reachable until the detached
+            // worker is done with it: detaching here would free memory the
+            // worker is still posting frames through.
+            sessionAbandoned = true;
         }
     } else if (worker.joinable()) {
         worker.join();
@@ -669,8 +675,16 @@ void FreeRdpProcess::stop()
 
     {
         std::lock_guard<std::mutex> lock(m_d->clipboardMutex);
-        if (m_d->clipboard)
-            m_d->clipboard->detach();
+        // Abandoned workers still post through the clipboard context, so it
+        // is parked instead of detached: callbacks are cut, but the context
+        // (and the bounded leak it shares with the wedged freerdp instance)
+        // stays alive. Reconnecting to the same host creates a new view.
+        if (m_d->clipboard) {
+            if (sessionAbandoned)
+                m_d->clipboard->park();
+            else
+                m_d->clipboard->detach();
+        }
     }
 }
 

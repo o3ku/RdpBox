@@ -12,6 +12,7 @@ public:
 
     bool attach(CliprdrClientContext *context) override;
     void detach() override;
+    void park() override;
 
 private:
     struct Private;

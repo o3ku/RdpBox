@@ -15,6 +15,7 @@ class NullClipboardBackend : public PlatformClipboardBackend
 public:
     bool attach(CliprdrClientContext *) override { return false; }
     void detach() override {}
+    void park() override {}
 };
 }  // namespace
 using ActiveClipboardBackend = NullClipboardBackend;
@@ -43,4 +44,10 @@ void RdpClipboardBridge::detach()
 {
     if (m_backend)
         m_backend->detach();
+}
+
+void RdpClipboardBridge::park()
+{
+    if (m_backend)
+        m_backend->park();
 }

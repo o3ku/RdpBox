@@ -15,6 +15,7 @@ public:
 
     bool attach(CliprdrClientContext *context);
     void detach();
+    void park();
 
 private:
     std::unique_ptr<PlatformClipboardBackend> m_backend;
