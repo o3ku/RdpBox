@@ -84,6 +84,7 @@ protected:
     afx_msg void OnMButtonDblClk(UINT flags, CPoint point);
     afx_msg void OnMButtonUp(UINT flags, CPoint point);
     afx_msg BOOL OnMouseWheel(UINT flags, short zDelta, CPoint point);
+    afx_msg BOOL OnSetCursor(CWnd *pWnd, UINT nHitTest, UINT message);
     afx_msg UINT OnGetDlgCode();
     afx_msg LRESULT OnRdpStateChanged(WPARAM state, LPARAM generation);
     afx_msg LRESULT OnRdpFrameUpdated(WPARAM, LPARAM generation);

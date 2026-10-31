@@ -215,7 +215,8 @@ BOOL nativefreerdp_pointer_set(rdpContext *context, rdpPointer *pointer)
 
     // The lock is held across the hand-off: otherwise an abandoned worker can
     // deliver a cursor to an owner that is already being destroyed.
-    const OwnerCall call(toNativeContext(context));
+    NativeRdpContext *nativeContext = toNativeContext(context);
+    const OwnerCall call(nativeContext);
     if (!call.owner())
         return TRUE; // a failed pointer update is fatal in freerdp; drop it
 
@@ -223,34 +224,61 @@ BOOL nativefreerdp_pointer_set(rdpContext *context, rdpPointer *pointer)
     if (nativePointer->cursorSerial == 0)
         return TRUE; // pointer_new dropped this cursor
 
+    destroyCursorInfo(nativeContext->lastVisibleCursor);
+    nativeContext->lastVisibleCursor = duplicateCursorInfo(nativePointer->cursor);
+    nativeContext->pointerHidden = false;
     call.notifyCursor(nativePointer->cursor);
     return TRUE;
 }
 
 BOOL nativefreerdp_pointer_set_null(rdpContext *context)
 {
-    const OwnerCall call(toNativeContext(context));
+    NativeRdpContext *nativeContext = toNativeContext(context);
+    const OwnerCall call(nativeContext);
     if (!call.owner())
         return TRUE; // never fail a pointer update: freerdp treats it as fatal
 
+    nativeContext->pointerHidden = true;
     call.notifyCursor(CursorInfo{CursorKind::Hidden, nullptr, false});
     return TRUE;
 }
 
 BOOL nativefreerdp_pointer_set_default(rdpContext *context)
 {
-    const OwnerCall call(toNativeContext(context));
+    NativeRdpContext *nativeContext = toNativeContext(context);
+    const OwnerCall call(nativeContext);
     if (!call.owner())
         return TRUE; // never fail a pointer update: freerdp treats it as fatal
+
+    // The default pointer is a visible one; a following position-only update
+    // must not "un-hide" a stale custom shape over it.
+    nativeContext->pointerHidden = false;
     call.notifyCursorReset();
     return TRUE;
 }
 
 BOOL nativefreerdp_pointer_set_position(rdpContext *context, UINT32 x, UINT32 y)
 {
-    static_cast<void>(context);
     static_cast<void>(x);
     static_cast<void>(y);
+
+    NativeRdpContext *nativeContext = context ? toNativeContext(context) : nullptr;
+    if (!nativeContext || !nativeContext->pointerHidden)
+        return TRUE;
+
+    // The pointer moved without a shape change. After a hidden-pointer update
+    // that is the un-hide (typing vanish ending, for example), and the shape
+    // to put back is the last one the server showed - dropping the update
+    // here left the cursor invisible until the next full pointer PDU.
+    nativeContext->pointerHidden = false;
+    if (nativeContext->lastVisibleCursor.kind == CursorKind::Hidden)
+        return TRUE;
+
+    const OwnerCall call(nativeContext);
+    if (!call.owner())
+        return TRUE; // never fail a pointer update: freerdp treats it as fatal
+
+    call.notifyCursor(nativeContext->lastVisibleCursor);
     return TRUE;
 }
 
@@ -665,7 +693,8 @@ BOOL nativefreerdp_client_new(freerdp *instance, rdpContext *context)
 void nativefreerdp_client_free(freerdp *instance, rdpContext *context)
 {
     static_cast<void>(instance);
-    static_cast<void>(context);
+    if (NativeRdpContext *nativeContext = context ? toNativeContext(context) : nullptr)
+        destroyCursorInfo(nativeContext->lastVisibleCursor);
 }
 
 int nativefreerdp_client_start(rdpContext *context)

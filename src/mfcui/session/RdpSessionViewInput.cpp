@@ -1,5 +1,6 @@
 #include "RdpSessionView.h"
 
+#include "common/rdp/RdpCursorClassifier.h"
 #include "common/rdp/RdpInputModifiers.h"
 #include "common/rdp/RdpReconnectInteraction.h"
 #include "mfcui/ParentResizeForwarder.h"
@@ -48,6 +49,31 @@ void CRdpSessionView::flushPendingMouseMove()
         KillTimer(kMouseMoveTimerId);
         m_mouseState.setPointerMoveTimerActive(false);
     }
+}
+
+BOOL CRdpSessionView::OnSetCursor(CWnd *pWnd, UINT nHitTest, UINT message)
+{
+    if (nHitTest != HTCLIENT
+        || !m_process || m_process->state() != FreeRdpProcess::State::Running)
+        return CWnd::OnSetCursor(pWnd, nHitTest, message);
+
+    // Over its own client area the session owns the cursor: the hidden state
+    // is the session asking for no cursor, everything else beats the window
+    // class arrow that DefWindowProc would put up.
+    if (m_remoteCursor.hasCursor() && m_remoteCursor.cursor().kind == CursorKind::Hidden) {
+        ::SetCursor(nullptr);
+        return TRUE;
+    }
+
+    applyRemoteCursor();
+    if (m_remoteCursor.needsApply() || !m_cursorHandle) {
+        // Nothing announced yet, or a custom handle that is gone: the class
+        // cursor is the honest fallback.
+        return CWnd::OnSetCursor(pWnd, nHitTest, message);
+    }
+
+    ::SetCursor(m_cursorHandle);
+    return TRUE;
 }
 
 void CRdpSessionView::OnMouseMove(UINT flags, CPoint point)

@@ -34,6 +34,11 @@ struct NativeRdpContext
     DispClientContext *disp = nullptr;
     bool ignoreCertificate = true;
     std::atomic<UINT32> rtt{0};
+    // The last cursor the server actually showed, and whether the pointer is
+    // currently hidden. A position-only update after a hidden one is the
+    // un-hide: no shape rides along, so the last visible cursor goes back out.
+    CursorInfo lastVisibleCursor{};
+    bool pointerHidden = false;
 };
 
 struct NativePointer : rdpPointer
