@@ -35,6 +35,9 @@ void drawFrameBuffer(HDC targetDc, const CRect &targetRect, const FrameBuffer &f
         return;
     }
 
+    // COLORONCOLOR drops rows instead of AND-scanning them: the default
+    // BLACKONWHITE darkens 32bpp frames scaled below 100%.
+    ::SetStretchBltMode(targetDc, COLORONCOLOR);
     ::StretchDIBits(targetDc,
                     0, 0, targetRect.Width(), targetRect.Height(),
                     0, 0, frame.width, frame.height,

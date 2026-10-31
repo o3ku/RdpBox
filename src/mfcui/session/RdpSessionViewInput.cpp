@@ -5,6 +5,7 @@
 #include "common/rdp/RdpReconnectInteraction.h"
 #include "mfcui/ParentResizeForwarder.h"
 
+#include <windowsx.h>
 namespace
 {
 constexpr UINT kMouseMoveCoalesceMs = 16;
@@ -198,6 +199,56 @@ BOOL CRdpSessionView::OnMouseWheel(UINT flags, short zDelta, CPoint point)
         const PointI pointer = pointFromCPoint(clientPoint);
         m_mouseState.notePointerPosition(pointer);
         m_process->sendWheel(PointI{0, zDelta}, pointer, currentViewSize());
+    }
+    return TRUE;
+}
+
+void CRdpSessionView::OnXButtonDown(UINT flags, UINT button, CPoint point)
+{
+    handleXButton(flags, button, point, true);
+}
+
+void CRdpSessionView::OnXButtonUp(UINT flags, UINT button, CPoint point)
+{
+    handleXButton(flags, button, point, false);
+}
+
+void CRdpSessionView::OnXButtonDblClk(UINT flags, UINT button, CPoint point)
+{
+    handleXButton(flags, button, point, true);
+}
+
+// XBUTTON1/2 are not part of the tracked pressed-buttons state (the shared
+// buttonMask has no bit for them); they forward straight through, like Qt.
+void CRdpSessionView::handleXButton(UINT flags, UINT button, CPoint point, bool down)
+{
+    if (!m_process || m_inputSuspended)
+        return;
+
+    flushPendingMouseMove();
+    setFocusToFreeRdp();
+    syncMouseModifiers(flags);
+    m_mouseState.notePointerPosition(pointFromCPoint(point));
+    m_process->sendMouseButton(button == XBUTTON1 ? MouseButton::Back : MouseButton::Forward,
+                               down,
+                               pointFromCPoint(point),
+                               currentViewSize());
+}
+
+// WM_MOUSEHWHEEL has no ON_WM_* macro; WPARAM high word is the tilt delta,
+// LPARAM holds screen coordinates (same shape as OnMouseWheel's CPoint).
+LRESULT CRdpSessionView::OnMouseHWheel(WPARAM wParam, LPARAM lParam)
+{
+    const short delta = static_cast<short>(HIWORD(wParam));
+    CPoint screenPoint(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+    ScreenToClient(&screenPoint);
+
+    flushPendingMouseMove();
+    syncMouseModifiers(static_cast<UINT>(LOWORD(wParam)));
+    if (m_process && !m_inputSuspended && delta != 0) {
+        const PointI pointer = pointFromCPoint(screenPoint);
+        m_mouseState.notePointerPosition(pointer);
+        m_process->sendWheel(PointI{delta, 0}, pointer, currentViewSize());
     }
     return TRUE;
 }

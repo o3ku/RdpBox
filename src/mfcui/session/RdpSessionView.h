@@ -84,6 +84,10 @@ protected:
     afx_msg void OnMButtonDblClk(UINT flags, CPoint point);
     afx_msg void OnMButtonUp(UINT flags, CPoint point);
     afx_msg BOOL OnMouseWheel(UINT flags, short zDelta, CPoint point);
+    afx_msg void OnXButtonDown(UINT flags, UINT nButton, CPoint point);
+    afx_msg void OnXButtonUp(UINT flags, UINT nButton, CPoint point);
+    afx_msg void OnXButtonDblClk(UINT flags, UINT nButton, CPoint point);
+    afx_msg LRESULT OnMouseHWheel(WPARAM wParam, LPARAM lParam);
     afx_msg BOOL OnSetCursor(CWnd *pWnd, UINT nHitTest, UINT message);
     afx_msg UINT OnGetDlgCode();
     afx_msg LRESULT OnRdpStateChanged(WPARAM state, LPARAM generation);
@@ -131,6 +135,7 @@ private:
     void flushPendingMouseMove();
     void handleMouseButtonDown(UINT flags, CPoint point, MouseButton button, bool allowReconnect);
     void handleMouseButtonUp(UINT flags, CPoint point, MouseButton button);
+    void handleXButton(UINT flags, UINT nButton, CPoint point, bool pressed);
     void sendKeyboardAction(const RdpSessionKeyboardState::KeyAction &action);
     void sendKeyboardActions(const std::vector<RdpSessionKeyboardState::KeyAction> &actions);
     void releaseKeyboardTargetIfInactive();
