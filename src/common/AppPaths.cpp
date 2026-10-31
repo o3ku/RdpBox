@@ -312,6 +312,15 @@ bool writeFileContent(const std::wstring &filePath, const std::string &contents)
 
 bool appendFileContent(const std::wstring &filePath, const std::string &contents)
 {
+    // Session logging is one line per event and never rotates on its own;
+    // cap it so a long-lived portable install does not grow it forever.
+    constexpr std::uintmax_t kMaxLogBytes = 1024 * 1024;
+    std::error_code ec;
+    if (std::filesystem::exists(filePath, ec)
+        && std::filesystem::file_size(filePath, ec) >= kMaxLogBytes && !ec) {
+        std::ofstream truncate(std::filesystem::path(filePath), std::ios::binary | std::ios::trunc);
+    }
+
     std::ofstream out(std::filesystem::path(filePath), std::ios::binary | std::ios::app);
     if (!out)
         return false;
