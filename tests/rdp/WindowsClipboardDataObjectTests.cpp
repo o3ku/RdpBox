@@ -14,6 +14,7 @@ ULONG g_lastFileRequestIndex = 0;
 UINT32 g_lastFileRequestFlags = 0;
 UINT64 g_lastFileRequestPosition = 0;
 ULONG g_lastFileRequestSize = 0;
+bool g_sendLyingDescriptorGroup = false;
 
 HGLOBAL createDescriptorGroup()
 {
@@ -39,6 +40,26 @@ HGLOBAL createDescriptorGroup()
     return memory;
 }
 
+// A hostile server: cItems claims three entries, the buffer holds one.
+HGLOBAL createLyingDescriptorGroup()
+{
+    const size_t size = sizeof(FILEGROUPDESCRIPTORW);
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, size);
+    if (!memory)
+        return nullptr;
+
+    auto *group = static_cast<FILEGROUPDESCRIPTORW*>(GlobalLock(memory));
+    if (group) {
+        ZeroMemory(group, size);
+        group->cItems = 3;
+        GlobalUnlock(memory);
+        return memory;
+    }
+
+    GlobalFree(memory);
+    return nullptr;
+}
+
 void clearRequestFileData(ClipboardContext *clipboard)
 {
     if (!clipboard || !clipboard->requestFileData)
@@ -49,7 +70,6 @@ void clearRequestFileData(ClipboardContext *clipboard)
     clipboard->requestFileSize = 0;
 }
 }
-
 UINT32 clipboardGetRemoteFormatId(ClipboardContext *, UINT32 localFormat)
 {
     return localFormat + 1000;
@@ -63,7 +83,9 @@ UINT clipboardSendDataRequest(ClipboardContext *clipboard, UINT32 formatId)
 
     if (clipboard->responseData)
         GlobalFree(clipboard->responseData);
-    clipboard->responseData = createDescriptorGroup();
+    clipboard->responseData = g_sendLyingDescriptorGroup
+        ? createLyingDescriptorGroup()
+        : createDescriptorGroup();
     return clipboard->responseData ? CHANNEL_RC_OK : ERROR_INTERNAL_ERROR;
 }
 
@@ -151,6 +173,10 @@ int main()
     assert(wcscmp(group->fgd[0].cFileName, L"hello.txt") == 0);
     GlobalUnlock(STGMEDIUM_HGLOBAL(descriptorMedium));
 
+    // Ownership moved out with the STGMEDIUM: the context no longer holds the
+    // handle, so a later clipboard change cannot GlobalFree it a second time.
+    assert(clipboard.responseData == nullptr);
+    GlobalFree(STGMEDIUM_HGLOBAL(descriptorMedium));
     STGMEDIUM contentsMedium = {};
     assert(IDataObject_GetData(dataObject, &contentsFormat, &contentsMedium) == S_OK);
     assert(contentsMedium.tymed == TYMED_ISTREAM);
@@ -184,6 +210,20 @@ int main()
 
     IStream_Release(STGMEDIUM_PSTM(contentsMedium));
     destroyFileDataObject(dataObject);
+
+    // A server whose cItems exceeds the bytes it sent must be refused, not
+    // walked past the end of the group allocation.
+    IDataObject *lyingDataObject = nullptr;
+    assert(createFileDataObject(&clipboard, &lyingDataObject));
+    assert(lyingDataObject != nullptr);
+    g_sendLyingDescriptorGroup = true;
+    STGMEDIUM lyingMedium = {};
+    assert(IDataObject_GetData(lyingDataObject, &descriptorFormat, &lyingMedium) == E_UNEXPECTED);
+    assert(STGMEDIUM_HGLOBAL(lyingMedium) == nullptr);
+    assert(clipboard.responseData == nullptr); // the hostile block was freed, not parked
+    g_sendLyingDescriptorGroup = false;
+    destroyFileDataObject(lyingDataObject);
+
     if (clipboard.responseData)
         GlobalFree(clipboard.responseData);
     clearRequestFileData(&clipboard);

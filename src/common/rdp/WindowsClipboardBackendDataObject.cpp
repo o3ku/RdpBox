@@ -2,7 +2,7 @@
 
 #include <array>
 #include <cstdlib>
-
+#include <utility>
 namespace
 {
 void formatDeepCopy(FORMATETC *destination, const FORMATETC *source)
@@ -446,23 +446,50 @@ HRESULT STDMETHODCALLTYPE dataObjectGetData(IDataObject *self, FORMATETC *format
         if (clipboardSendDataRequest(clipboard, remoteFormat) != CHANNEL_RC_OK)
             return E_UNEXPECTED;
 
-        STGMEDIUM_HGLOBAL((*medium)) = clipboard->responseData;
-        auto *group = static_cast<FILEGROUPDESCRIPTORW*>(GlobalLock(clipboard->responseData));
-        if (!group)
-            return E_UNEXPECTED;
+        // Ownership of the HGLOBAL travels with the STGMEDIUM (pUnkForRelease
+        // is null, the caller GlobalFrees it). Leaving it in responseData made
+        // the next clearResponseData()/response free it a second time.
+        HANDLE response = std::exchange(clipboard->responseData, nullptr);
+        STGMEDIUM_HGLOBAL((*medium)) = response;
 
-        instance->streamCount = group->cItems;
-        GlobalUnlock(clipboard->responseData);
+        auto *group = static_cast<FILEGROUPDESCRIPTORW*>(GlobalLock(response));
+        if (!group) {
+            STGMEDIUM_HGLOBAL((*medium)) = nullptr;
+            GlobalFree(response);
+            return E_UNEXPECTED;
+        }
+
+        // cItems comes from the server and must fit the bytes the server
+        // actually sent, or fgd[] below walks past the allocation.
+        const SIZE_T groupBytes = GlobalSize(response);
+        const UINT32 cItems = group->cItems;
+        const bool groupValid = groupBytes >= sizeof(UINT32)
+            && cItems <= (groupBytes - sizeof(UINT32)) / sizeof(FILEDESCRIPTORW);
+        if (!groupValid) {
+            STGMEDIUM_HGLOBAL((*medium)) = nullptr;
+            GlobalUnlock(response);
+            GlobalFree(response);
+            return E_UNEXPECTED;
+        }
+
+        instance->streamCount = cItems;
+        GlobalUnlock(response);
 
         if (!instance->streams) {
+            auto failStreams = [&]() {
+                STGMEDIUM_HGLOBAL((*medium)) = nullptr;
+                GlobalFree(response);
+                return E_OUTOFMEMORY;
+            };
+
             instance->streams = static_cast<IStream**>(calloc(instance->streamCount, sizeof(IStream*)));
             if (!instance->streams)
-                return E_OUTOFMEMORY;
+                return failStreams();
 
             for (ULONG i = 0; i < instance->streamCount; ++i) {
                 instance->streams[i] = reinterpret_cast<IStream*>(newStream(i, clipboard, &group->fgd[i]));
                 if (!instance->streams[i])
-                    return E_OUTOFMEMORY;
+                    return failStreams();
             }
         }
     } else if (instance->formats[index].cfFormat == fileContentsFormat) {
