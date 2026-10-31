@@ -149,6 +149,8 @@ private:
     std::uint64_t m_updateDownloadGeneration = 0;
     std::thread m_updateCheckThread;
     std::thread m_updateDownloadThread;
+    std::shared_ptr<updater::DownloadCancellation> m_updateCheckCancel;
+    std::shared_ptr<updater::DownloadCancellation> m_updateDownloadCancel;
     bool m_persistWarningShown = false;
     bool m_isFullScreen = false;
     bool m_wasMaximizedBeforeFullScreen = false;

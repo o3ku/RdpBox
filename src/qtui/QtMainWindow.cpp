@@ -752,10 +752,16 @@ bool QtMainWindow::nativeEvent(const QByteArray &eventType, void *message, long 
 
 QtMainWindow::~QtMainWindow()
 {
-    // Join background update threads before QObject teardown invalidates the
-    // QPointer window they marshal results through.
+    // Unblock the update threads before QObject teardown invalidates the
+    // QPointer window they marshal results through. Without the cancel a
+    // stalled mirror socket (one that drips under the 30s recv timeout)
+    // would pin these joins - and the app exit - indefinitely.
+    if (m_updateCheckCancel)
+        m_updateCheckCancel->cancel();
     if (m_updateCheckThread.joinable())
         m_updateCheckThread.join();
+    if (m_updateDownloadCancel)
+        m_updateDownloadCancel->cancel();
     if (m_updateDownloadThread.joinable())
         m_updateDownloadThread.join();
 }
@@ -1848,11 +1854,14 @@ void QtMainWindow::startBackgroundUpdateCheck(bool userInitiated)
     if (m_updateCheckThread.joinable())
         m_updateCheckThread.join(); // previous check already completed
     QPointer<QtMainWindow> target(this);
-    m_updateCheckThread = std::thread([target, generation, userInitiated]() {
+    m_updateCheckCancel = std::make_shared<updater::DownloadCancellation>();
+    const std::shared_ptr<updater::DownloadCancellation> cancellation = m_updateCheckCancel;
+    m_updateCheckThread = std::thread([target, generation, userInitiated, cancellation]() {
         auto result = std::make_shared<updater::ReleaseAsset>();
         std::wstring error;
         bool hasUpdate = false;
-        const bool success = updater::fetchLatestRelease(L"o3ku", L"RdpBox", L"RdpBoxQt.exe", *result, error);
+        const bool success = updater::fetchLatestRelease(L"o3ku", L"RdpBox", L"RdpBoxQt.exe",
+                                                         *result, error, cancellation.get());
         if (success)
             hasUpdate = updater::isNewerReleaseTag(RDPBOX_VERSION, result->tagName);
 
@@ -1892,7 +1901,9 @@ void QtMainWindow::startBackgroundUpdateDownload()
     const std::uint64_t generation = ++m_updateDownloadGeneration;
     const updater::ReleaseAsset release = m_updateRelease;
     QPointer<QtMainWindow> target(this);
-    m_updateDownloadThread = std::thread([target, generation, release]() {
+    m_updateDownloadCancel = std::make_shared<updater::DownloadCancellation>();
+    const std::shared_ptr<updater::DownloadCancellation> cancellation = m_updateDownloadCancel;
+    m_updateDownloadThread = std::thread([target, generation, release, cancellation]() {
         std::wstring error;
         const std::wstring updatesDir = AppPaths::updatesDirectoryPath();
         const std::wstring updateFileName = ui::updateReleaseFileName(release.tagName);
@@ -1912,7 +1923,7 @@ void QtMainWindow::startBackgroundUpdateDownload()
         };
 
         const bool success = !targetPath.empty()
-            && updater::downloadReleaseAsset(release, targetPath, error, progressCallback)
+            && updater::downloadReleaseAsset(release, targetPath, error, progressCallback, cancellation.get())
             // Integrity gate: refuse to execute anything that does not match
             // the release's published SHA256SUMS entry.
             && updater::verifyDownloadedAssetSha256(L"o3ku", L"RdpBox", release.assetName, targetPath, error);

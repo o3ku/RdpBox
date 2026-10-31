@@ -80,6 +80,37 @@ struct WinHttpHandleCloser
 };
 
 using UniqueWinHttpHandle = std::unique_ptr<void, WinHttpHandleCloser>;
+
+// Owns a request handle through the cancellation slot: the closed.exchange()
+// makes the close exactly-once between this destructor and a cancel() from
+// another thread, so a handle is never closed twice (or reused-then-closed).
+class CancelableRequestHandle
+{
+public:
+    explicit CancelableRequestHandle(HINTERNET handle)
+        : m_slot(std::make_shared<updater::DownloadCancellation::RequestSlot>())
+    {
+        m_slot->handle = handle;
+    }
+
+    ~CancelableRequestHandle() { close(); }
+
+    CancelableRequestHandle(const CancelableRequestHandle &) = delete;
+    CancelableRequestHandle &operator=(const CancelableRequestHandle &) = delete;
+
+    void close()
+    {
+        if (m_slot && !m_slot->closed.exchange(true))
+            ::WinHttpCloseHandle(static_cast<HINTERNET>(m_slot->handle));
+    }
+
+    HINTERNET get() const { return m_slot ? static_cast<HINTERNET>(m_slot->handle) : nullptr; }
+
+    const std::shared_ptr<updater::DownloadCancellation::RequestSlot> &slot() const { return m_slot; }
+
+private:
+    std::shared_ptr<updater::DownloadCancellation::RequestSlot> m_slot;
+};
 // winhttp.dll messages resolve the 12000-range codes (12002 timeout,
 // 12029 cannot-connect); the bare number stays in the message either way.
 void setWinHttpError(std::wstring &errorMessage, const wchar_t *text)
@@ -131,23 +162,25 @@ bool parseUrl(const std::wstring &url, ParsedUrl &parsed)
 bool readResponseBody(HINTERNET request,
                       std::vector<std::uint8_t> &bytes,
                       std::wstring &errorMessage,
-                      const updater::DownloadProgressCallback &progressCallback);
+                      const updater::DownloadProgressCallback &progressCallback,
+                      updater::DownloadCancellation *cancellation = nullptr);
 bool sendHttpRequest(const std::wstring &url,
                      const wchar_t *acceptTypes[],
                      std::vector<std::uint8_t> &responseBytes,
                      std::wstring &errorMessage,
-                     const updater::DownloadProgressCallback &progressCallback = {});
-
+                     const updater::DownloadProgressCallback &progressCallback = {},
+                     updater::DownloadCancellation *cancellation = nullptr);
 bool sendHttpRequestOnce(const std::wstring &url,
                      const wchar_t *acceptTypes[],
                      std::vector<std::uint8_t> &responseBytes,
                      std::wstring &errorMessage,
-                     const updater::DownloadProgressCallback &progressCallback = {});
-
+                     const updater::DownloadProgressCallback &progressCallback = {},
+                     updater::DownloadCancellation *cancellation = nullptr);
 bool winhttp_detail::readResponseBody(HINTERNET request,
                       std::vector<std::uint8_t> &bytes,
                       std::wstring &errorMessage,
-                      const updater::DownloadProgressCallback &progressCallback)
+                      const updater::DownloadProgressCallback &progressCallback,
+                      updater::DownloadCancellation *cancellation)
 {
     bytes.clear();
     std::uint64_t totalBytes = 0;
@@ -166,6 +199,11 @@ bool winhttp_detail::readResponseBody(HINTERNET request,
         progressCallback(receivedBytes, totalBytes);
 
     for (;;) {
+        if (cancellation && cancellation->cancelled()) {
+            errorMessage = L"Update request was cancelled.";
+            return false;
+        }
+
         DWORD available = 0;
         if (!::WinHttpQueryDataAvailable(request, &available)) {
             setWinHttpError(errorMessage, L"Failed to query update response size.");
@@ -195,7 +233,8 @@ bool winhttp_detail::sendHttpRequest(const std::wstring &url,
                      const wchar_t *acceptTypes[],
                      std::vector<std::uint8_t> &responseBytes,
                      std::wstring &errorMessage,
-                     const updater::DownloadProgressCallback &progressCallback)
+                     const updater::DownloadProgressCallback &progressCallback,
+                     updater::DownloadCancellation *cancellation)
 {
     // CN networks reset GitHub connections at random. Release downloads go
     // through the ghfast.top mirror first (api.github.com cannot be mirrored),
@@ -212,7 +251,11 @@ bool winhttp_detail::sendHttpRequest(const std::wstring &url,
         candidates.push_back(url);
     }
     for (std::size_t i = 0; i < candidates.size(); ++i) {
-        if (sendHttpRequestOnce(candidates[i], acceptTypes, responseBytes, errorMessage, progressCallback))
+        if (cancellation && cancellation->cancelled()) {
+            errorMessage = L"Update request was cancelled.";
+            return false;
+        }
+        if (sendHttpRequestOnce(candidates[i], acceptTypes, responseBytes, errorMessage, progressCallback, cancellation))
             return true;
         if (i + 1 < candidates.size())
             ::Sleep(1000);
@@ -223,7 +266,8 @@ bool winhttp_detail::sendHttpRequestOnce(const std::wstring &url,
                      const wchar_t *acceptTypes[],
                      std::vector<std::uint8_t> &responseBytes,
                      std::wstring &errorMessage,
-                     const updater::DownloadProgressCallback &progressCallback)
+                     const updater::DownloadProgressCallback &progressCallback,
+                     updater::DownloadCancellation *cancellation)
 {
     ParsedUrl parsed;
     if (!parseUrl(url, parsed)) {
@@ -243,8 +287,8 @@ bool winhttp_detail::sendHttpRequestOnce(const std::wstring &url,
 
     // Resolve/connect/send/receive timeouts (ms): bounds stalled update
     // sockets so a dead server cannot pin the download thread forever.
-    // ponytail: no overall transfer deadline; a slow-drip under 30s/recv
-    // still passes. Add a deadline + cancel button if that bites.
+    // A slow-drip source under 30s/recv still passes every timeout, which is
+    // what the cancellation handle closes: it unblocks even a live drip.
     ::WinHttpSetTimeouts(static_cast<HINTERNET>(session.get()), 10'000, 10'000, 30'000, 30'000);
 
     UniqueWinHttpHandle connection(::WinHttpConnect(static_cast<HINTERNET>(session.get()),
@@ -257,16 +301,27 @@ bool winhttp_detail::sendHttpRequestOnce(const std::wstring &url,
     }
 
     const DWORD flags = parsed.secure ? WINHTTP_FLAG_SECURE : 0;
-    UniqueWinHttpHandle request(::WinHttpOpenRequest(static_cast<HINTERNET>(connection.get()),
-                                                     L"GET",
-                                                     parsed.path.c_str(),
-                                                     nullptr,
-                                                     WINHTTP_NO_REFERER,
-                                                     acceptTypes,
-                                                     flags));
-    if (!request) {
+    CancelableRequestHandle request(::WinHttpOpenRequest(static_cast<HINTERNET>(connection.get()),
+                                                         L"GET",
+                                                         parsed.path.c_str(),
+                                                         nullptr,
+                                                         WINHTTP_NO_REFERER,
+                                                         acceptTypes,
+                                                         flags));
+    if (!request.get()) {
         setWinHttpError(errorMessage, L"Failed to create update request.");
         return false;
+    }
+
+    // Registered so a cancel() from another thread closes the handle under a
+    // blocking call: the request then fails and this thread unwinds instead of
+    // pinning whoever joins it past every per-operation timeout.
+    if (cancellation) {
+        if (cancellation->cancelled()) {
+            errorMessage = L"Update request was cancelled.";
+            return false;
+        }
+        cancellation->adoptRequestSlot(request.slot());
     }
 
     DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_DISALLOW_HTTPS_TO_HTTP;
@@ -314,13 +369,42 @@ bool winhttp_detail::sendHttpRequestOnce(const std::wstring &url,
         return false;
     }
 
-    return winhttp_detail::readResponseBody(static_cast<HINTERNET>(request.get()), responseBytes, errorMessage, progressCallback);
+    return winhttp_detail::readResponseBody(static_cast<HINTERNET>(request.get()), responseBytes, errorMessage, progressCallback, cancellation);
 }
 }  // namespace winhttp_detail
 #endif  // _WIN32
 
 namespace updater
 {
+#ifdef _WIN32
+void DownloadCancellation::cancel()
+{
+    m_cancelled.store(true, std::memory_order_release);
+    std::lock_guard<std::mutex> lock(m_mutex);
+    for (const auto &slot : m_slots) {
+        if (!slot->closed.exchange(true))
+            ::WinHttpCloseHandle(static_cast<HINTERNET>(slot->handle));
+    }
+}
+
+void DownloadCancellation::adoptRequestSlot(const std::shared_ptr<RequestSlot> &slot)
+{
+    if (!slot)
+        return;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_slots.push_back(slot);
+}
+#else
+void DownloadCancellation::cancel()
+{
+    m_cancelled.store(true, std::memory_order_release);
+}
+
+void DownloadCancellation::adoptRequestSlot(const std::shared_ptr<RequestSlot> &)
+{
+}
+#endif
+
 #ifdef _WIN32
 bool applyDownloadedUpdate(const std::wstring &downloadedPath,
                            const std::wstring &currentExePath,
@@ -409,13 +493,14 @@ bool fetchLatestRelease(const std::wstring &owner,
                         const std::wstring &repository,
                         const std::wstring &assetName,
                         ReleaseAsset &asset,
-                        std::wstring &errorMessage)
+                        std::wstring &errorMessage,
+                        DownloadCancellation *cancellation)
 {
     const std::wstring url =
         L"https://api.github.com/repos/" + owner + L"/" + repository + L"/releases/latest";
     const wchar_t *acceptTypes[] = { L"*/*", nullptr };
     std::vector<std::uint8_t> responseBytes;
-    if (!winhttp_detail::sendHttpRequest(url, acceptTypes, responseBytes, errorMessage))
+    if (!winhttp_detail::sendHttpRequest(url, acceptTypes, responseBytes, errorMessage, {}, cancellation))
         return false;
 
     nlohmann::json root = nlohmann::json::parse(responseBytes.begin(), responseBytes.end(), nullptr, false);
@@ -461,11 +546,12 @@ bool fetchLatestRelease(const std::wstring &owner,
 bool downloadReleaseAsset(const ReleaseAsset &asset,
                           const std::wstring &targetPath,
                           std::wstring &errorMessage,
-                          DownloadProgressCallback progressCallback)
+                          DownloadProgressCallback progressCallback,
+                          DownloadCancellation *cancellation)
 {
     const wchar_t *acceptTypes[] = { L"*/*", nullptr };
     std::vector<std::uint8_t> bytes;
-    if (!winhttp_detail::sendHttpRequest(asset.downloadUrl, acceptTypes, bytes, errorMessage, progressCallback))
+    if (!winhttp_detail::sendHttpRequest(asset.downloadUrl, acceptTypes, bytes, errorMessage, progressCallback, cancellation))
         return false;
 
     if (!AppPaths::writeFileContent(targetPath,
@@ -641,7 +727,8 @@ bool fetchLatestRelease(const std::wstring &,
                         const std::wstring &,
                         const std::wstring &,
                         ReleaseAsset &,
-                        std::wstring &errorMessage)
+                        std::wstring &errorMessage,
+                        DownloadCancellation *)
 {
     errorMessage = L"Updates are not supported on this platform.";
     return false;
@@ -650,7 +737,8 @@ bool fetchLatestRelease(const std::wstring &,
 bool downloadReleaseAsset(const ReleaseAsset &,
                           const std::wstring &,
                           std::wstring &errorMessage,
-                          DownloadProgressCallback)
+                          DownloadProgressCallback,
+                          DownloadCancellation *)
 {
     errorMessage = L"Updates are not supported on this platform.";
     return false;

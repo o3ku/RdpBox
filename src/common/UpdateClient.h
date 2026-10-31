@@ -1,7 +1,10 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -13,18 +16,44 @@ struct ReleaseAsset
     std::wstring assetName;
     std::wstring downloadUrl;
 };
+// Cross-thread cancellation for the WinHTTP update requests. cancel() closes
+// the in-flight request handle, which unblocks a stalled socket that every
+// per-operation timeout would otherwise keep alive (a slow-drip mirror). The
+// worker thread simply sees a failed request. Off Windows no handles exist
+// and cancel() only sets the flag.
+class DownloadCancellation
+{
+public:
+    // Internal bookkeeping shared with the winhttp layer: exactly one closer.
+    struct RequestSlot
+    {
+        void *handle = nullptr;
+        std::atomic_bool closed{false};
+    };
+
+    void cancel();
+    bool cancelled() const { return m_cancelled.load(std::memory_order_acquire); }
+    void adoptRequestSlot(const std::shared_ptr<RequestSlot> &slot);
+
+private:
+    std::atomic_bool m_cancelled{false};
+    std::mutex m_mutex;
+    std::vector<std::shared_ptr<RequestSlot>> m_slots;
+};
 
 bool isNewerReleaseTag(const std::wstring &currentTag, const std::wstring &candidateTag);
 bool fetchLatestRelease(const std::wstring &owner,
                         const std::wstring &repository,
                         const std::wstring &assetName,
                         ReleaseAsset &asset,
-                        std::wstring &errorMessage);
+                        std::wstring &errorMessage,
+                        DownloadCancellation *cancellation = nullptr);
 using DownloadProgressCallback = std::function<void(std::uint64_t bytesReceived, std::uint64_t totalBytes)>;
 bool downloadReleaseAsset(const ReleaseAsset &asset,
                           const std::wstring &targetPath,
                           std::wstring &errorMessage,
-                          DownloadProgressCallback progressCallback = {});
+                          DownloadProgressCallback progressCallback = {},
+                          DownloadCancellation *cancellation = nullptr);
 
 // Verifies the downloaded copy of the release asset named `assetName` against
 // the same release's SHA256SUMS.txt asset. Returns false when the sums asset
