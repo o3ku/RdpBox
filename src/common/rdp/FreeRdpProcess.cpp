@@ -369,6 +369,12 @@ void FreeRdpProcess::start(const std::wstring &host,
     }
     destroyCursorInfo(oldCursor);
 
+    // Publish Starting before the worker exists: an attempt that fails fast
+    // (refused port) can publish Finished microseconds after the thread is
+    // created, and publishing Starting after that regressed the process state
+    // to Starting forever - the click-to-reconnect path checks for Finished
+    // and went dead until the tab was closed.
+    updateStateFromBackend(State::Starting);
     // The worker may publish a state change before this call returns (a
     // refused connection reports Finished immediately). It only reaches this
     // object while `owner` is set, and that cannot happen before the last
@@ -390,7 +396,6 @@ void FreeRdpProcess::start(const std::wstring &host,
         std::scoped_lock lock(m_d->mutex);
         m_d->worker = std::move(worker);
     }
-    updateStateFromBackend(State::Starting);
 
     {
         char summary[256] = {};
