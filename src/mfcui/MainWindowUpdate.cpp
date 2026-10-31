@@ -217,8 +217,14 @@ void MainWindow::startBackgroundUpdateCheck()
             result->errorMessage = std::move(error);
         }
 
-        if (::IsWindow(hwnd))
-            ::PostMessageW(hwnd, WM_APP_UPDATE_CHECK_COMPLETED, 0, reinterpret_cast<LPARAM>(result.release()));
+        // Ownership passes with the posted message; if the post fails (queue
+        // full, window gone between IsWindow and the post) the unique_ptr
+        // frees the result instead of leaking it.
+        if (::IsWindow(hwnd)) {
+            UpdateCheckResult *raw = result.get();
+            if (::PostMessageW(hwnd, WM_APP_UPDATE_CHECK_COMPLETED, 0, reinterpret_cast<LPARAM>(raw)))
+                result.release();
+        }
     }).detach();
 }
 
@@ -261,8 +267,12 @@ void MainWindow::startBackgroundUpdateDownload()
             result->errorMessage = std::move(error);
         }
 
-        if (::IsWindow(hwnd))
-            ::PostMessageW(hwnd, WM_APP_UPDATE_DOWNLOAD_COMPLETED, 0, reinterpret_cast<LPARAM>(result.release()));
+        // Same rule as the check result: leak nothing when the post fails.
+        if (::IsWindow(hwnd)) {
+            UpdateDownloadResult *raw = result.get();
+            if (::PostMessageW(hwnd, WM_APP_UPDATE_DOWNLOAD_COMPLETED, 0, reinterpret_cast<LPARAM>(raw)))
+                result.release();
+        }
     }).detach();
 }
 

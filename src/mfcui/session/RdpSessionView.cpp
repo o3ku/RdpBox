@@ -314,6 +314,7 @@ void CRdpSessionView::startProcess()
     m_connected = false;
     m_cachedFrameGeneration = 0;
     FrameBufferMemory::release(m_cachedFrame);
+    FrameBufferMemory::release(m_frameScratch);
     m_frameGate.resolutionUpdatePending = false;
     m_frameGate.waitingForFirstContentFrame = true;
     m_frameGate.active = true;
@@ -385,6 +386,7 @@ void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
     m_hasPendingResize = false;
     m_cachedFrameGeneration = 0;
     FrameBufferMemory::release(m_cachedFrame);
+    FrameBufferMemory::release(m_frameScratch);
     m_processBinding.reset();
     m_resizeBurstTracker.reset();
     m_keyboardState.reset();
