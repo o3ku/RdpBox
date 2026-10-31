@@ -24,6 +24,12 @@ constexpr unsigned long kPortableKdfIterations = 120000;
 constexpr size_t kPortableKeyBytes = 32;
 constexpr size_t kPortableNonceBytes = 12;
 constexpr size_t kPortableTagBytes = 16;
+// SECURITY: the portable scheme is obfuscation, not encryption. The key is
+// derived from constants compiled into the binary, so anyone holding
+// profiles.json can recover every password. Real protection needs a
+// user-supplied passphrase; switching to one is a UX decision, not a code
+// fix. shortcut: constants as the KDF input until portable mode grows a
+// passphrase prompt; until then do not treat portable profiles as secret.
 constexpr BYTE kPortableSalt[] = {
     0x52, 0x64, 0x70, 0x42, 0x6F, 0x78, 0x2D, 0x50,
     0x6F, 0x72, 0x74, 0x61, 0x62, 0x6C, 0x65, 0x31
