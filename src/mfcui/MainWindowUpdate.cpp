@@ -377,3 +377,18 @@ LRESULT MainWindow::OnUpdateDownloadCompleted(WPARAM, LPARAM lParam)
     confirmLaunchDownloadedUpdate();
     return 0;
 }
+
+void MainWindow::applySystemProxySetting()
+{
+    updater::ProxyConfig proxy;
+    proxy.mode = m_useSystemProxy ? updater::ProxyMode::System : updater::ProxyMode::None;
+    updater::setCurrentProxyConfig(proxy);
+}
+
+void MainWindow::OnMainSystemProxy()
+{
+    m_useSystemProxy = !m_useSystemProxy;
+    if (CWinApp *app = AfxGetApp())
+        app->WriteProfileInt(L"Network", L"UseSystemProxy", m_useSystemProxy ? 1 : 0);
+    applySystemProxySetting();
+}

@@ -47,6 +47,9 @@ int MainWindow::OnCreate(LPCREATESTRUCT createStruct)
         return -1;
 
     ui::setCurrentMainWindowShortcuts(loadMainWindowShortcutSettings());
+    // Network proxy for update traffic: persisted toggle, default system proxy.
+    m_useSystemProxy = AfxGetApp() && AfxGetApp()->GetProfileInt(L"Network", L"UseSystemProxy", 1) != 0;
+    applySystemProxySetting();
 
     const std::wstring profilesPath = AppPaths::profilesFilePath();
     if (profilesPath.empty())

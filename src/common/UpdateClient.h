@@ -42,6 +42,28 @@ private:
 };
 
 bool isNewerReleaseTag(const std::wstring &currentTag, const std::wstring &candidateTag);
+// Network proxy policy for update traffic. Held in memory; each front end
+// loads/persists its own setting (Qt General tab / MFC Logo menu) and pushes
+// it here, so both UIs share one policy without sharing a settings store.
+enum class ProxyMode
+{
+    System,  // WinHTTP auto proxy (WPAD / system settings) - the default
+    None,    // direct connections only
+    Manual,  // fixed "host:port" proxy
+};
+
+struct ProxyConfig
+{
+    ProxyMode mode = ProxyMode::System;
+    std::wstring manualProxy;  // "host:port", used only in Manual mode
+};
+
+const ProxyConfig &currentProxyConfig();
+void setCurrentProxyConfig(const ProxyConfig &config);
+
+// WinHttpOpen access type (WINHTTP_ACCESS_TYPE_*) for a proxy config.
+unsigned long winhttpAccessTypeFor(const ProxyConfig &proxy);
+
 bool fetchLatestRelease(const std::wstring &owner,
                         const std::wstring &repository,
                         const std::wstring &assetName,

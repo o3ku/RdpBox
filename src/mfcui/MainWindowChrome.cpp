@@ -588,6 +588,8 @@ void MainWindow::showLogoMenu()
     menu.AppendMenu(MF_SEPARATOR);
     menu.AppendMenu(MF_STRING, ID_MAIN_SHORTCUTS, L"Shortcuts...");
     menu.AppendMenu(MF_SEPARATOR);
+    menu.AppendMenu(MF_STRING | (m_useSystemProxy ? MF_CHECKED : MF_UNCHECKED),
+                    ID_MAIN_SYSTEM_PROXY, L"System Proxy");
     menu.AppendMenu(MF_STRING, ID_MAIN_CHECK_UPDATE, L"Check for Updates...");
     menu.AppendMenu(MF_STRING, ID_MAIN_ABOUT, L"About");
     menu.TrackPopupMenu(TPM_LEFTALIGN | TPM_TOPALIGN, rect.left, rect.bottom, this);

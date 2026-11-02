@@ -166,6 +166,36 @@
         <translation>语言</translation>
     </message>
     <message>
+        <location filename="../QtMainWindow.cpp" line="1676"/>
+        <source>No proxy</source>
+        <translation>不使用代理</translation>
+    </message>
+    <message>
+        <location filename="../QtMainWindow.cpp" line="1677"/>
+        <source>System settings</source>
+        <translation>系统设置</translation>
+    </message>
+    <message>
+        <location filename="../QtMainWindow.cpp" line="1678"/>
+        <source>Manual</source>
+        <translation>手动设置</translation>
+    </message>
+    <message>
+        <location filename="../QtMainWindow.cpp" line="1681"/>
+        <source>host:port</source>
+        <translation>主机:端口</translation>
+    </message>
+    <message>
+        <location filename="../QtMainWindow.cpp" line="1743"/>
+        <source>Network</source>
+        <translation>网络</translation>
+    </message>
+    <message>
+        <location filename="../QtMainWindow.cpp" line="1744"/>
+        <source>Proxy server</source>
+        <translation>代理服务器</translation>
+    </message>
+    <message>
         <location filename="../QtMainWindow.cpp" line="1641"/>
         <source>Open connections</source>
         <translation>打开连接</translation>

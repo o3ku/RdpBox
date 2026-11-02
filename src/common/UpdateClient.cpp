@@ -275,9 +275,15 @@ bool winhttp_detail::sendHttpRequestOnce(const std::wstring &url,
         return false;
     }
 
+    // Proxy policy comes from the front-end setting (General tab / Logo menu).
+    const updater::ProxyConfig proxy = updater::currentProxyConfig();
+    const unsigned long accessType = updater::winhttpAccessTypeFor(proxy);
     UniqueWinHttpHandle session(::WinHttpOpen(L"RdpBox/1.0",
-                                              WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
-                                              WINHTTP_NO_PROXY_NAME,
+                                              accessType,
+                                              accessType == WINHTTP_ACCESS_TYPE_NAMED_PROXY
+                                                  && !proxy.manualProxy.empty()
+                                                  ? proxy.manualProxy.c_str()
+                                                  : WINHTTP_NO_PROXY_NAME,
                                               WINHTTP_NO_PROXY_BYPASS,
                                               0));
     if (!session) {
@@ -487,6 +493,40 @@ bool isNewerReleaseTag(const std::wstring &currentTag, const std::wstring &candi
     }
     return false;
 }
+
+namespace
+{
+ProxyConfig &mutableProxyConfig()
+{
+    static ProxyConfig config;
+    return config;
+}
+}
+
+const ProxyConfig &currentProxyConfig()
+{
+    return mutableProxyConfig();
+}
+
+void setCurrentProxyConfig(const ProxyConfig &config)
+{
+    mutableProxyConfig() = config;
+}
+
+#ifdef _WIN32
+unsigned long winhttpAccessTypeFor(const ProxyConfig &proxy)
+{
+    switch (proxy.mode) {
+    case ProxyMode::None:
+        return WINHTTP_ACCESS_TYPE_NO_PROXY;
+    case ProxyMode::Manual:
+        return WINHTTP_ACCESS_TYPE_NAMED_PROXY;
+    case ProxyMode::System:
+    default:
+        return WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY;
+    }
+}
+#endif
 
 #ifdef _WIN32
 bool fetchLatestRelease(const std::wstring &owner,

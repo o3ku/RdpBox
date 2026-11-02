@@ -401,6 +401,19 @@ void applyApplicationTheme(QApplication &application)
     application.setStyleSheet(themeStyleSheet(colors));
 }
 
+void applyProxySetting()
+{
+    // Bridges the persisted network setting into the shared updater proxy
+    // config; runs at startup and on every General-tab proxy change.
+    const QString mode = QSettings().value(QStringLiteral("proxyMode"), QStringLiteral("system")).toString();
+    updater::ProxyConfig proxy;
+    proxy.mode = mode == QLatin1String("none") ? updater::ProxyMode::None
+                : mode == QLatin1String("manual") ? updater::ProxyMode::Manual
+                : updater::ProxyMode::System;
+    proxy.manualProxy = QSettings().value(QStringLiteral("proxyServer")).toString().toStdWString();
+    updater::setCurrentProxyConfig(proxy);
+}
+
 int main(int argc, char *argv[])
 {
 #ifdef _WIN32
@@ -432,6 +445,7 @@ int main(int argc, char *argv[])
     QApplication::setOrganizationName(QStringLiteral("RdpBox"));
 
     applyApplicationTheme(application);
+    applyProxySetting();
 
     const QIcon appIcon(QStringLiteral(":/rdpbox/logo.png"));
     if (!appIcon.isNull())

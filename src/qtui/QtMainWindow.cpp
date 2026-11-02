@@ -2,6 +2,7 @@
 
 void applyApplicationTheme(QApplication &application); // QtMain.cpp (global)
 QColor activeThemeOutlineColor();                    // QtMain.cpp (global)
+void applyProxySetting();                             // QtMain.cpp (global)
 
 #include "common/AppPaths.h"
 #include "common/ConnectionLaunchArgs.h"
@@ -1669,6 +1670,16 @@ void QtMainWindow::showSettingsDialog()
     languageCombo->addItem(tr("English"), QString());
     languageCombo->addItem(QStringLiteral("\u7b80\u4f53\u4e2d\u6587"), QStringLiteral("zh"));
     languageCombo->setCurrentIndex(std::max(0, languageCombo->findData(languageBefore)));
+    const QString proxyModeBefore = settingsStore.value(QStringLiteral("proxyMode"), QStringLiteral("system")).toString();
+    const QString proxyServerBefore = settingsStore.value(QStringLiteral("proxyServer")).toString();
+    auto *networkCombo = new QComboBox(&generalPage);
+    networkCombo->addItem(tr("No proxy"), QStringLiteral("none"));
+    networkCombo->addItem(tr("System settings"), QStringLiteral("system"));
+    networkCombo->addItem(tr("Manual"), QStringLiteral("manual"));
+    networkCombo->setCurrentIndex(std::max(0, networkCombo->findData(proxyModeBefore)));
+    auto *proxyServerEdit = new QLineEdit(proxyServerBefore, &generalPage);
+    proxyServerEdit->setPlaceholderText(tr("host:port"));
+    proxyServerEdit->setEnabled(networkCombo->currentData().toString() == QStringLiteral("manual"));
     // Theme/language apply live on combo change; Cancel reverts.
     auto applyThemeNow = [&]() {
         applyApplicationTheme(*qApp);
@@ -1694,6 +1705,22 @@ void QtMainWindow::showSettingsDialog()
                 QSettings().setValue(QStringLiteral("language"), languageCombo->itemData(index).toString());
                 applyLanguageNow();
             });
+    // Proxy applies live like theme/language: General tab writes QSettings and
+    // pushes the shared updater config; Cancel reverts both keys.
+    auto applyProxyNow = [&]() {
+        proxyServerEdit->setEnabled(networkCombo->currentData().toString() == QStringLiteral("manual"));
+        QSettings().setValue(QStringLiteral("proxyMode"), networkCombo->currentData().toString());
+        QSettings().setValue(QStringLiteral("proxyServer"), proxyServerEdit->text());
+        applyProxySetting();
+    };
+    connect(networkCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [&applyProxyNow](int) {
+                applyProxyNow();
+            });
+    connect(proxyServerEdit, &QLineEdit::editingFinished, this, [&]() {
+        if (proxyServerEdit->text() != QSettings().value(QStringLiteral("proxyServer")).toString())
+            applyProxyNow();
+    });
     connect(&dialog, &QDialog::rejected, this, [&]() {
         if (QSettings().value(QStringLiteral("theme")).toString() != themeBefore) {
             QSettings().setValue(QStringLiteral("theme"), themeBefore);
@@ -1703,10 +1730,18 @@ void QtMainWindow::showSettingsDialog()
             QSettings().setValue(QStringLiteral("language"), languageBefore);
             applyLanguageNow();
         }
+        if (QSettings().value(QStringLiteral("proxyMode")).toString() != proxyModeBefore
+            || QSettings().value(QStringLiteral("proxyServer")).toString() != proxyServerBefore) {
+            QSettings().setValue(QStringLiteral("proxyMode"), proxyModeBefore);
+            QSettings().setValue(QStringLiteral("proxyServer"), proxyServerBefore);
+            applyProxySetting();
+        }
     });
     auto *generalForm = new QFormLayout;
     generalForm->addRow(tr("Theme"), themeCombo);
     generalForm->addRow(tr("Language"), languageCombo);
+    generalForm->addRow(tr("Network"), networkCombo);
+    generalForm->addRow(tr("Proxy server"), proxyServerEdit);
     auto *generalLayout = new QVBoxLayout(&generalPage);
     generalLayout->setContentsMargins(16, 14, 16, 14);
     generalLayout->addLayout(generalForm);
