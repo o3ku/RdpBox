@@ -660,7 +660,7 @@ void nativefreerdp_detach_owner(NativeRdpContext *context)
     // Every callback is bounded (frames, cursors, clipboard, and a cert prompt
     // that stop() has already been let out of), so waiting for the current one
     // to finish terminates; taking the lock by force would not.
-    while (!lock->locked.exchange(true, std::memory_order_acquire))
+    while (lock->locked.exchange(true, std::memory_order_acquire))
         std::this_thread::yield();
 
     context->owner = nullptr;
@@ -693,10 +693,13 @@ BOOL nativefreerdp_client_new(freerdp *instance, rdpContext *context)
 void nativefreerdp_client_free(freerdp *instance, rdpContext *context)
 {
     static_cast<void>(instance);
-    if (NativeRdpContext *nativeContext = context ? toNativeContext(context) : nullptr)
+    if (NativeRdpContext *nativeContext = context ? toNativeContext(context) : nullptr) {
         destroyCursorInfo(nativeContext->lastVisibleCursor);
+        // The raw context memory is free()d by freerdp right after this call;
+        // without dropping it here the shared_ptr control block leaks per connection.
+        nativeContext->locked.reset();
+    }
 }
-
 int nativefreerdp_client_start(rdpContext *context)
 {
     if (!context || !context->instance)

@@ -1,5 +1,6 @@
 #include "common/rdp/RdpSessionKeyboardHook.h"
 
+#include "common/rdp/RdpKeyboardHookState.h"
 #include "common/rdp/RdpInputEventUtil.h"
 #include "common/rdp/RdpKeyboardPhysicalProbing.h"
 #include "common/ui/MainWindowShortcuts.h"
@@ -40,6 +41,7 @@ namespace
 {
 RdpSystemKeyTarget *g_systemKeyTarget = nullptr;
 HHOOK g_keyboardHook = nullptr;
+RdpKeyboardHookState g_hookState;
 
 bool isReservedLowLevelShortcut(const KBDLLHOOKSTRUCT *info)
 {
@@ -80,17 +82,29 @@ bool shouldCaptureLowLevelKey(const KBDLLHOOKSTRUCT *info, bool keyUp)
         rdp::physical_keyboard::physicalKeyboardState());
 }
 
+void releaseKeyboardHookIfUnused();
+
 LRESULT CALLBACK keyboardHookProc(int code, WPARAM wParam, LPARAM lParam)
 {
-    if (code < HC_ACTION || !g_systemKeyTarget)
+    if (code < HC_ACTION)
         return CallNextHookEx(g_keyboardHook, code, wParam, lParam);
 
     auto *info = reinterpret_cast<KBDLLHOOKSTRUCT *>(lParam);
     const bool keyUp = (wParam == WM_KEYUP || wParam == WM_SYSKEYUP || (info->flags & LLKHF_UP));
-    const bool shouldCapture = shouldCaptureLowLevelKey(info, keyUp);
-    const bool canCapture = g_systemKeyTarget->canCaptureSystemKeys();
-    if (!shouldCapture || !canCapture)
+    const unsigned int virtualKey = static_cast<unsigned int>(info->vkCode);
+    const bool detached = g_hookState.isDetached(virtualKey);
+    const bool captureRequested = g_systemKeyTarget
+        && shouldCaptureLowLevelKey(info, keyUp) && g_systemKeyTarget->canCaptureSystemKeys();
+    if (!g_hookState.consumeKey(virtualKey, !keyUp, captureRequested,
+                                rdp::physical_keyboard::isVirtualKeyPhysicallyDown(virtualKey)))
         return CallNextHookEx(g_keyboardHook, code, wParam, lParam);
+
+    // Focus loss already released the remote keys; swallow their remaining
+    // repeats/releases without sending them into a newly focused session.
+    if (detached || !g_systemKeyTarget || !g_systemKeyTarget->canCaptureSystemKeys()) {
+        releaseKeyboardHookIfUnused();
+        return 1;
+    }
 
     const bool extended = (info->flags & LLKHF_EXTENDED) != 0;
     const RdpLowLevelKeyEvent lowLevelEvent = lowLevelKeyEventFromInfo(info, keyUp);
@@ -109,15 +123,20 @@ LRESULT CALLBACK keyboardHookProc(int code, WPARAM wParam, LPARAM lParam)
 
 void ensureKeyboardHook()
 {
-    if (!g_keyboardHook)
+    if (!g_keyboardHook) {
+        // Keys held across an install have no recorded press to pair with.
+        g_hookState.reset();
         g_keyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, keyboardHookProc, nullptr, 0);
+    }
 }
 
 void releaseKeyboardHookIfUnused()
 {
-    if (!g_systemKeyTarget && g_keyboardHook) {
+    if (!g_systemKeyTarget && !g_hookState.hasCapturedKeys() && g_keyboardHook) {
         UnhookWindowsHookEx(g_keyboardHook);
         g_keyboardHook = nullptr;
+        // A release that arrives while unhooked can no longer be paired.
+        g_hookState.reset();
     }
 }
 }
@@ -137,6 +156,7 @@ void setKeyboardTarget(RdpSystemKeyTarget *target)
         return;
     }
 
+    g_hookState.detachCapturedKeys();
     RdpSystemKeyTarget *oldTarget = g_systemKeyTarget;
     g_systemKeyTarget = target;
 
@@ -149,8 +169,10 @@ void setKeyboardTarget(RdpSystemKeyTarget *target)
 
 void clearKeyboardTarget(RdpSystemKeyTarget *target)
 {
-    if (g_systemKeyTarget == target)
+    if (g_systemKeyTarget == target) {
+        g_hookState.detachCapturedKeys();
         g_systemKeyTarget = nullptr;
+    }
     releaseKeyboardHookIfUnused();
 }
 }

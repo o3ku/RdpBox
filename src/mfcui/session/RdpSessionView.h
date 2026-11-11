@@ -100,6 +100,7 @@ protected:
     LRESULT WindowProc(UINT message, WPARAM wParam, LPARAM lParam) override;
 
 private:
+    friend struct RdpCursorLifecycleTestAccess;
     static constexpr UINT_PTR kMouseMoveTimerId = 2;
 
     struct ProcessBinding

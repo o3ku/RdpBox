@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.24)
 
 if(WIN32)
-    project(RdpBox VERSION 2.1.2 LANGUAGES CXX RC)
+    project(RdpBox VERSION 2.1.3 LANGUAGES CXX RC)
 else()
-    project(RdpBox VERSION 2.1.2 LANGUAGES CXX)
+    project(RdpBox VERSION 2.1.3 LANGUAGES CXX)
 endif()
 
 set(CMAKE_CXX_STANDARD 20)
@@ -105,6 +105,7 @@ set(RDPBOX_COMMON_SOURCES
     common/rdp/RdpInputEventUtil.h
     common/rdp/RdpInputModifiers.h
     common/rdp/RdpInputModifiers.cpp
+    common/rdp/RdpKeyboardHookState.h
     common/rdp/RdpKeyboardInputRouter.h
     common/rdp/RdpKeyboardInputRouter.cpp
     common/rdp/RdpKeyboardPhysicalState.h
@@ -174,6 +175,7 @@ set(RDPBOX_QT_SOURCES
     qtui/QtWindowChromeBehavior.cpp
     qtui/QtProfileDialog.h
     qtui/QtProfileDialog.cpp
+    qtui/QtRdpKeyboardInput.h
     qtui/QtShortcutSettings.h
     qtui/QtShortcutSettings.cpp
     resources/qt_resources.qrc

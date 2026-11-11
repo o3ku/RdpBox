@@ -202,6 +202,11 @@ public:
     // Last desktop size the worker published; input mapping runs on the worker
     // thread and must use the size its own frame came from.
     SizeI desktopSize;
+    // Set (under `mutex`) once the worker enters its own teardown. From that
+    // moment the context is touched by the worker thread only: freerdp's abort
+    // path writes to the transport, so a second caller from the UI thread races
+    // the worker's freerdp_disconnect()/transport_free().
+    bool teardownArmed = false;
 
     // Requests from the UI thread, applied by the worker on its own thread.
     // Each entry closes over what it needs, so the queue holds no pointers
@@ -422,6 +427,12 @@ void FreeRdpProcess::runWorker(std::shared_ptr<FreeRdpBackend> backend)
         {
             // Stop the channels before the context goes: they are torn down
             // here, on the worker thread, not from a stop() that gave up.
+            // Teardown arming (again) covers the early-return paths that never
+            // reached the main teardown block below.
+            {
+                std::scoped_lock lock(backend->mutex);
+                backend->teardownArmed = true;
+            }
             if (rdpContext *owned = backend->context()) {
                 if (owned->instance)
                     freerdp_disconnect(owned->instance);
@@ -520,6 +531,14 @@ void FreeRdpProcess::runWorker(std::shared_ptr<FreeRdpBackend> backend)
         }
     }
 
+    // From here on the context belongs to this thread alone: the abort path
+    // writes to the transport, so stop() must not touch it once teardown is
+    // armed (see FreeRdpBackend::teardownArmed).
+    {
+        std::scoped_lock lock(backend->mutex);
+        backend->teardownArmed = true;
+    }
+
     freerdp_abort_connect_context(context);
     freerdp_disconnect(instance);
 
@@ -586,7 +605,11 @@ void FreeRdpProcess::stop()
                 // Set before aborting, so the worker sees it as soon as
                 // freerdp_connect() returns.
                 backend->stopRequested = true;
-                freerdp_abort_connect_context(context);
+                // freerdp_abort_connect_context() writes to the transport; once
+                // the worker armed its own teardown it owns that path, and a
+                // second abort from here races its transport_free().
+                if (!backend->teardownArmed)
+                    freerdp_abort_connect_context(context);
             } else {
                 backend->stopRequested = true;
             }
@@ -1203,7 +1226,10 @@ FreeRdpProcess::ConnectionInfo FreeRdpProcess::connectionInfo() const
     if (!backend)
         return info;
 
-    rdpContext *context = backend->context();
+    // Backend lock held for the whole read: the worker's teardown frees the
+    // context behind the same lock, so the settings cannot disappear mid-read.
+    std::unique_lock<std::mutex> backendLock;
+    rdpContext *context = backend->lockedContext(backendLock);
     if (!context)
         return info;
 

@@ -83,6 +83,10 @@ unsigned int RdpSessionMouseState::buttonMask(MouseButton button)
         return 1u << 1;
     case MouseButton::Middle:
         return 1u << 2;
+    case MouseButton::Back:
+        return 1u << 3;
+    case MouseButton::Forward:
+        return 1u << 4;
     default:
         return 0;
     }

@@ -145,6 +145,31 @@ target_link_libraries(RdpKeyboardInputRouterTests PRIVATE
 
 add_test(NAME RdpKeyboardInputRouterTests COMMAND RdpKeyboardInputRouterTests)
 
+add_executable(RdpKeyboardHookStateTests
+    rdp/RdpKeyboardHookStateTests.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/FreeRdpProcessNative.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/FreeRdpProcess.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpClipboardBridge.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBackend.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBackendWindow.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBackendFiles.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBackendFormats.cpp
+)
+
+target_include_directories(RdpKeyboardHookStateTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+add_test(NAME RdpKeyboardHookStateTests COMMAND RdpKeyboardHookStateTests)
+# The detach-owner contract test needs the native context and freerdp/winpr headers.
+get_target_property(HOOKSTATE_FREERDP_INCLUDE_DIRS freerdp INTERFACE_INCLUDE_DIRECTORIES)
+foreach(_freerdp_include_dir IN LISTS HOOKSTATE_FREERDP_INCLUDE_DIRS)
+    if(EXISTS "${_freerdp_include_dir}/freerdp3")
+        target_include_directories(RdpKeyboardHookStateTests PRIVATE "${_freerdp_include_dir}/freerdp3")
+    endif()
+endforeach()
+target_link_libraries(RdpKeyboardHookStateTests PRIVATE rdpbox_test_support freerdp freerdp-client winpr)
+
 add_executable(RdpFocusNotificationTests
     rdp/RdpFocusNotificationTests.cpp
     ${CMAKE_SOURCE_DIR}/src/mfcui/session/RdpFocusNotification.cpp
@@ -822,4 +847,68 @@ if(RDPBOX_BUILD_QT)
 
     add_test(NAME QtShortcutSettingsTests COMMAND QtShortcutSettingsTests)
     rdpbox_prepend_test_runtime_path(QtShortcutSettingsTests Qt5::Core Qt5::Gui)
+
+    add_executable(QtRdpKeyboardInputTests qt/QtRdpKeyboardInputTests.cpp)
+    target_include_directories(QtRdpKeyboardInputTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(QtRdpKeyboardInputTests PRIVATE rdpbox_test_support Qt5::Gui)
+    add_test(NAME QtRdpKeyboardInputTests COMMAND QtRdpKeyboardInputTests)
+    rdpbox_prepend_test_runtime_path(QtRdpKeyboardInputTests Qt5::Core)
+
+    get_target_property(RDPBOX_SESSION_TEST_SOURCES FreeRdpStopSmoke SOURCES)
+    list(REMOVE_ITEM RDPBOX_SESSION_TEST_SOURCES rdp/FreeRdpStopSmoke.cpp)
+    add_library(rdpbox_session_test_support STATIC
+        ${RDPBOX_SESSION_TEST_SOURCES}
+        ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpKeyboardInputRouter.cpp
+        ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpKeyboardPhysicalProbing.cpp
+        ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpSessionKeyboardHook.cpp
+        ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpSessionKeyboardState.cpp
+        ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpReservedShortcutTracker.cpp
+        ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpSessionMouseState.cpp
+        ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpRemoteCursorState.cpp
+        ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpResizeBurstTracker.cpp
+        ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpResolutionRecovery.cpp
+        ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpCertificatePromptBehavior.cpp
+        ${CMAKE_SOURCE_DIR}/src/common/ui/MainWindowShortcuts.cpp
+    )
+    target_include_directories(rdpbox_session_test_support PUBLIC
+        ${CMAKE_SOURCE_DIR}/src ${FREERDP_STOP_SMOKE_FREERDP_INCLUDE_DIRS})
+    foreach(_freerdp_include_dir IN LISTS FREERDP_STOP_SMOKE_FREERDP_INCLUDE_DIRS)
+        if(EXISTS "${_freerdp_include_dir}/freerdp3")
+            target_include_directories(rdpbox_session_test_support PUBLIC "${_freerdp_include_dir}/freerdp3")
+        endif()
+    endforeach()
+    target_link_libraries(rdpbox_session_test_support PUBLIC
+        rdpbox_test_support freerdp freerdp-client winpr nlohmann_json::nlohmann_json
+        Ole32 Shell32 User32 Gdi32)
+
+    add_executable(QtRdpCursorLifecycleTests
+        qt/QtRdpCursorLifecycleTests.cpp
+        ${CMAKE_SOURCE_DIR}/src/qtui/QtRdpSessionWidget.h
+        ${CMAKE_SOURCE_DIR}/src/qtui/QtRdpSessionWidget.cpp
+        ${CMAKE_SOURCE_DIR}/src/qtui/QtShortcutSettings.cpp)
+    set_target_properties(QtRdpCursorLifecycleTests PROPERTIES AUTOMOC ON)
+    target_link_libraries(QtRdpCursorLifecycleTests PRIVATE rdpbox_session_test_support Qt5::Widgets)
+    add_test(NAME QtRdpCursorLifecycleTests COMMAND QtRdpCursorLifecycleTests)
+    rdpbox_prepend_test_runtime_path(QtRdpCursorLifecycleTests Qt5::Widgets)
+    add_test(NAME QtRdpCursorLifecycleStop COMMAND QtRdpCursorLifecycleTests stop)
+    add_test(NAME QtRdpCursorLifecycleLate COMMAND QtRdpCursorLifecycleTests late)
+    rdpbox_prepend_test_runtime_path(QtRdpCursorLifecycleStop Qt5::Widgets)
+    rdpbox_prepend_test_runtime_path(QtRdpCursorLifecycleLate Qt5::Widgets)
+
+    if(RDPBOX_BUILD_LEGACY)
+        add_executable(MfcRdpCursorLifecycleTests
+            rdp/MfcRdpCursorLifecycleTests.cpp
+            ${CMAKE_SOURCE_DIR}/src/mfcui/session/RdpSessionView.cpp
+            ${CMAKE_SOURCE_DIR}/src/mfcui/session/RdpSessionViewInput.cpp
+            ${CMAKE_SOURCE_DIR}/src/mfcui/session/RdpSessionViewMessages.cpp
+            ${CMAKE_SOURCE_DIR}/src/mfcui/session/RdpSessionViewRendering.cpp
+            ${CMAKE_SOURCE_DIR}/src/mfcui/session/RdpFocusNotification.cpp
+            ${CMAKE_SOURCE_DIR}/src/mfcui/session/RdpProcessEventQueueBehavior.cpp
+            ${CMAKE_SOURCE_DIR}/src/mfcui/session/RdpResumeRecovery.cpp)
+        target_compile_definitions(MfcRdpCursorLifecycleTests PRIVATE _AFXDLL)
+        target_link_libraries(MfcRdpCursorLifecycleTests PRIVATE rdpbox_session_test_support Imm32 Msimg32)
+        add_test(NAME MfcRdpCursorLifecycleTests COMMAND MfcRdpCursorLifecycleTests)
+        add_test(NAME MfcRdpCursorLifecycleCustom COMMAND MfcRdpCursorLifecycleTests custom)
+        add_test(NAME MfcRdpCursorLifecyclePaint COMMAND MfcRdpCursorLifecycleTests paint)
+    endif()
 endif()

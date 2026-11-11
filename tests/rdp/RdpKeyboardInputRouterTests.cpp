@@ -10,6 +10,7 @@
 #include "common/NativeTypes.h"
 #include "common/rdp/RdpInputEventUtil.h"
 #include "common/rdp/RdpKeyboardInputRouter.h"
+#include "common/rdp/RdpKeyboardHookState.h"
 
 namespace
 {
@@ -87,7 +88,6 @@ int main()
     _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
     _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
 #endif
-
     {
         RdpKeyboardInputRouter router;
         const RdpKeyboardPhysicalState altPhysical = physical(ModifierAlt);
@@ -564,6 +564,36 @@ int main()
     }
 
     {
+        // A host drag with Ctrl held passes over an unfocused session: the
+        // pane may release what it holds, but must not press host-side
+        // modifiers into the remote desktop.
+        RdpKeyboardInputRouter router;
+        std::vector<RdpKeyboardInputRouter::KeyAction> actions =
+            router.synchronizeMouseModifiers(MK_LBUTTON | MK_CONTROL, physical(ModifierControl), false);
+        assert(actions.empty());
+        assert(router.activeKeyboardModifiers() == ModifierNone);
+        assert(router.pressedKeyCount() == 0);
+
+        // Held session modifiers still come back up, focus or not.
+        RdpKeyboardInputRouter heldRouter;
+        actions = heldRouter.synchronizeMouseModifiers(MK_LBUTTON | MK_CONTROL,
+                                                       physical(ModifierControl | ModifierAlt),
+                                                       true);
+        assert(actions.size() == 2);
+        assertAction(actions[0], VK_LCONTROL, true);
+        assertAction(actions[1], VK_MENU, true);
+        actions = heldRouter.synchronizeMouseModifiers(0, physical(ModifierControl), false);
+        // The unfocused sync releases both held modifiers (release order is
+        // the tracker's, not the press order).
+        assert(actions.size() == 2);
+        for (const auto &action : actions) {
+            assert(!action.down);
+            assert(action.virtualKey == VK_LMENU || action.virtualKey == VK_CONTROL);
+        }
+        assert(heldRouter.activeKeyboardModifiers() == ModifierNone);
+    }
+
+    {
         RdpKeyboardInputRouter router;
         std::vector<RdpKeyboardInputRouter::KeyAction> actions =
             router.synchronizeMouseModifiers(MK_LBUTTON, physical(ModifierAlt), true);
@@ -915,6 +945,58 @@ int main()
                                           true);
         assert(actions.size() == 1);
         assertAction(actions[0], 'W', false);
+        assert(router.activeKeyboardModifiers() == ModifierNone);
+        assert(router.pressedKeyCount() == 0);
+    }
+
+    // Both sides remain independent even if physical probing is transiently stale.
+    const unsigned int modifierPairs[][3] = {
+        {VK_LCONTROL, VK_RCONTROL, ModifierControl}, {VK_LSHIFT, VK_RSHIFT, ModifierShift},
+        {VK_LMENU, VK_RMENU, ModifierAlt}, {VK_LWIN, VK_RWIN, ModifierWin}
+    };
+    for (const auto &pair : modifierPairs) {
+        for (unsigned int first : {0u, 1u}) {
+            RdpKeyboardInputRouter router;
+            router.handleKeyMessage(WM_KEYDOWN, pair[0], keyEvent(pair[0], true), physical(ModifierNone), true);
+            router.handleKeyMessage(WM_KEYDOWN, pair[1], keyEvent(pair[1], true), physical(ModifierNone), true);
+            auto actions = router.handleKeyMessage(WM_KEYUP, pair[first], keyEvent(pair[first], false, true), physical(ModifierNone), true);
+            assert(actions.size() == 1);
+            assert(router.activeKeyboardModifiers() == pair[2]);
+            assert(router.pressedKeyCount() == 1);
+            actions = router.handleKeyMessage(WM_KEYDOWN, 'A', keyEvent('A', true), physical(ModifierNone), true);
+            assert(actions.size() == 1); // no duplicate opposite-side press
+            actions = router.handleKeyMessage(WM_KEYUP, pair[1 - first], keyEvent(pair[1 - first], false, true), physical(ModifierNone), true);
+            assert(actions.size() == 1);
+            assert(router.activeKeyboardModifiers() == ModifierNone);
+            actions = router.releaseAllPressedKeys();
+            assert(actions.size() == 1);
+            assertAction(actions[0], 'A', false);
+        }
+    }
+
+    // Ctrl pressed before Alt belongs to Windows; its release must pass through.
+    // Ctrl pressed after Alt belongs to the hook, even if Alt is released first.
+    for (bool altFirst : {false, true}) {
+        RdpKeyboardInputRouter router;
+        RdpKeyboardHookState hook;
+        const unsigned int first = altFirst ? VK_LMENU : VK_LCONTROL;
+        const unsigned int second = altFirst ? VK_LCONTROL : VK_LMENU;
+        for (unsigned int vk : {first, second}) {
+            const bool requested = router.shouldCaptureLowLevelKey(
+                lowLevelKey(vk, false, physical(ModifierNone)), physical(ModifierNone));
+            const bool captured = hook.consumeKey(vk, true, requested);
+            assert(captured == (altFirst || vk == VK_LMENU));
+            // Both the captured hook path and pass-through window path forward.
+            router.handleKeyMessage(WM_KEYDOWN, vk, keyEvent(vk, true), physical(ModifierNone), true);
+        }
+        for (unsigned int vk : {VK_LMENU, VK_LCONTROL}) {
+            const bool requested = router.shouldCaptureLowLevelKey(
+                lowLevelKey(vk, true, physical(ModifierNone)), physical(ModifierNone));
+            const bool captured = hook.consumeKey(vk, false, requested);
+            assert(captured == (altFirst || vk == VK_LMENU));
+            router.handleKeyMessage(WM_KEYUP, vk, keyEvent(vk, false, true), physical(ModifierNone), true);
+        }
+        assert(!hook.hasCapturedKeys());
         assert(router.activeKeyboardModifiers() == ModifierNone);
         assert(router.pressedKeyCount() == 0);
     }

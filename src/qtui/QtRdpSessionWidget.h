@@ -67,6 +67,7 @@ protected:
     void releaseKeyboardInputForTargetTransfer() override;
 
 private:
+    friend struct RdpCursorLifecycleTestAccess;
     // Hover only reaches the remote session while this pane owns the input.
     bool shouldForwardMouseMove() const;
     void bindProcessCallbacks();

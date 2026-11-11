@@ -193,7 +193,6 @@ std::vector<RdpKeyboardInputRouter::KeyAction> RdpKeyboardInputRouter::handleKey
     appendKeyAction(actions, event.key, event.down, event.wasDown, virtualKey, false);
     trackLowLevelReleaseKey(event.key,
                             event.down && shouldTrackLowLevelRelease(message, virtualKey, physical));
-    m_modifierTracker.recordKeyState(virtualKey, event.down);
     recordModifierState(message, virtualKey);
 
     return actions;
@@ -205,11 +204,19 @@ std::vector<RdpKeyboardInputRouter::KeyAction> RdpKeyboardInputRouter::synchroni
     bool hasWindowFocus)
 {
     std::vector<KeyAction> actions;
-    const unsigned int activeSystemModifiers = m_keyboardModifiers & (ModifierAlt | ModifierWin);
-    synchronizeKeyboardModifiersToPhysicalState(actions, true, activeSystemModifiers, nullptr, physical);
+    // Without focus this pane does not own the keyboard: a host drag passing
+    // over it must only release what this session still holds (system
+    // modifiers included), never press host-side modifiers into the remote.
+    const unsigned int activeSystemModifiers = hasWindowFocus
+        ? (m_keyboardModifiers & (ModifierAlt | ModifierWin))
+        : ModifierNone;
+    synchronizeKeyboardModifiersToPhysicalState(actions, hasWindowFocus, activeSystemModifiers, nullptr, physical);
 
+    const unsigned int focusIndependentModifiers = hasWindowFocus
+        ? rdp::mouseInputModifiers(mouseFlags, m_keyboardModifiers)
+        : ModifierNone;
     const unsigned int desiredModifiers =
-        rdp::mouseInputModifiers(mouseFlags, m_keyboardModifiers) | activeSystemModifiers;
+        focusIndependentModifiers | (hasWindowFocus ? activeSystemModifiers : ModifierNone);
     const std::vector<RdpModifierSyncTracker::KeyAction> syncActions =
         m_modifierTracker.synchronize(desiredModifiers);
     for (const auto &action : syncActions) {
@@ -329,6 +336,10 @@ void RdpKeyboardInputRouter::recordModifierState(std::uint32_t message, unsigned
         return;
 
     m_keyboardModifiers = rdp::keyboardInputModifiersForKeyMessage(message, virtualKey, m_keyboardModifiers);
+    // The opposite side may still be held after this side was released.
+    for (const auto &key : m_pressedKeys)
+        m_keyboardModifiers |= modifierMaskForKeyIdentifier(key);
+    m_modifierTracker.synchronize(m_keyboardModifiers);
 }
 
 unsigned int RdpKeyboardInputRouter::preferredVirtualKeyForModifier(

@@ -1,7 +1,6 @@
 #include "RdpSessionView.h"
 
 #include "common/rdp/FrameBufferMemory.h"
-#include "common/rdp/RdpCursorClassifier.h"
 #include "common/rdp/RdpSessionViewBehavior.h"
 #include <algorithm>
 #include <utility>
@@ -126,10 +125,7 @@ void CRdpSessionView::OnPaint()
     if (!rect.PtInRect(CPoint(position.x, position.y)))
         return;
 
-    if (const HCURSOR handle = RdpCursorClassifier::cursorHandleFromInfo(cursor)) {
-        ::SetCursor(handle);
-        m_remoteCursor.noteApplied();
-    }
+    applyRemoteCursor();
 }
 
 void CRdpSessionView::drawOverlay(CDC &dc, const CRect &rect)

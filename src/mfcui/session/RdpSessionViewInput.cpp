@@ -218,8 +218,8 @@ void CRdpSessionView::OnXButtonDblClk(UINT flags, UINT button, CPoint point)
     handleXButton(flags, button, point, true);
 }
 
-// XBUTTON1/2 are not part of the tracked pressed-buttons state (the shared
-// buttonMask has no bit for them); they forward straight through, like Qt.
+// XBUTTON1/2 forward straight through like Qt, and land in the shared
+// pressed-buttons state so a focus loss releases them remote-side.
 void CRdpSessionView::handleXButton(UINT flags, UINT button, CPoint point, bool down)
 {
     if (!m_process || m_inputSuspended)
@@ -229,10 +229,9 @@ void CRdpSessionView::handleXButton(UINT flags, UINT button, CPoint point, bool 
     setFocusToFreeRdp();
     syncMouseModifiers(flags);
     m_mouseState.notePointerPosition(pointFromCPoint(point));
-    m_process->sendMouseButton(button == XBUTTON1 ? MouseButton::Back : MouseButton::Forward,
-                               down,
-                               pointFromCPoint(point),
-                               currentViewSize());
+    const MouseButton xButton = button == XBUTTON1 ? MouseButton::Back : MouseButton::Forward;
+    m_process->sendMouseButton(xButton, down, pointFromCPoint(point), currentViewSize());
+    m_mouseState.noteButton(xButton, down);
 }
 
 // WM_MOUSEHWHEEL has no ON_WM_* macro; WPARAM high word is the tilt delta,

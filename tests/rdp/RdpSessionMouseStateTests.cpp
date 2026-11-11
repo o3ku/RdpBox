@@ -23,10 +23,14 @@ void buttonMaskMatchesDocumentedLayout()
     state.clearPressedButtons();
     assert(state.pressedButtons() == 0);
 
-    // Extended buttons carry no mask and must not disturb the bitmap.
+    // Extended buttons are tracked too, so a focus loss can release them remote-side.
     state.noteButton(MouseButton::Back, true);
     state.noteButton(MouseButton::Forward, true);
+    assert(state.pressedButtons() == ((1u << 3) | (1u << 4)));
     state.noteButton(MouseButton::None, true);
+    assert(state.pressedButtons() == ((1u << 3) | (1u << 4)));
+    state.noteButton(MouseButton::Back, false);
+    state.noteButton(MouseButton::Forward, false);
     assert(state.pressedButtons() == 0);
 }
 

@@ -1,5 +1,6 @@
 #include "qtui/QtRdpSessionWidget.h"
 
+#include "qtui/QtRdpKeyboardInput.h"
 #include "qtui/QtShortcutSettings.h"
 #include "common/rdp/FreeRdpProcessNative.h"
 #include "common/rdp/RdpCertificatePromptBehavior.h"
@@ -559,6 +560,7 @@ void QtRdpSessionWidget::stopProcess(bool showDisconnectedOverlay)
     m_frameGate.remaining = 0;
     m_keyboardRouter.reset();
     m_remoteCursor.reset();
+    unsetCursor();
     // Close input forwarding before the teardown that can pump messages:
     // an input event delivered through that pump must not reach the session
     // behind this point.
@@ -603,6 +605,8 @@ void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
         m_resolutionRecovery.reset();
         syncRecoveryTimer();
     } else if (state == FreeRdpProcess::State::Finished) {
+        m_remoteCursor.reset();
+        unsetCursor();
         m_mouseState.resetPendingMove();
         if (m_mouseMoveTimer)
             m_mouseMoveTimer->stop();
@@ -659,7 +663,9 @@ void QtRdpSessionWidget::consumeFrame()
 
 void QtRdpSessionWidget::updateCursor()
 {
-    if (!m_process)
+    if (!m_process || m_inputSuspended
+        || m_process->state() != FreeRdpProcess::State::Running
+        || m_state != FreeRdpProcess::State::Running)
         return;
 
     CursorInfo cursor = m_process->cursor();
@@ -978,6 +984,11 @@ void QtRdpSessionWidget::sendKeyEvent(QKeyEvent *event, bool down)
     if (!m_process || !event || m_inputSuspended)
         return;
 
+    if (!rdpbox::shouldForwardQtKeyEvent(*event, down)) {
+        event->accept();
+        return;
+    }
+
 #ifndef _WIN32
     // X11/Wayland deliver evdev scan codes (X keycode = evdev + 8); evdev
     // numbers equal XT set-1 codes on the main block and need a small table
@@ -1034,7 +1045,7 @@ void QtRdpSessionWidget::sendKeyEvent(QKeyEvent *event, bool down)
     event->accept();
 #else
     const unsigned int virtualKey = static_cast<unsigned int>(event->nativeVirtualKey());
-    const auto key = keyIdentifierFromVirtualKey(virtualKey);
+    const auto key = rdpbox::keyIdentifierFromQtEvent(*event);
     if (!key) {
         event->ignore();
         return;
@@ -1094,6 +1105,10 @@ void QtRdpSessionWidget::releasePressedMouseButtons()
         m_process->sendMouseButton(MouseButton::Right, false, point, size);
     if ((pressedButtons & (1u << 2)) != 0)
         m_process->sendMouseButton(MouseButton::Middle, false, point, size);
+    if ((pressedButtons & (1u << 3)) != 0)
+        m_process->sendMouseButton(MouseButton::Back, false, point, size);
+    if ((pressedButtons & (1u << 4)) != 0)
+        m_process->sendMouseButton(MouseButton::Forward, false, point, size);
 }
 
 void QtRdpSessionWidget::releaseAllPressedKeys()

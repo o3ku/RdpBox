@@ -493,11 +493,8 @@ void CRdpSessionView::applyRemoteCursor()
     if (!m_process || m_process->state() != FreeRdpProcess::State::Running)
         return;
 
-    // A custom cursor whose handle went away (a reconnect dropped the session
-    // that created it) has nothing Win32 can put back: leave the cursor alone
-    // rather than fall back to an arrow that is not this session's either.
-    // The state itself stays pending, so the re-read on the way back in wins.
-    if (m_remoteCursor.cursor().kind == CursorKind::Custom && !m_cursorHandle)
+    // Keep the update pending until a released cursor handle can be re-read.
+    if (!m_cursorHandle)
         return;
 
     CursorInfo cursor;
@@ -506,7 +503,7 @@ void CRdpSessionView::applyRemoteCursor()
 
     // SetCursor to what is already set is a no-op, so with the view focused
     // the window cursor is the session cursor again: nothing stays pending.
-    ::SetCursor(RdpCursorClassifier::cursorHandleFromInfo(cursor));
+    ::SetCursor(m_cursorHandle);
     m_remoteCursor.noteApplied();
 }
 
@@ -821,6 +818,10 @@ void CRdpSessionView::releasePressedMouseButtons()
         sendTrackedMouseButton(MouseButton::Right, false, point);
     if (pressedButtons & (1u << 2))
         sendTrackedMouseButton(MouseButton::Middle, false, point);
+    if (pressedButtons & (1u << 3))
+        sendTrackedMouseButton(MouseButton::Back, false, point);
+    if (pressedButtons & (1u << 4))
+        sendTrackedMouseButton(MouseButton::Forward, false, point);
 }
 
 void CRdpSessionView::releaseAllPressedKeys()
