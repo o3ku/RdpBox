@@ -834,6 +834,7 @@ if(RDPBOX_BUILD_QT)
     add_executable(QtShortcutSettingsTests
         qt/QtShortcutSettingsTests.cpp
         ${CMAKE_SOURCE_DIR}/src/qtui/QtShortcutSettings.cpp
+        ${CMAKE_SOURCE_DIR}/src/common/ui/MainWindowShortcuts.cpp
     )
 
     target_include_directories(QtShortcutSettingsTests PRIVATE

@@ -1,5 +1,7 @@
 #include "qtui/QtShortcutSettings.h"
 
+#include "common/ui/MainWindowShortcuts.h"
+
 #include <QCoreApplication>
 #include <QTemporaryDir>
 #include <cassert>
@@ -54,19 +56,31 @@ int runTests()
         assert(loaded.openConnections == ShortcutSettings().openConnections);
     }
 
-    // Reserved-shortcut predicate for the session ShortcutOverride path.
+    // Configured chords reach the shared store the low-level keyboard hook
+    // reads, or a custom Alt chord would be captured into the session.
     {
-        const ShortcutSettings settings;
-        assert(isReservedSessionShortcut(settings, QKeySequence(Qt::CTRL | Qt::Key_P)));
-        assert(isReservedSessionShortcut(settings, QKeySequence(Qt::CTRL | Qt::Key_N)));
-        assert(!isReservedSessionShortcut(settings, QKeySequence(Qt::CTRL | Qt::Key_C)));
-        assert(!isReservedSessionShortcut(settings, QKeySequence(Qt::Key_F11)));
-        assert(!isReservedSessionShortcut(settings, QKeySequence()));
-
         ShortcutSettings custom;
-        custom.openConnections = QKeySequence(Qt::ALT | Qt::Key_D);
-        assert(isReservedSessionShortcut(custom, QKeySequence(Qt::ALT | Qt::Key_D)));
-        assert(!isReservedSessionShortcut(custom, QKeySequence(Qt::CTRL | Qt::Key_P)));
+        custom.newConnection = QKeySequence(Qt::ALT | Qt::Key_D);
+        custom.openConnections = QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F2);
+        setCurrentShortcuts(custom);
+
+        const ui::MainWindowShortcutSettings &shared = ui::currentMainWindowShortcuts();
+        assert(shared.newConnection.virtualKey == 'D');
+        assert(shared.newConnection.alt && !shared.newConnection.ctrl && !shared.newConnection.shift);
+        assert(shared.openConnections.virtualKey == VK_F2);
+        assert(shared.openConnections.ctrl && shared.openConnections.shift);
+        assert(ui::isReservedMainWindowShortcut(false, false, true, 'D'));
+        assert(!ui::isReservedMainWindowShortcut(true, false, false, 'N'));
+
+        // An unrepresentable chord (Meta) must not match anything.
+        ShortcutSettings meta;
+        meta.newConnection = QKeySequence(Qt::META | Qt::Key_D);
+        setCurrentShortcuts(meta);
+        assert(ui::currentMainWindowShortcuts().newConnection.virtualKey == 0);
+        assert(!ui::isReservedMainWindowShortcut(false, false, false, 'D'));
+
+        setCurrentShortcuts(ShortcutSettings());
+        assert(ui::isReservedMainWindowShortcut(true, false, false, 'N'));
     }
 
     std::printf("QtShortcutSettingsTests passed\n");

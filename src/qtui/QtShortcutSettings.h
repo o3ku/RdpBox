@@ -22,8 +22,4 @@ void setCurrentShortcuts(const ShortcutSettings &settings);
 void saveShortcutSettings(const ShortcutSettings &settings, QSettings &store);
 ShortcutSettings loadShortcutSettings(QSettings &store);
 
-// True when the pressed single-key sequence is a main-window shortcut that the
-// focused session widget should claim instead (ShortcutOverride path).
-bool isReservedSessionShortcut(const ShortcutSettings &settings, const QKeySequence &pressed);
-
 }
