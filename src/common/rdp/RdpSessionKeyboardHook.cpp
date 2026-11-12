@@ -34,6 +34,11 @@ void clearKeyboardTarget(RdpSystemKeyTarget *target)
     if (g_systemKeyTarget == target)
         g_systemKeyTarget = nullptr;
 }
+
+// No low-level hook exists off Windows; nothing to suspend.
+void suspendKeyboardHookForBlockingCall()
+{
+}
 }
 #else
 
@@ -90,6 +95,8 @@ LRESULT CALLBACK keyboardHookProc(int code, WPARAM wParam, LPARAM lParam)
         return CallNextHookEx(g_keyboardHook, code, wParam, lParam);
 
     auto *info = reinterpret_cast<KBDLLHOOKSTRUCT *>(lParam);
+    if (!info)
+        return CallNextHookEx(g_keyboardHook, code, wParam, lParam);
     const bool keyUp = (wParam == WM_KEYUP || wParam == WM_SYSKEYUP || (info->flags & LLKHF_UP));
     const unsigned int virtualKey = static_cast<unsigned int>(info->vkCode);
     const bool detached = g_hookState.isDetached(virtualKey);
@@ -175,5 +182,25 @@ void clearKeyboardTarget(RdpSystemKeyTarget *target)
     }
     releaseKeyboardHookIfUnused();
 }
+
+// Temporarily remove the low-level hook for a UI-thread operation that cannot
+// pump messages (FreeRdpProcess::stop() waits out a wedged disconnect). A
+// WH_KEYBOARD_LL installed on a thread that is not pumping stalls EVERY key
+// on the desktop for the hook timeout (~300ms each) while it is skipped, so
+// the hook is taken down first and reinstalled by the next focus/target call.
+void suspendKeyboardHookForBlockingCall()
+{
+#ifdef _WIN32
+    if (g_keyboardHook) {
+        UnhookWindowsHookEx(g_keyboardHook);
+        g_keyboardHook = nullptr;
+        // Presses that went to Windows while unhooked have no pairing; start
+        // clean exactly like a fresh install does.
+        g_hookState.reset();
+    }
+#else
+    // Off Windows the target bookkeeping needs no hook.
+#endif
 }
+} // namespace rdp::session_view_input
 #endif // _WIN32

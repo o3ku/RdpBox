@@ -25,8 +25,7 @@ public:
     std::vector<KeyAction> handleKeyMessage(std::uint32_t message,
                                             unsigned int virtualKey,
                                             const KeyEventInfo &event,
-                                            const RdpKeyboardPhysicalState &physical,
-                                            bool hasWindowFocus);
+                                            const RdpKeyboardPhysicalState &physical);
     std::vector<KeyAction> synchronizeMouseModifiers(UINT mouseFlags,
                                                      const RdpKeyboardPhysicalState &physical,
                                                      bool hasWindowFocus);

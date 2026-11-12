@@ -1,7 +1,6 @@
 #include "qtui/QtRdpSessionWidget.h"
 
 #include "qtui/QtRdpKeyboardInput.h"
-#include "qtui/QtShortcutSettings.h"
 #include "common/rdp/FreeRdpProcessNative.h"
 #include "common/rdp/RdpCertificatePromptBehavior.h"
 #include "common/rdp/RdpCursorClassifier.h"
@@ -16,7 +15,6 @@
 #include <QFocusEvent>
 #include <QImage>
 #include <QKeyEvent>
-#include <QKeySequence>
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QPainter>
@@ -296,14 +294,10 @@ bool QtRdpSessionWidget::event(QEvent *event)
         }
     }
 
-    if (event && event->type() == QEvent::ShortcutOverride && isConnected()) {
-        auto *keyEvent = static_cast<QKeyEvent *>(event);
-        const QKeySequence pressed(keyEvent->modifiers() | keyEvent->key());
-        if (rdpbox::isReservedSessionShortcut(rdpbox::currentShortcuts(), pressed)) {
-            event->accept();
-            return true;
-        }
-    }
+    // Reserved main-window shortcuts (new/open connection) must keep firing
+    // while a session holds the focus: ShortcutOverride's accept() would
+    // suppress the QShortcut and swallow the chord into the remote session,
+    // the opposite of the MFC pane's PassThrough behaviour.
 
     return QWidget::event(event);
 }
@@ -565,6 +559,10 @@ void QtRdpSessionWidget::stopProcess(bool showDisconnectedOverlay)
     // an input event delivered through that pump must not reach the session
     // behind this point.
     m_inputSuspended = true;
+    // stop() may block for the worker's grace without pumping messages; a
+    // WH_KEYBOARD_LL on this thread would stall every key on the desktop
+    // while it waits, so the hook comes down first.
+    rdp::session_view_input::suspendKeyboardHookForBlockingCall();
     m_process->stop();
     // stop() has returned: the session is swapped out and submit()
     // drops input on its own from here, so input forwarding reopens.
@@ -676,9 +674,73 @@ void QtRdpSessionWidget::updateCursor()
     // hidden included; the remembered ones come back through applyRemoteCursor().
     const bool applied = sessionOwnsWindowFocus();
     if (applied)
-        setCursor(cursorShapeFromKind(cursor.kind));
+        setSessionCursor(cursor);
     m_remoteCursor.adopt(RdpCursorClassifier::cursorInfoForState(cursor), applied);
     destroyCursorInfo(cursor);
+}
+
+// The session cursor as pixels: the duplicated HCURSOR is converted to a
+// QCursor so every remote shape (I-beam, hand, resize ...) shows exactly as
+// the server drew it instead of collapsing into a plain arrow.
+void QtRdpSessionWidget::setSessionCursor(const CursorInfo &cursor)
+{
+#ifdef _WIN32
+    // Color cursors (the common RDP case) carry their exact pixels in
+    // hbmColor; monochrome cursors would need the stacked AND/XOR mask
+    // combined by hand, so those fall back to a stock shape.
+    if (cursor.handle && cursor.kind != CursorKind::Hidden) {
+        ICONINFO iconInfo = {};
+        if (GetIconInfo(cursor.handle, &iconInfo) && iconInfo.hbmColor) {
+            BITMAP bitmap = {};
+            const bool sized = GetObject(iconInfo.hbmColor, sizeof(bitmap), &bitmap) == sizeof(bitmap)
+                && bitmap.bmWidth > 0 && bitmap.bmHeight > 0;
+            QImage pixels;
+            if (sized) {
+                BITMAPV5HEADER header = {};
+                header.bV5Size = sizeof(header);
+                header.bV5Width = bitmap.bmWidth;
+                header.bV5Height = -bitmap.bmHeight; // top-down
+                header.bV5Planes = 1;
+                header.bV5BitCount = 32;
+                header.bV5Compression = BI_BITFIELDS;
+                header.bV5RedMask = 0x00FF0000;
+                header.bV5GreenMask = 0x0000FF00;
+                header.bV5BlueMask = 0x000000FF;
+                header.bV5AlphaMask = 0xFF000000;
+
+                HDC screenDc = GetDC(nullptr);
+                if (screenDc) {
+                    std::vector<unsigned char> bits(static_cast<std::size_t>(bitmap.bmWidth)
+                                                    * static_cast<std::size_t>(bitmap.bmHeight) * 4u);
+                    const int lines = GetDIBits(screenDc, iconInfo.hbmColor, 0, bitmap.bmHeight,
+                                                bits.data(), reinterpret_cast<BITMAPINFO *>(&header),
+                                                DIB_RGB_COLORS);
+                    ReleaseDC(nullptr, screenDc);
+                    if (lines == bitmap.bmHeight) {
+                        pixels = QImage(bits.data(), bitmap.bmWidth, bitmap.bmHeight,
+                                        bitmap.bmWidth * 4, QImage::Format_ARGB32).copy();
+                    }
+                }
+            }
+            DeleteObject(iconInfo.hbmColor);
+            if (iconInfo.hbmMask)
+                DeleteObject(iconInfo.hbmMask);
+            if (!pixels.isNull()) {
+                setCursor(QCursor(QPixmap::fromImage(pixels),
+                                  static_cast<int>(iconInfo.xHotspot),
+                                  static_cast<int>(iconInfo.yHotspot)));
+                return;
+            }
+        } else {
+            // GetIconInfo failed or a monochrome cursor: clean up what it gave.
+            if (iconInfo.hbmColor)
+                DeleteObject(iconInfo.hbmColor);
+            if (iconInfo.hbmMask)
+                DeleteObject(iconInfo.hbmMask);
+        }
+    }
+#endif
+    setCursor(cursorShapeFromKind(cursor.kind));
 }
 
 void QtRdpSessionWidget::applyRemoteCursor()
@@ -696,8 +758,7 @@ void QtRdpSessionWidget::applyRemoteCursor()
     CursorInfo cursor;
     if (!m_remoteCursor.needsApply() || !m_remoteCursor.cursorToApply(cursor))
         return;
-
-    setCursor(cursorShapeFromKind(cursor.kind));
+    setSessionCursor(cursor);
     m_remoteCursor.noteApplied();
 }
 
@@ -975,14 +1036,21 @@ void QtRdpSessionWidget::forwardNativeKeyMessage(std::uint32_t message,
     sendKeyboardActions(m_keyboardRouter.handleKeyMessage(message,
                                                           virtualKey,
                                                           *nativeEvent,
-                                                          rdp::physical_keyboard::physicalKeyboardState(),
-                                                          hasFocus()));
+                                                          rdp::physical_keyboard::physicalKeyboardState()));
 }
 
 void QtRdpSessionWidget::sendKeyEvent(QKeyEvent *event, bool down)
 {
     if (!m_process || !event || m_inputSuspended)
         return;
+
+    // A disconnected pane does not own the keyboard: without a live session
+    // the key is not accepted here and bubbles to the main window (Alt+F4,
+    // shortcuts) - matching the MFC pane's NotHandled path.
+    if (m_state != FreeRdpProcess::State::Running) {
+        event->ignore();
+        return;
+    }
 
     if (!rdpbox::shouldForwardQtKeyEvent(*event, down)) {
         event->accept();
@@ -1062,8 +1130,7 @@ void QtRdpSessionWidget::sendKeyEvent(QKeyEvent *event, bool down)
     sendKeyboardActions(m_keyboardRouter.handleKeyMessage(message,
                                                           virtualKey,
                                                           *nativeEvent,
-                                                          rdp::physical_keyboard::physicalKeyboardState(),
-                                                          hasFocus()));
+                                                          rdp::physical_keyboard::physicalKeyboardState()));
     event->accept();
 #endif // _WIN32
 }

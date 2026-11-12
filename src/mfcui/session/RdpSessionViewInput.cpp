@@ -87,7 +87,21 @@ void CRdpSessionView::OnMouseMove(UINT flags, CPoint point)
     // away (another tab, the window frame) comes back on the first movement,
     // not only when WM_SETCURSOR runs.
     applyRemoteCursor();
-    if (!m_process || m_inputSuspended)
+
+    // One-shot leave tracking, registered before any early return: leaving
+    // straight out of the view (into another window) must mark the session
+    // cursor released, or the state that comes back with the pointer can
+    // disagree with what Windows showed meanwhile.
+    if (!m_trackingMouseLeave) {
+        TRACKMOUSEEVENT tme = {};
+        tme.cbSize = sizeof(tme);
+        tme.dwFlags = TME_LEAVE;
+        tme.hwndTrack = GetSafeHwnd();
+        ::TrackMouseEvent(&tme);
+        m_trackingMouseLeave = true;
+    }
+
+    if (!m_process || m_inputSuspended || !shouldForwardMouseMove())
         return;
 
     const auto immediate = m_mouseState.onPointerMove(pointer);
@@ -98,6 +112,33 @@ void CRdpSessionView::OnMouseMove(UINT flags, CPoint point)
         SetTimer(kMouseMoveTimerId, kMouseMoveCoalesceMs, nullptr);
         m_mouseState.setPointerMoveTimerActive(true);
     }
+}
+
+void CRdpSessionView::OnMouseLeave()
+{
+    CWnd::OnMouseLeave();
+    m_trackingMouseLeave = false;
+    // Whatever owns the window cursor now is not this view; the session
+    // cursor is put back when the pointer (or focus) comes home.
+    m_remoteCursor.noteReleased();
+}
+
+// Hover drives the remote pointer for the pane that owns the input - the same
+// rule the Qt pane follows (sessionOwnsWindowFocus): the focused pane, or the
+// one the pointer is over inside the active window, because a click hands the
+// focus over before the move messages arrive. A visible but background pane
+// (another tab, a window that is not active) must not fight over the remote
+// cursor.
+bool CRdpSessionView::shouldForwardMouseMove() const
+{
+    const HWND self = GetSafeHwnd();
+    if (!self)
+        return false;
+    if (::GetFocus() == self)
+        return true;
+
+    const HWND active = ::GetActiveWindow();
+    return active && (active == self || ::IsChild(active, self));
 }
 
 void CRdpSessionView::OnLButtonDown(UINT flags, CPoint point)

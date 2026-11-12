@@ -34,10 +34,9 @@ std::vector<RdpSessionKeyboardState::KeyAction>
 RdpSessionKeyboardState::handleKeyMessage(std::uint32_t message,
                                           unsigned int virtualKey,
                                           const KeyEventInfo &event,
-                                          const RdpKeyboardPhysicalState &physical,
-                                          bool hasWindowFocus)
+                                          const RdpKeyboardPhysicalState &physical)
 {
-    return m_keyboardRouter.handleKeyMessage(message, virtualKey, event, physical, hasWindowFocus);
+    return m_keyboardRouter.handleKeyMessage(message, virtualKey, event, physical);
 }
 
 std::vector<RdpSessionKeyboardState::KeyAction>

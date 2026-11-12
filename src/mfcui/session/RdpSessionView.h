@@ -55,6 +55,9 @@ public:
     bool canCaptureSystemKeys() const override;
     bool hasWindowFocus() const override;
     unsigned int activeKeyboardModifiers() const;
+    // True while a live session can actually receive keys; a disconnected
+    // pane lets key messages bubble instead of eating them.
+    bool isSessionKeyboardActive() const;
     bool shouldCaptureLowLevelKey(const RdpLowLevelKeyEvent &event,
                                   const RdpKeyboardPhysicalState &physical) const override;
     std::uint32_t messageForLowLevelKey(const RdpLowLevelKeyEvent &event,
@@ -73,6 +76,9 @@ protected:
     afx_msg void OnKillFocus(CWnd *newWnd);
     afx_msg void OnCancelMode();
     afx_msg void OnCaptureChanged(CWnd *wnd);
+    bool shouldForwardMouseMove() const;
+    afx_msg void OnMouseLeave();
+    bool m_trackingMouseLeave = false;
     afx_msg void OnMouseMove(UINT flags, CPoint point);
     afx_msg void OnLButtonDown(UINT flags, CPoint point);
     afx_msg void OnLButtonDblClk(UINT flags, CPoint point);

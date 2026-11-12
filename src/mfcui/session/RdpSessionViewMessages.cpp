@@ -17,6 +17,11 @@ KeyboardMessageDisposition handleWindowKeyMessage(CRdpSessionView &target,
 {
     if (message != WM_KEYDOWN && message != WM_KEYUP && message != WM_SYSKEYDOWN && message != WM_SYSKEYUP)
         return KeyboardMessageDisposition::NotHandled;
+    // A disconnected or not-yet-connected pane must not eat keys: without a
+    // live session there is nothing to forward them to, and swallowing them
+    // leaves the stuck overlay dead to Alt+F4/Tab/Enter.
+    if (!target.isSessionKeyboardActive())
+        return KeyboardMessageDisposition::NotHandled;
 
     const bool down = (message == WM_KEYDOWN || message == WM_SYSKEYDOWN);
     const bool controlDown = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
@@ -171,8 +176,10 @@ LRESULT CRdpSessionView::WindowProc(UINT message, WPARAM wParam, LPARAM lParam)
     if (keyDisposition == rdp::session_view_input::KeyboardMessageDisposition::Handled)
         return 0;
 
+    // NotHandled key messages (no live session): let them bubble so the
+    // frame, dialogs and Alt+F4 keep working on a disconnected pane.
     if (message == WM_KEYDOWN || message == WM_KEYUP || message == WM_SYSKEYDOWN || message == WM_SYSKEYUP) {
-        return 0;
+        return CWnd::WindowProc(message, wParam, lParam);
     }
 
     return CWnd::WindowProc(message, wParam, lParam);
@@ -185,6 +192,11 @@ bool CRdpSessionView::canCaptureSystemKeys() const
         && GetSafeHwnd()
         && IsWindowVisible()
         && ::GetFocus() == GetSafeHwnd();
+}
+
+bool CRdpSessionView::isSessionKeyboardActive() const
+{
+    return m_process && m_process->state() == FreeRdpProcess::State::Running;
 }
 
 bool CRdpSessionView::hasWindowFocus() const
@@ -224,7 +236,6 @@ void CRdpSessionView::forwardNativeKeyMessage(std::uint32_t message,
     sendKeyboardActions(m_keyboardState.handleKeyMessage(message,
                                                          virtualKey,
                                                          *event,
-                                                         currentKeyboardPhysicalState(),
-                                                         ::GetFocus() == GetSafeHwnd()));
+                                                         currentKeyboardPhysicalState()));
     releaseKeyboardTargetIfInactive();
 }

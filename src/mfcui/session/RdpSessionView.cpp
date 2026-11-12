@@ -80,6 +80,7 @@ BEGIN_MESSAGE_MAP(CRdpSessionView, CWnd)
     ON_WM_CANCELMODE()
     ON_WM_CAPTURECHANGED()
     ON_WM_MOUSEMOVE()
+    ON_WM_MOUSELEAVE()
     ON_WM_LBUTTONDOWN()
     ON_WM_LBUTTONDBLCLK()
     ON_WM_LBUTTONUP()
@@ -367,6 +368,10 @@ void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
         // an input message delivered through that pump must not reach the
         // session behind this point.
         m_inputSuspended = true;
+        // stop() may block for the worker's grace without pumping messages;
+        // a WH_KEYBOARD_LL on this thread would stall every key on the
+        // desktop while it waits, so the hook comes down first.
+        rdp::session_view_input::suspendKeyboardHookForBlockingCall();
         m_process->stop();
         // stop() has returned: the session is swapped out and submit()
         // drops input on its own from here, so input forwarding reopens.

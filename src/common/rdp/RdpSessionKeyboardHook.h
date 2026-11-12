@@ -36,4 +36,8 @@ public:
 bool isKeyboardTarget(const RdpSystemKeyTarget *target);
 void setKeyboardTarget(RdpSystemKeyTarget *target);
 void clearKeyboardTarget(RdpSystemKeyTarget *target);
+// Takes the low-level hook down while the calling thread cannot pump
+// messages (a blocking teardown); a no-op off Windows. The next
+// setKeyboardTarget/focus call reinstalls it.
+void suspendKeyboardHookForBlockingCall();
 }

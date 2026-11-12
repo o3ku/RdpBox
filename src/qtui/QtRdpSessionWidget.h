@@ -11,6 +11,7 @@
 #include "common/rdp/RdpRemoteCursorState.h"
 #include "common/rdp/RdpResolutionRecovery.h"
 
+#include <QPixmap>
 #include <QWidget>
 #include <QPointer>
 
@@ -76,6 +77,9 @@ private:
     void updateState(FreeRdpProcess::State state);
     void consumeFrame();
     void updateCursor();
+    // Applies the session cursor: pixel-exact QCursor from the duplicated
+    // HCURSOR when one is at hand, stock shape otherwise.
+    void setSessionCursor(const CursorInfo &cursor);
     void applyRemoteCursor();
     bool sessionOwnsWindowFocus() const;
     void beginResolutionUpdate();

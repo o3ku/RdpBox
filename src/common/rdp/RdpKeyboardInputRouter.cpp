@@ -174,8 +174,7 @@ std::vector<RdpKeyboardInputRouter::KeyAction> RdpKeyboardInputRouter::handleKey
     std::uint32_t message,
     unsigned int virtualKey,
     const KeyEventInfo &event,
-    const RdpKeyboardPhysicalState &physical,
-    bool hasWindowFocus)
+    const RdpKeyboardPhysicalState &physical)
 {
     std::vector<KeyAction> actions;
 
