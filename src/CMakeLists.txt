@@ -91,6 +91,8 @@ set(RDPBOX_COMMON_SOURCES
     common/profiles/ProfileRepository.h
     common/profiles/ProfileRepository.cpp
     common/rdp/FrameBufferMemory.h
+    common/rdp/RdpFrameDelivery.h
+    common/rdp/RdpFrameWakeup.h
     common/rdp/FreeRdpProcess.h
     common/rdp/FreeRdpProcess.cpp
     common/rdp/FreeRdpProcessNative.h

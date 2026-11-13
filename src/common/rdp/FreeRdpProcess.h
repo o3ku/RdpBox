@@ -3,6 +3,7 @@
 #include "common/NativeTypes.h"
 #include "common/rdp/RdpInputEventUtil.h"
 
+#include "common/rdp/RdpSessionViewBehavior.h"
 #include <atomic>
 #include <cstdint>
 #include <thread>
@@ -67,7 +68,9 @@ public:
 
     State state() const;
     void writeFrameFromContext(void *rdpContext);
-    bool consumeFrameIfNewer(uint64_t &lastSeenGeneration, FrameBuffer &target);
+    bool consumeFrameIfNewer(uint64_t &lastSeenGeneration, FrameBuffer &target,
+                             rdp::session_view::FrameGateState &gate,
+                             rdp::session_view::FrameArrivalDecision &decision);
     SizeI desktopSize() const;
     CursorInfo cursor() const;
 

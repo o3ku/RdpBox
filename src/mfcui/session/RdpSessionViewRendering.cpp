@@ -61,7 +61,9 @@ void CRdpSessionView::OnPaint()
     bool hideOverlayAfterFramePresent = false;
 
     if (m_process) {
-        if (m_process->consumeFrameIfNewer(m_cachedFrameGeneration, m_frameScratch)) {
+        rdp::session_view::FrameArrivalDecision frameDecision;
+        if (m_process->consumeFrameIfNewer(m_cachedFrameGeneration, m_cachedFrame,
+                                         m_frameGate, frameDecision)) {
             if (m_resumeRecovery.awaitingFrame()) {
                 m_resumeRecovery.onFrameArrived();
                 if (m_overlayText == L"Resuming session...")
@@ -75,33 +77,18 @@ void CRdpSessionView::OnPaint()
                     hideOverlayAfterFramePresent = true;
             }
 
-            const rdp::session_view::FrameArrivalDecision frameDecision =
-                rdp::session_view::frameArrivalDecision(m_frameGate);
-            m_frameGate = frameDecision.state;
             hideOverlayAfterFramePresent = hideOverlayAfterFramePresent || frameDecision.hideOverlay;
-
-            if (frameDecision.renderFrame) {
-                // Swap keeps the retired display buffer in the scratch slot,
-                // which the next consume hands back to the worker.
-                std::swap(m_cachedFrame, m_frameScratch);
-            }
 
             if (m_resolutionRecovery.active())
                 m_resolutionRecovery.onFrameProgress(frameDecision.resolutionFrameProgress);
 
             syncRecoveryTimer();
         }
+    }
 
-        const bool hasCachedFrame = !m_cachedFrame.empty();
-        bool paintedFrame = false;
-        if (hasCachedFrame) {
-            drawFrameBuffer(dc.GetSafeHdc(), rect, m_cachedFrame);
-            paintedFrame = true;
-        } else {
-            dc.FillSolidRect(rect, RGB(17, 17, 17));
-        }
-
-        if (paintedFrame && hideOverlayAfterFramePresent)
+    if (!m_cachedFrame.empty()) {
+        drawFrameBuffer(dc.GetSafeHdc(), rect, m_cachedFrame);
+        if (hideOverlayAfterFramePresent)
             m_overlayText.Empty();
     } else {
         dc.FillSolidRect(rect, RGB(17, 17, 17));

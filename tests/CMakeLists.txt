@@ -64,6 +64,14 @@ foreach(_freerdp_include_dir IN LISTS RDPBOX_TEST_SUPPORT_FREERDP_INCLUDE_DIRS)
     endif()
 endforeach()
 
+add_executable(RdpFrameDeliveryTests rdp/RdpFrameDeliveryTests.cpp)
+target_link_libraries(RdpFrameDeliveryTests PRIVATE rdpbox_test_support)
+add_test(NAME RdpFrameDeliveryTests COMMAND RdpFrameDeliveryTests)
+
+add_executable(RdpFrameWakeupTests rdp/RdpFrameWakeupTests.cpp)
+target_include_directories(RdpFrameWakeupTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME RdpFrameWakeupTests COMMAND RdpFrameWakeupTests)
+
 add_executable(RdpResizeBurstTrackerTests
     rdp/RdpResizeBurstTrackerTests.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpResizeBurstTracker.cpp
@@ -895,6 +903,8 @@ if(RDPBOX_BUILD_QT)
     add_test(NAME QtRdpCursorLifecycleLate COMMAND QtRdpCursorLifecycleTests late)
     rdpbox_prepend_test_runtime_path(QtRdpCursorLifecycleStop Qt5::Widgets)
     rdpbox_prepend_test_runtime_path(QtRdpCursorLifecycleLate Qt5::Widgets)
+    add_test(NAME QtRdpFrameLifecycleTests COMMAND QtRdpCursorLifecycleTests frames)
+    rdpbox_prepend_test_runtime_path(QtRdpFrameLifecycleTests Qt5::Widgets)
 
     if(RDPBOX_BUILD_LEGACY)
         add_executable(MfcRdpCursorLifecycleTests
@@ -911,5 +921,6 @@ if(RDPBOX_BUILD_QT)
         add_test(NAME MfcRdpCursorLifecycleTests COMMAND MfcRdpCursorLifecycleTests)
         add_test(NAME MfcRdpCursorLifecycleCustom COMMAND MfcRdpCursorLifecycleTests custom)
         add_test(NAME MfcRdpCursorLifecyclePaint COMMAND MfcRdpCursorLifecycleTests paint)
+        add_test(NAME MfcRdpFrameLifecycleTests COMMAND MfcRdpCursorLifecycleTests frames)
     endif()
 endif()

@@ -3,6 +3,7 @@
 #include "common/NativeTypes.h"
 #include "common/profiles/Profile.h"
 #include "common/rdp/FreeRdpProcess.h"
+#include "common/rdp/RdpFrameWakeup.h"
 #include "common/rdp/RdpKeyboardInputRouter.h"
 #include "common/rdp/RdpSessionKeyboardHook.h"
 #include "common/rdp/RdpSessionMouseState.h"
@@ -107,11 +108,9 @@ private:
 
     Profile m_profile;
     std::shared_ptr<FreeRdpProcess> m_process;
+    std::shared_ptr<RdpFrameWakeup> m_frameWakeup;
     FreeRdpProcess::State m_state = FreeRdpProcess::State::Idle;
     FrameBuffer m_frame;
-    // Hand-back slot for consumeFrameIfNewer: holds the buffer the worker
-    // reuses, so frame delivery stops allocating per frame.
-    FrameBuffer m_frameScratch;
     uint64_t m_frameGeneration = 0;
     QString m_overlayText;
     std::function<void(FreeRdpProcess::State)> m_stateChanged;

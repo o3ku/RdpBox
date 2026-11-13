@@ -184,6 +184,8 @@ void QtRdpSessionWidget::connectToHost()
     if (!m_process)
         return;
 
+    // Retire the previous attempt before installing callbacks for this start.
+    stopProcess();
     m_inputSuspended = false;
 
     m_keyboardRouter.reset();
@@ -195,7 +197,7 @@ void QtRdpSessionWidget::connectToHost()
     m_frameGate.remaining = 0;
     m_frameGeneration = 0;
     m_frame = {};
-    m_frameScratch = {};
+    bindProcessCallbacks();
     m_reconnectInFlight = false;
     const SizeI size = viewSize();
     updateState(FreeRdpProcess::State::Starting);
@@ -217,7 +219,6 @@ void QtRdpSessionWidget::reconnect()
     m_reconnecting = true;
     stopProcess();
     m_process = std::make_shared<FreeRdpProcess>();
-    bindProcessCallbacks();
     connectToHost();
 }
 
@@ -477,41 +478,47 @@ void QtRdpSessionWidget::bindProcessCallbacks()
     if (!m_process)
         return;
 
+    if (m_frameWakeup)
+        m_frameWakeup->close();
+    const auto wakeup = std::make_shared<RdpFrameWakeup>();
+    m_frameWakeup = wakeup;
     std::weak_ptr<FreeRdpProcess> weakProcess = m_process;
-    m_process->setStateChangedCallback([this, weakProcess](FreeRdpProcess::State state) {
-        QMetaObject::invokeMethod(this, [this, weakProcess, state]() {
-            if (weakProcess.lock() != m_process)
+    m_process->setStateChangedCallback([this, weakProcess, wakeup](FreeRdpProcess::State state) {
+        QMetaObject::invokeMethod(this, [this, weakProcess, wakeup, state]() {
+            if (!wakeup->isOpen() || wakeup != m_frameWakeup || weakProcess.lock() != m_process)
                 return;
             updateState(state);
         }, Qt::QueuedConnection);
     });
-    m_process->setFrameUpdatedCallback([this, weakProcess]() {
-        QMetaObject::invokeMethod(this, [this, weakProcess]() {
-            if (weakProcess.lock() != m_process)
+    m_process->setFrameUpdatedCallback([this, weakProcess, wakeup]() {
+        if (!wakeup->request())
+            return;
+        if (!QMetaObject::invokeMethod(this, [this, weakProcess, wakeup]() {
+            if (!wakeup->beginProcessing() || wakeup != m_frameWakeup
+                || weakProcess.lock() != m_process)
                 return;
             consumeFrame();
-        }, Qt::QueuedConnection);
+        }, Qt::QueuedConnection))
+            wakeup->close();
     });
-    m_process->setDesktopResizedCallback([this, weakProcess](const SizeI &) {
-        QMetaObject::invokeMethod(this, [this, weakProcess]() {
-            if (weakProcess.lock() != m_process)
+    m_process->setDesktopResizedCallback([this, weakProcess, wakeup](const SizeI &) {
+        QMetaObject::invokeMethod(this, [this, weakProcess, wakeup]() {
+            if (!wakeup->isOpen() || wakeup != m_frameWakeup || weakProcess.lock() != m_process)
                 return;
             requestResize();
         }, Qt::QueuedConnection);
     });
-    m_process->setCursorUpdatedCallback([this, weakProcess]() {
-        QMetaObject::invokeMethod(this, [this, weakProcess]() {
-            if (weakProcess.lock() != m_process)
+    m_process->setCursorUpdatedCallback([this, weakProcess, wakeup]() {
+        QMetaObject::invokeMethod(this, [this, weakProcess, wakeup]() {
+            if (!wakeup->isOpen() || wakeup != m_frameWakeup || weakProcess.lock() != m_process)
                 return;
             updateCursor();
         }, Qt::QueuedConnection);
     });
-    m_process->setCertificateChallengeCallback([this, weakProcess](const FreeRdpProcess::CertificateChallenge &challenge) {
-        // Non-blocking on purpose: the worker waits on certDecided/certAbort
-        // events, so a BlockingQueuedConnection here can deadlock against
-        // stop()'s join when the UI thread runs a nested loop (power resume).
-        QMetaObject::invokeMethod(this, [this, weakProcess, challenge]() {
-            if (weakProcess.lock() != m_process)
+    m_process->setCertificateChallengeCallback([this, weakProcess, wakeup](const FreeRdpProcess::CertificateChallenge &challenge) {
+        // Worker waits for a decision; blocking the UI callback deadlocks stop().
+        QMetaObject::invokeMethod(this, [this, weakProcess, wakeup, challenge]() {
+            if (!wakeup->isOpen() || wakeup != m_frameWakeup || weakProcess.lock() != m_process)
                 return;
             promptCertificateChallenge(challenge, weakProcess);
         }, Qt::QueuedConnection);
@@ -520,6 +527,8 @@ void QtRdpSessionWidget::bindProcessCallbacks()
 
 void QtRdpSessionWidget::clearProcessCallbacks()
 {
+    if (m_frameWakeup)
+        m_frameWakeup->close();
     if (!m_process)
         return;
 
@@ -603,6 +612,8 @@ void QtRdpSessionWidget::updateState(FreeRdpProcess::State state)
         m_resolutionRecovery.reset();
         syncRecoveryTimer();
     } else if (state == FreeRdpProcess::State::Finished) {
+        if (m_frameWakeup)
+            m_frameWakeup->close();
         m_remoteCursor.reset();
         unsetCursor();
         m_mouseState.resetPendingMove();
@@ -631,16 +642,8 @@ void QtRdpSessionWidget::consumeFrame()
     if (!m_process)
         return;
 
-    if (m_process->consumeFrameIfNewer(m_frameGeneration, m_frameScratch)) {
-        const rdp::session_view::FrameArrivalDecision frameDecision =
-            rdp::session_view::frameArrivalDecision(m_frameGate);
-        m_frameGate = frameDecision.state;
-
-        // Swap keeps the retired display buffer in the scratch slot, which the
-        // next consume hands back to the worker (see consumeFrameIfNewer).
-        if (frameDecision.renderFrame)
-            std::swap(m_frame, m_frameScratch);
-
+    rdp::session_view::FrameArrivalDecision frameDecision;
+    if (m_process->consumeFrameIfNewer(m_frameGeneration, m_frame, m_frameGate, frameDecision)) {
         if (m_reconnectInFlight) {
             // The re-established session is alive and what is on screen is
             // real again. A pane hidden in a background tab reaches Running

@@ -107,7 +107,7 @@ CRdpSessionView::CRdpSessionView() = default;
 CRdpSessionView::~CRdpSessionView()
 {
     rdp::session_view_input::clearKeyboardTarget(this);
-    stopProcess();
+    stopProcess(false);
     releaseCursorHandle();
 }
 
@@ -315,7 +315,6 @@ void CRdpSessionView::startProcess()
     m_connected = false;
     m_cachedFrameGeneration = 0;
     FrameBufferMemory::release(m_cachedFrame);
-    FrameBufferMemory::release(m_frameScratch);
     m_frameGate.resolutionUpdatePending = false;
     m_frameGate.waitingForFirstContentFrame = true;
     m_frameGate.active = true;
@@ -390,8 +389,8 @@ void CRdpSessionView::stopProcess(bool showDisconnectedOverlay)
     m_pendingResize = {};
     m_hasPendingResize = false;
     m_cachedFrameGeneration = 0;
-    FrameBufferMemory::release(m_cachedFrame);
-    FrameBufferMemory::release(m_frameScratch);
+    if (!showDisconnectedOverlay)
+        FrameBufferMemory::release(m_cachedFrame);
     m_processBinding.reset();
     m_resizeBurstTracker.reset();
     m_keyboardState.reset();
@@ -432,6 +431,8 @@ void CRdpSessionView::onStateChanged(FreeRdpProcess::State state)
     }
     case FreeRdpProcess::State::Finished:
         m_connected = false;
+        if (m_process)
+            m_lastDisconnectError = m_process->lastDisconnectError();
         // The attempt is over and nothing retries it on its own, so the
         // reconnect marker comes down here.
         m_reconnectInFlight = false;

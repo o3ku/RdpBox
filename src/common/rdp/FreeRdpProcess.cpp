@@ -2,6 +2,7 @@
 
 #include "common/Win32String.h"
 #include "common/rdp/FrameBufferMemory.h"
+#include "common/rdp/RdpFrameDelivery.h"
 #include "common/rdp/FreeRdpProcessNative.h"
 #include "common/rdp/RdpInputEventUtil.h"
 #include "common/rdp/RdpSessionViewBehavior.h"
@@ -237,6 +238,7 @@ struct FreeRdpProcess::Private
     std::thread worker;
     mutable std::mutex mutex;
     FrameBuffer frame;
+    bool framesClosed = false;
     uint64_t frameGeneration = 0;
     SizeI desktopSize;
     CursorInfo cursor;
@@ -369,6 +371,7 @@ void FreeRdpProcess::start(const std::wstring &host,
         std::scoped_lock lock(m_d->mutex);
         oldCursor = std::exchange(m_d->cursor, defaultCursorInfo());
         FrameBufferMemory::release(m_d->frame);
+        m_d->framesClosed = false;
         m_d->desktopSize = SizeI{static_cast<int>(desktopWidth), static_cast<int>(desktopHeight)};
         m_d->hasFirstFrame = false;
     }
@@ -592,6 +595,8 @@ void FreeRdpProcess::stop()
     bool sessionAbandoned = false;
     {
         std::scoped_lock lock(m_d->mutex);
+        m_d->framesClosed = true;
+        FrameBufferMemory::release(m_d->frame);
         backend = std::exchange(m_d->backend, nullptr);
         worker = std::move(m_d->worker);
     }
@@ -736,6 +741,10 @@ void FreeRdpProcess::publishFromWorker(FreeRdpBackend &backend, State state, con
     std::function<void(State)> callback;
     {
         std::scoped_lock lock(m_d->mutex);
+        if (state == State::Finished) {
+            m_d->framesClosed = true;
+            FrameBufferMemory::release(m_d->frame);
+        }
         if (!lastError.empty())
             m_d->lastDisconnectError = lastError;
         if (m_d->state == state)
@@ -760,18 +769,15 @@ std::string FreeRdpProcess::lastDisconnectError() const
     return m_d->lastDisconnectError;
 }
 
-bool FreeRdpProcess::consumeFrameIfNewer(uint64_t &lastSeenGeneration, FrameBuffer &target)
+bool FreeRdpProcess::consumeFrameIfNewer(uint64_t &lastSeenGeneration, FrameBuffer &target,
+                                       rdp::session_view::FrameGateState &gate,
+                                       rdp::session_view::FrameArrivalDecision &decision)
 {
     std::scoped_lock lock(m_d->mutex);
-    if (m_d->frameGeneration == lastSeenGeneration || m_d->frame.empty())
+    if (m_d->framesClosed)
         return false;
-
-    lastSeenGeneration = m_d->frameGeneration;
-    // Swap, not move: the caller's buffer rides back to the worker, so
-    // steady-state frame delivery reuses two allocations instead of paying a
-    // full-desktop-sized vector per frame.
-    std::swap(target, m_d->frame);
-    return true;
+    return rdp::session_view::consumeFrame(m_d->frame, m_d->frameGeneration,
+                                          lastSeenGeneration, target, gate, decision);
 }
 
 SizeI FreeRdpProcess::desktopSize() const
@@ -1110,6 +1116,8 @@ void FreeRdpProcess::writeFrameFromContext(void *rawContext)
         // The session this frame belongs to: the worker's own copy of the
         // desktop size only follows a frame from a session still in use.
         session = m_d->backend;
+        if (m_d->framesClosed)
+            return;
 
         if (m_d->frame.pixels.size() != requiredBytes
             || m_d->frame.width != width
@@ -1150,6 +1158,10 @@ void FreeRdpProcess::updateStateFromBackend(State state)
 
     {
         std::scoped_lock lock(m_d->mutex);
+        if (state == State::Finished) {
+            m_d->framesClosed = true;
+            FrameBufferMemory::release(m_d->frame);
+        }
         if (m_d->state == state)
             return;
 

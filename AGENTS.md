@@ -14,6 +14,7 @@ This file provides guidance to the AI agent when working with code in this repos
 ## Layout & architecture
 - Shared code lives in `src/common/` (`profiles/`, `rdp/`, `session/`, `ui/`). Front ends are `src/qtui/` (Qt 5) and `src/mfcui/` plus `src/mfcui/session/` (legacy MFC); only the window/session-host layer differs.
 - `FreeRdpProcess` (`src/common/rdp/`) embeds FreeRDP in-process on a worker thread and posts frames/state/cursor updates to the UI thread. The per-session UI is `QtRdpSessionWidget` (Qt) or `CRdpSessionView` (legacy).
+- Frame delivery uses two application buffers: pending on the worker and displayed on the UI. Only a new generation advances the frame gate; discarded frames must not replace the display. Finished/stop closes delivery and releases pending pixels; a disconnected pane retains one original-size last-presented frame. Qt queued callbacks carry a per-start wakeup token, closed before teardown and rebound only after the old attempt stops.
 - Add new RDP behavior to focused helpers under `src/common/rdp/` rather than growing `FreeRdpProcess`, `QtRdpSessionWidget`, or `CRdpSessionView`.
 - Large classes are split into same-directory `.cpp` partials (e.g. `MainWindow*`, `RdpSessionView*`, `WindowsClipboardBackend*`); edit the existing partial instead of merging them.
 
