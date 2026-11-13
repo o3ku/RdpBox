@@ -57,6 +57,10 @@ BOOL CRdpBoxApp::InitInstance()
         return FALSE;
     }
 
+    // GetProfileInt/WriteProfileInt only persist after SetRegistryKey;
+    // without it, reads return defaults and writes silently go nowhere.
+    SetRegistryKey(L"RdpBox");
+
     // A false return is not fatal: ProfileRepository warns about dropped
     // passwords on save, which beats exiting without a message.
     ensurePasswordProtectionReady();
