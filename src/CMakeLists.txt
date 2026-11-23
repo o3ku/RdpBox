@@ -104,6 +104,8 @@ set(RDPBOX_COMMON_SOURCES
     common/rdp/RdpCertificatePromptBehavior.cpp
     common/rdp/RdpCursorClassifier.h
     common/rdp/RdpCursorClassifier.cpp
+    common/rdp/RdpPointerAlpha.h
+    common/rdp/RdpPointerAlpha.cpp
     common/rdp/RdpInputEventUtil.h
     common/rdp/RdpInputModifiers.h
     common/rdp/RdpInputModifiers.cpp

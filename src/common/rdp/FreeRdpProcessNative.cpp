@@ -3,6 +3,7 @@
 #include "common/Win32String.h"
 #include "common/AppPaths.h"
 #include "RdpCursorClassifier.h"
+#include "RdpPointerAlpha.h"
 
 #include <algorithm>
 #include <atomic>
@@ -185,6 +186,14 @@ BOOL nativefreerdp_pointer_new(rdpContext *context, rdpPointer *pointer)
         // An undecodable cursor must not kill the session (same fatality rule).
         return TRUE;
     }
+
+    // A 32bpp pointer whose sender leaves the alpha byte unused (BGRX)
+    // decodes to alpha 0 for every pixel, so the classifier cannot tell a
+    // black opaque pixel from a transparent one. Recover the alpha from
+    // the AND mask now, while it is still at hand; if there is no usable
+    // mask the classifier falls back to its opaque last resort.
+    RdpPointerAlpha::applyAndMask(cursorFrame, pointer->andMaskData, pointer->lengthAndMask,
+                                 pointer->xorBpp);
 
     destroyCursorInfo(nativePointer->cursor);
     nativePointer->cursor = RdpCursorClassifier::createCursor(

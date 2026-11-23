@@ -27,6 +27,7 @@ add_library(rdpbox_test_support STATIC
     ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBehavior.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/WindowsClipboardBackendDataObject.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpCursorClassifier.cpp
+    ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpPointerAlpha.cpp
     ${CMAKE_SOURCE_DIR}/src/common/rdp/RdpSessionViewBehavior.cpp
     ${CMAKE_SOURCE_DIR}/src/mfcui/session/RdpProcessEventBehavior.cpp
     ${CMAKE_SOURCE_DIR}/src/mfcui/session/SessionCollectionBehavior.cpp
