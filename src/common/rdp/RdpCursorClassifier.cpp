@@ -23,6 +23,15 @@ bool isValidFrameBuffer(const FrameBuffer &buffer)
     return buffer.pixels.size() >= requiredBytes;
 }
 
+// Last resort only, for a frame that carries no transparency information
+// at all (no pixel with alpha != 0 and no AND mask was available to
+// reconstruct it from -- see RdpPointerAlpha, which the production path
+// runs before this). With nothing to distinguish a black opaque pixel
+// from a transparent one, making the whole frame opaque at least shows
+// the shape; it is what used to turn a 32bpp BGRX pointer into a black
+// square, so do not extend this to any frame whose alpha was already
+// resolved. Callers that have an AND mask must resolve the alpha first
+// instead of relying on this.
 FrameBuffer opaqueCursorFrame(FrameBuffer buffer)
 {
     if (!isValidFrameBuffer(buffer))
@@ -92,6 +101,14 @@ HCURSOR createCursorHandleFromFrame(const FrameBuffer &remoteImage, PointI hotsp
                         rowBytes);
         }
 
+        // The AND mask is all zero on purpose: for a 32bpp cursor with a
+        // real alpha channel Windows uses the alpha and the mask is the
+        // standard all-zero layout for such icons. It is only consulted
+        // when the alpha channel is all zero, which must not happen for a
+        // frame that reached here -- the production path reconstructs the
+        // alpha from the server AND mask first (see RdpPointerAlpha), and
+        // opaqueCursorFrame above forces it opaque as a last resort when
+        // no mask was available.
         const int maskStride = ((remoteImage.width + 31) / 32) * 4;
         std::vector<std::uint8_t> maskBytes(
             static_cast<std::size_t>(maskStride) * static_cast<std::size_t>(remoteImage.height), 0x00);
