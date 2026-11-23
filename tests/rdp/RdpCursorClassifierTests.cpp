@@ -257,6 +257,38 @@ PointerFixture makeTrueAlphaArrow()
     return fixture;
 }
 
+// A 32bpp ARGB pointer as Windows sends its aero cursors (I-beam
+// included): the alpha channel already carries the transparency and
+// the AND mask is vestigial, all zeros. A black shape is (0, 0, 0, 0xFF).
+PointerFixture makeTrueAlphaArrowWithZeroMask(bool blackShape)
+{
+    PointerFixture fixture;
+    fixture.frame = makeCursorFrame(32, 32);
+    const int andStep = (32 + 7) / 8 + ((32 + 7) / 8) % 2;
+    fixture.andMask.assign(static_cast<std::size_t>(andStep) * 32, 0);
+
+    for (int y = 0; y < 32; ++y)
+    {
+        for (int x = 0; x < 32; ++x)
+        {
+            if (isArrowPixel(x, y))
+            {
+                const std::size_t offset = static_cast<std::size_t>(y)
+                        * static_cast<std::size_t>(fixture.frame.stride)
+                    + static_cast<std::size_t>(x) * 4u;
+                if (!blackShape)
+                {
+                    fixture.frame.pixels[offset + 0] = 0xFF;
+                    fixture.frame.pixels[offset + 1] = 0xFF;
+                    fixture.frame.pixels[offset + 2] = 0xFF;
+                }
+                fixture.frame.pixels[offset + 3] = 0xFF;
+            }
+        }
+    }
+    return fixture;
+}
+
 // A 1bpp pointer as FreeRDP decodes it: black/white shape pixels opaque,
 // transparent pixels (0, 0, 0, 0), and one inverted pixel (AND 1, XOR 1)
 // resolved to a checkerboard colour with alpha 0xFF. The AND mask is
@@ -415,6 +447,48 @@ int main()
         const FrameBuffer onWhite = cursorFrameFromHandle(cursor.handle, true);
         assert(!onWhite.empty());
         assert(countRgb(onWhite, 0x00) == 0);
+        if (cursor.ownsHandle && cursor.handle)
+            DestroyCursor(cursor.handle);
+    }
+
+    {
+        // 32bpp ARGB white arrow with a vestigial all-zero AND mask
+        // (the aero-cursor case): the alpha channel is authoritative,
+        // the mask must not be consulted -- it would force the
+        // transparent background opaque.
+        PointerFixture fixture = makeTrueAlphaArrowWithZeroMask(false);
+        const FrameBuffer before = fixture.frame;
+        const bool appliedZeroMask = RdpPointerAlpha::applyAndMask(fixture.frame, fixture.andMask.data(),
+                                                                    fixture.andMask.size(), 32);
+        assert(appliedZeroMask);
+        assert(fixture.frame.pixels == before.pixels);
+        const CursorInfo cursor = RdpCursorClassifier::createCursor(fixture.frame, PointI{0, 0});
+        assert(cursor.handle != nullptr);
+        const FrameBuffer onWhite = cursorFrameFromHandle(cursor.handle, true);
+        assert(!onWhite.empty());
+        assert(countRgb(onWhite, 0x00) == 0);
+        if (cursor.ownsHandle && cursor.handle)
+            DestroyCursor(cursor.handle);
+    }
+
+    {
+        // 32bpp ARGB black arrow with a vestigial all-zero AND mask:
+        // the I-beam case (issue #1 follow-up). The shape is black, so
+        // forcing the background opaque would hide it inside a solid
+        // black rectangle; the background must stay transparent.
+        PointerFixture fixture = makeTrueAlphaArrowWithZeroMask(true);
+        const FrameBuffer before = fixture.frame;
+        const bool appliedBlackZeroMask = RdpPointerAlpha::applyAndMask(fixture.frame, fixture.andMask.data(),
+                                                                         fixture.andMask.size(), 32);
+        assert(appliedBlackZeroMask);
+        assert(fixture.frame.pixels == before.pixels);
+        assert(countOpaqueBlack(fixture.frame) == arrowPixels);
+        const CursorInfo cursor = RdpCursorClassifier::createCursor(fixture.frame, PointI{0, 0});
+        assert(cursor.handle != nullptr);
+        const FrameBuffer onWhite = cursorFrameFromHandle(cursor.handle, true);
+        assert(!onWhite.empty());
+        assert(countRgb(onWhite, 0x00) == arrowPixels);
+        assert(countRgb(onWhite, 0xFF) == 32 * 32 - arrowPixels);
         if (cursor.ownsHandle && cursor.handle)
             DestroyCursor(cursor.handle);
     }

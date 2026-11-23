@@ -21,9 +21,18 @@ namespace RdpPointerAlpha
 //
 // For each pixel whose decoded alpha is already non-zero (a true-alpha
 // cursor, or an inverted pixel FreeRDP already resolved to alpha 0xFF)
-// the pixel is left alone. For a pixel with alpha 0 the AND bit decides:
-// 1 means transparent (alpha 0x00), 0 means opaque (alpha 0xFF). That is
-// FreeRDP's own rule for icon data (alpha = mask bit ? 0x00 : 0xFF).
+// the pixel is left alone. In fact, if any pixel at all carries alpha
+// the whole frame is left alone: the alpha channel is authoritative,
+// and for a 32bpp ARGB pointer the AND mask is vestigial -- standard
+// Windows 32bpp ARGB cursors (the aero set, I-beam included) store
+// transparency in the alpha channel and leave the AND mask all zeros
+// (0x00 = opaque), so consulting it would force the transparent
+// background opaque and turn a black shape into a solid black
+// rectangle. Only a frame with no alpha at all (BGRX: every pixel
+// alpha 0) is reconstructed from the mask: for a pixel with alpha 0
+// the AND bit decides, 1 means transparent (alpha 0x00), 0 means
+// opaque (alpha 0xFF). That is FreeRDP's own rule for icon data
+// (alpha = mask bit ? 0x00 : 0xFF).
 //
 // The AND-mask layout matches FreeRDP's pointer decoder: one bit per
 // pixel, row stride ((width + 7) / 8) padded up to an even byte count,
