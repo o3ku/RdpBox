@@ -43,4 +43,19 @@ namespace RdpPointerAlpha
 // last resort, which is the best that can be done with no mask.
 bool applyAndMask(FrameBuffer &frame, const std::uint8_t *andMask, std::size_t andMaskLength,
                   std::uint32_t xorBpp);
+
+// True when a decoded pointer carries nothing to draw: every pixel of the
+// frame is (0, 0, 0, 0) and the AND mask is missing, too short for the
+// frame, or has no transparent (1) bit inside it -- so nothing tells a
+// shape apart from background. Windows sends such a blank pointer to hide
+// the cursor (hide-while-typing, IME composition in Firefox, a blank
+// app cursor) instead of a SYSTEM_POINTER_NULL. applyAndMask would read
+// the zero mask as "all opaque", and the classifier's opaque last resort
+// would do the same for a missing mask: both turn it into a solid black
+// square under the mouse. The caller must show a hidden cursor instead.
+//
+// A BGRX black shape is also all-zero pixels, but its AND mask marks the
+// background transparent, so it is not blank and goes through
+// applyAndMask as before.
+bool isBlankPointer(const FrameBuffer &frame, const std::uint8_t *andMask, std::size_t andMaskLength);
 }

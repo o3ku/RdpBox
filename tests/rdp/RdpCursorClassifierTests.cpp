@@ -524,5 +524,38 @@ int main()
         assert(!appliedEmpty);
     }
 
+    {
+        // Blank pointer (hide-while-typing / IME composition): every pixel
+        // (0, 0, 0, 0) and an all-zero, missing or short AND mask. It must
+        // be recognised as blank so the caller hides the cursor instead of
+        // forcing it opaque into a solid black square.
+        FrameBuffer blank = makeCursorFrame(32, 32);
+        const int andStep = (32 + 7) / 8 + ((32 + 7) / 8) % 2;
+        std::vector<std::uint8_t> zeroMask(static_cast<std::size_t>(andStep) * 32, 0);
+        assert(RdpPointerAlpha::isBlankPointer(blank, zeroMask.data(), zeroMask.size()));
+        assert(RdpPointerAlpha::isBlankPointer(blank, nullptr, 0));
+        assert(RdpPointerAlpha::isBlankPointer(blank, zeroMask.data(), 1));
+
+        // A fully transparent mask is not "blank" by this rule, but
+        // applyAndMask already resolves it to transparent.
+        std::vector<std::uint8_t> fullMask(zeroMask.size(), 0xFF);
+        assert(!RdpPointerAlpha::isBlankPointer(blank, fullMask.data(), fullMask.size()));
+
+        // BGRX black arrow: all-zero pixels too, but the real AND mask
+        // marks the background transparent -- not blank.
+        PointerFixture blackBgrx = makeBgrxArrow(true);
+        assert(!RdpPointerAlpha::isBlankPointer(blackBgrx.frame, blackBgrx.andMask.data(),
+                                                blackBgrx.andMask.size()));
+
+        // Visible shapes are never blank.
+        PointerFixture whiteBgrx = makeBgrxArrow(false);
+        assert(!RdpPointerAlpha::isBlankPointer(whiteBgrx.frame, nullptr, 0));
+        PointerFixture argb = makeTrueAlphaArrowWithZeroMask(true);
+        assert(!RdpPointerAlpha::isBlankPointer(argb.frame, argb.andMask.data(), argb.andMask.size()));
+
+        FrameBuffer empty;
+        assert(!RdpPointerAlpha::isBlankPointer(empty, nullptr, 0));
+    }
+
     return 0;
 }

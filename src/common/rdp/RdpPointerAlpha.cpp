@@ -72,4 +72,46 @@ bool applyAndMask(FrameBuffer &frame, const std::uint8_t *andMask, std::size_t a
 
     return true;
 }
+
+bool isBlankPointer(const FrameBuffer &frame, const std::uint8_t *andMask, std::size_t andMaskLength)
+{
+    if (frame.empty() || frame.width <= 0 || frame.height <= 0 || frame.stride < frame.width * 4)
+        return false;
+
+    const std::size_t requiredBytes = static_cast<std::size_t>(frame.stride)
+        * static_cast<std::size_t>(frame.height);
+    if (frame.pixels.size() < requiredBytes)
+        return false;
+
+    for (int y = 0; y < frame.height; ++y)
+    {
+        const std::uint8_t *row = frame.pixels.data()
+            + static_cast<std::size_t>(y) * static_cast<std::size_t>(frame.stride);
+        for (std::size_t i = 0; i < static_cast<std::size_t>(frame.width) * 4u; ++i)
+        {
+            if (row[i] != 0)
+                return false;
+        }
+    }
+
+    // Same layout as applyAndMask: one bit per pixel, rows padded to an
+    // even byte count. Row order does not matter for "any bit set".
+    std::size_t andStep = static_cast<std::size_t>((frame.width + 7) / 8);
+    andStep += andStep % 2;
+    if (!andMask || andStep * static_cast<std::size_t>(frame.height) > andMaskLength)
+        return true;
+
+    for (int y = 0; y < frame.height; ++y)
+    {
+        const std::uint8_t *maskBytes = andMask + static_cast<std::size_t>(y) * andStep;
+        for (int x = 0; x < frame.width; ++x)
+        {
+            if ((maskBytes[static_cast<std::size_t>(x) / 8u] & static_cast<std::uint8_t>(0x80u >> (x % 8))) != 0)
+                return false;
+        }
+    }
+
+    return true;
 }
+}
+

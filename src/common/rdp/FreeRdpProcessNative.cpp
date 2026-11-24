@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
+#include <cinttypes>
 #include <cstdlib>
 #include <cstring>
 #include <thread>
@@ -184,6 +185,20 @@ BOOL nativefreerdp_pointer_new(rdpContext *context, rdpPointer *pointer)
             pointer->andMaskData, pointer->lengthAndMask, pointer->xorBpp, &context->gdi->palette)) {
         nativePointer->cursorSerial = 0;
         // An undecodable cursor must not kill the session (same fatality rule).
+        return TRUE;
+    }
+
+    WLog_DBG("com.rdpbox.pointer", "pointer_new %" PRIu32 "x%" PRIu32 " bpp=%" PRIu32 " and=%" PRIu32
+             " xor=%" PRIu32 " hotspot=%" PRIu32 ",%" PRIu32,
+             pointer->width, pointer->height, pointer->xorBpp, pointer->lengthAndMask, pointer->lengthXorMask,
+             pointer->xPos, pointer->yPos);
+
+    // A blank pointer (all pixels zero, no usable AND mask) is how Windows
+    // hides the cursor while typing / during IME composition. Without
+    // this it would be forced opaque below and drawn as a black square.
+    if (RdpPointerAlpha::isBlankPointer(cursorFrame, pointer->andMaskData, pointer->lengthAndMask)) {
+        destroyCursorInfo(nativePointer->cursor);
+        nativePointer->cursor = CursorInfo{CursorKind::Hidden, nullptr, false};
         return TRUE;
     }
 
