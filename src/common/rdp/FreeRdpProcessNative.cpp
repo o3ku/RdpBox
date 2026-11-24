@@ -207,8 +207,20 @@ BOOL nativefreerdp_pointer_new(rdpContext *context, rdpPointer *pointer)
     // black opaque pixel from a transparent one. Recover the alpha from
     // the AND mask now, while it is still at hand; if there is no usable
     // mask the classifier falls back to its opaque last resort.
-    RdpPointerAlpha::applyAndMask(cursorFrame, pointer->andMaskData, pointer->lengthAndMask,
-                                 pointer->xorBpp);
+    const bool alphaResolved = RdpPointerAlpha::applyAndMask(cursorFrame, pointer->andMaskData,
+                                                             pointer->lengthAndMask, pointer->xorBpp);
+
+    // A pointer whose resolved alpha is 0 everywhere is fully transparent:
+    // the usual hidden-cursor form (AND mask all 1, XOR all 0) at any bpp,
+    // which is what Windows sends while typing hides the pointer. The
+    // classifier's opaque last resort cannot tell that apart from "no
+    // alpha information" and would turn it into a solid black square, so
+    // it never gets that far.
+    if (alphaResolved && RdpPointerAlpha::isFullyTransparent(cursorFrame)) {
+        destroyCursorInfo(nativePointer->cursor);
+        nativePointer->cursor = CursorInfo{CursorKind::Hidden, nullptr, false};
+        return TRUE;
+    }
 
     destroyCursorInfo(nativePointer->cursor);
     nativePointer->cursor = RdpCursorClassifier::createCursor(
