@@ -58,4 +58,12 @@ bool applyAndMask(FrameBuffer &frame, const std::uint8_t *andMask, std::size_t a
 // background transparent, so it is not blank and goes through
 // applyAndMask as before.
 bool isBlankPointer(const FrameBuffer &frame, const std::uint8_t *andMask, std::size_t andMaskLength);
+
+// True when every pixel of a valid frame has alpha 0. After applyAndMask
+// returned true (alpha resolved from the frame or its AND mask) this means
+// the pointer draws nothing: the standard hidden cursor (AND all 1, XOR
+// all 0) decodes this way at 1, 24 and 32 bpp. Callers must show a hidden
+// cursor instead of handing it to the classifier, whose opaque last
+// resort would make it a solid black square.
+bool isFullyTransparent(const FrameBuffer &frame);
 }

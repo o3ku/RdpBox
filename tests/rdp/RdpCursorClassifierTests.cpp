@@ -557,5 +557,33 @@ int main()
         assert(!RdpPointerAlpha::isBlankPointer(empty, nullptr, 0));
     }
 
+    {
+        // Standard hidden cursor (AND mask all 1, XOR all 0), the form
+        // Windows sends while typing hides the pointer: applyAndMask
+        // resolves it to alpha 0 everywhere, and that must be reported as
+        // fully transparent so the caller hides the cursor instead of the
+        // classifier forcing it opaque into a black square.
+        FrameBuffer hidden = makeCursorFrame(32, 32);
+        const int andStep = (32 + 7) / 8 + ((32 + 7) / 8) % 2;
+        std::vector<std::uint8_t> fullMask(static_cast<std::size_t>(andStep) * 32, 0xFF);
+        assert(RdpPointerAlpha::applyAndMask(hidden, fullMask.data(), fullMask.size(), 32));
+        assert(RdpPointerAlpha::isFullyTransparent(hidden));
+        FrameBuffer hiddenMono = makeCursorFrame(32, 32);
+        assert(RdpPointerAlpha::applyAndMask(hiddenMono, fullMask.data(), fullMask.size(), 1));
+        assert(RdpPointerAlpha::isFullyTransparent(hiddenMono));
+
+        // Anything with a visible pixel is not.
+        PointerFixture white = makeBgrxArrow(false);
+        assert(RdpPointerAlpha::applyAndMask(white.frame, white.andMask.data(), white.andMask.size(), 32));
+        assert(!RdpPointerAlpha::isFullyTransparent(white.frame));
+        PointerFixture argb = makeTrueAlphaArrowWithZeroMask(true);
+        assert(!RdpPointerAlpha::isFullyTransparent(argb.frame));
+        PointerFixture mono = makeMonoPointer();
+        assert(!RdpPointerAlpha::isFullyTransparent(mono.frame));
+
+        FrameBuffer empty;
+        assert(!RdpPointerAlpha::isFullyTransparent(empty));
+    }
+
     return 0;
 }

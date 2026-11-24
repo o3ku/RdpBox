@@ -113,5 +113,29 @@ bool isBlankPointer(const FrameBuffer &frame, const std::uint8_t *andMask, std::
 
     return true;
 }
+
+bool isFullyTransparent(const FrameBuffer &frame)
+{
+    if (frame.empty() || frame.width <= 0 || frame.height <= 0 || frame.stride < frame.width * 4)
+        return false;
+
+    const std::size_t requiredBytes = static_cast<std::size_t>(frame.stride)
+        * static_cast<std::size_t>(frame.height);
+    if (frame.pixels.size() < requiredBytes)
+        return false;
+
+    for (int y = 0; y < frame.height; ++y)
+    {
+        const std::uint8_t *row = frame.pixels.data()
+            + static_cast<std::size_t>(y) * static_cast<std::size_t>(frame.stride);
+        for (int x = 0; x < frame.width; ++x)
+        {
+            if (row[static_cast<std::size_t>(x) * 4u + 3u] != 0)
+                return false;
+        }
+    }
+
+    return true;
+}
 }
 
